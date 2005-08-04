@@ -1,25 +1,55 @@
-<?xml version="1.0"?>
+<?xml version = '1.0'?>
 <kdevelop>
- <general>
-  <author>Mario Juric</author>
-  <email>mjuric@astro.Princeton.EDU</email>
-  <version>0.1</version>
-  <projectmanagement>KDevAutoProject</projectmanagement>
-  <primarylanguage>C++</primarylanguage>
-  <keywords>
-   <keyword>C++</keyword>
-   <keyword>Code</keyword>
-  </keywords>
- </general>
- <kdevautoproject>
   <general>
-   <activetarget>src/galaxy</activetarget>
-   <useconfiguration>debug</useconfiguration>
+    <author>Mario Juric</author>
+    <email>mjuric@astro.Princeton.EDU</email>
+    <version>0.2</version>
+    <projectmanagement>KDevAutoProject</projectmanagement>
+    <primarylanguage>C++</primarylanguage>
+    <keywords>
+      <keyword>C++</keyword>
+      <keyword>Code</keyword>
+    </keywords>
+    <projectdirectory>.</projectdirectory>
+    <absoluteprojectpath>false</absoluteprojectpath>
+    <description>Galaxy tomography codes</description>
+    <ignoreparts/>
+    <secondaryLanguages/>
   </general>
-  <run>
-   <mainprogram>src/galaxy</mainprogram>
-   <terminal>true</terminal>
-  </run>
+  <kdevautoproject>
+    <general>
+      <activetarget>src/fitter.x</activetarget>
+      <useconfiguration>debug</useconfiguration>
+    </general>
+    <run>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/fitter.x</mainprogram>
+      <terminal>true</terminal>
+      <directoryradio>custom</directoryradio>
+      <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
+      <programargs>fitbins.txt</programargs>
+      <autocompile>true</autocompile>
+      <envvars/>
+      <runarguments>
+        <unique.x/>
+        <binning.x/>
+        <tobinary.x/>
+        <schlegel.x/>
+        <pm.x/>
+        <dm/>
+        <raytrace.x/>
+        <bin_run.x/>
+        <bin_volume.x/>
+        <merge_maps.x/>
+        <mysql_import.x/>
+        <explore_maps.x/>
+        <merge_volumes.x/>
+        <fitscatread.x/>
+        <mlcolor.x/>
+        <simulate.x/>
+        <locusfit.x/>
+        <fitter.x/>
+      </runarguments>
+    </run>
     <configurations>
       <optimized>
         <builddir>optimized</builddir>
@@ -27,27 +57,118 @@
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O2 -g0</cxxflags>
+        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton/workspace --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --prefix=/home/mjuric/projects/galaxy/workspace</configargs>
+        <topsourcedir/>
+        <cppflags>-DDEBUGMODE=0</cppflags>
+        <ldflags/>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
+        <cflags/>
+        <f77flags/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full</configargs>
+        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
-        <cxxflags>-O0 -g3</cxxflags>
+        <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
+        <topsourcedir/>
+        <cppflags>-DDEBUGMODE=1</cppflags>
+        <ldflags/>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
+        <cflags>-Wno-deprecated</cflags>
+        <f77flags/>
       </debug>
     </configurations>
- </kdevautoproject>
- <kdevfilecreate>
-  <useglobaltypes>
-   <type ext="cpp"/>
-   <type ext="h"/>
-  </useglobaltypes>
- </kdevfilecreate>
- <kdevfileview>
+    <make>
+      <envvars>
+        <envvar value="1" name="WANT_AUTOCONF_2_5" />
+        <envvar value="1" name="WANT_AUTOMAKE_1_6" />
+      </envvars>
+      <abortonerror>false</abortonerror>
+      <numberofjobs>1</numberofjobs>
+      <dontact>false</dontact>
+      <makebin/>
+    </make>
+  </kdevautoproject>
+  <kdevfilecreate>
+    <filetypes/>
+    <useglobaltypes>
+      <type ext="cpp" />
+      <type ext="h" />
+    </useglobaltypes>
+  </kdevfilecreate>
+  <kdevfileview>
     <groups>
       <group pattern="*.h" name="Header files" />
       <group pattern="*.cpp" name="Source files" />
+      <hidenonprojectfiles>false</hidenonprojectfiles>
+      <hidenonlocation>false</hidenonlocation>
     </groups>
- </kdevfileview>
+    <tree>
+      <hidepatterns>*.o,*.lo,CVS</hidepatterns>
+      <hidenonprojectfiles>false</hidenonprojectfiles>
+      <showvcsfields>false</showvcsfields>
+    </tree>
+  </kdevfileview>
+  <kdevdoctreeview>
+    <projectdoc>
+      <userdocDir>html/</userdocDir>
+      <apidocDir>html/</apidocDir>
+    </projectdoc>
+    <ignoreqt_xml/>
+    <ignoredoxygen/>
+    <ignorekdocs/>
+    <ignoretocs/>
+    <ignoredevhelp/>
+  </kdevdoctreeview>
+  <cppsupportpart>
+    <filetemplates>
+      <interfacesuffix>.h</interfacesuffix>
+      <implementationsuffix>.cpp</implementationsuffix>
+    </filetemplates>
+  </cppsupportpart>
+  <kdevcppsupport>
+    <codecompletion>
+      <includeGlobalFunctions>true</includeGlobalFunctions>
+      <includeTypes>true</includeTypes>
+      <includeEnums>true</includeEnums>
+      <includeTypedefs>false</includeTypedefs>
+      <automaticCodeCompletion>true</automaticCodeCompletion>
+      <automaticArgumentsHint>true</automaticArgumentsHint>
+      <automaticHeaderCompletion>true</automaticHeaderCompletion>
+      <codeCompletionDelay>250</codeCompletionDelay>
+      <argumentsHintDelay>400</argumentsHintDelay>
+      <headerCompletionDelay>250</headerCompletionDelay>
+    </codecompletion>
+    <references/>
+  </kdevcppsupport>
+  <kdevdebugger>
+    <general>
+      <programargs>fitbins.txt</programargs>
+      <gdbpath/>
+      <dbgshell/>
+      <configGdbScript/>
+      <runShellScript/>
+      <runGdbScript/>
+      <breakonloadinglibs>true</breakonloadinglibs>
+      <separatetty>false</separatetty>
+      <floatingtoolbar>false</floatingtoolbar>
+    </general>
+    <display>
+      <staticmembers>false</staticmembers>
+      <demanglenames>true</demanglenames>
+    </display>
+  </kdevdebugger>
+  <kdevcvsservice>
+    <recursivewhenupdate>true</recursivewhenupdate>
+    <prunedirswhenupdate>true</prunedirswhenupdate>
+    <createdirswhenupdate>true</createdirswhenupdate>
+    <recursivewhencommitremove>true</recursivewhencommitremove>
+    <revertoptions>-C</revertoptions>
+  </kdevcvsservice>
 </kdevelop>

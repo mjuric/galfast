@@ -1,10 +1,29 @@
 AC_INIT(configure.in)
 
 AM_CONFIG_HEADER(config.h)
-AM_INIT_AUTOMAKE(galaxy, 0.1)
+AM_INIT_AUTOMAKE(galaxy, 0.2)
 
 AC_LANG_CPLUSPLUS
 AC_PROG_CXX
 AM_PROG_LIBTOOL
 
-AC_OUTPUT(Makefile src/Makefile)
+AC_CHECK_LIB(m,main)
+AC_CHECK_LIB(z,main)
+
+AC_CHECK_LIB(gslcblas,main)
+AC_CHECK_LIB(gsl,main)
+
+AC_caolan_CHECK_PACKAGE(cfitsio, ffpss, cfitsio, fitsio.h,
+   AC_MSG_RESULT([cfitsio found.]),
+   AC_MSG_ERROR([cfitsio 2.4 or later NOT found]) )
+
+AC_caolan_CHECK_PACKAGE(libpeyton, main, peyton, astro/constants.h,
+   AC_MSG_RESULT([libpeyton found.]),
+   AC_MSG_ERROR([libpeyton NOT found]) )
+
+AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits,
+   AC_MSG_RESULT([CCfits found.]),
+   AC_MSG_ERROR([CCfits 2.4 or later NOT found]) )
+
+AC_OUTPUT(Makefile src/Makefile src/common/Makefile)
+

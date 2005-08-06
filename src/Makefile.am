@@ -1,5 +1,6 @@
 bin_PROGRAMS = galaxy unique.x binning.x tobinary.x schlegel.x pm.x dm raytrace.x bin_run.x bin_volume.x merge_maps.x mlcolor.x selector.x model.x explore_maps.x merge_volumes.x fitscatread.x simulate.x locusfit.x locus_demo.x fitter.x
 galaxy_SOURCES = galaxy.cpp
+EXTRA_DIST = ri_prior.txt
 
 # set the include path found by configure
 INCLUDES = -I$(top_srcdir)/src/common -I/usr/include/sqlplus/ -I/usr/include/mysql/ $(all_includes)

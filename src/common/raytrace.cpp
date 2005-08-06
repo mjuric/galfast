@@ -1777,7 +1777,11 @@ void rhoray(int argc, char **argv)
 #endif
 	}
 
+#ifdef HAVE_LIBCCFITS
 	io::fits::write(img, outputFile);
+#else
+	ASSERT(0) { cerr << "libCCfits support not compiled in.\n"; }
+#endif
 }
 
 int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri)

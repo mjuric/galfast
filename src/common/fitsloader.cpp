@@ -18,12 +18,17 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+
+#ifdef HAVE_LIBCCFITS
+
 #include "fitsloader.h"
 #include <astro/sdss/photometry.h>
 #include <astro/io/format.h>
 
 #include <astro/useall.h>
 using namespace std;
+using namespace CCfits;
  
 void fits_loader::read_vector(ExtHDU &table, const std::string &column, valarray<float> &array)
 {
@@ -145,3 +150,5 @@ bool fits_set_streamer::next()
 
 	return next();
 }
+
+#endif // HAVE_LIBCCFITS

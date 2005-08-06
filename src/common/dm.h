@@ -103,6 +103,7 @@ public:
 	#define COLOR_P2S	-2
 	#define COLOR_MR	-3
 	#define COLOR_MV	-4
+	#define COLOR_DRIP	-5
 
 	std::string name;
 
@@ -158,6 +159,7 @@ public:
 		else if(color == "p2s") { first = COLOR_P2S; second = 0; }
 		else if(color == "M_r") { first = COLOR_MR; second = 0; }
 		else if(color == "M_V") { first = COLOR_MV; second = 0; }
+		else if(color == "dRIp") { first = COLOR_DRIP; second = 0; }
 		else if(color.size() == 2) {
 			// assume this is a color
 			first = bandIdx(color[0]);
@@ -286,6 +288,13 @@ public:
 			case COLOR_P2S: return -0.249*u() +0.794*g() - 0.555*r() + 0.234;
 			case COLOR_MR: return ml_r() - 5*log10(D/10);
 			case COLOR_MV: return (ml_r() - 5*log10(D/10)) + 0.44*ml_gr() - 0.02;
+			case COLOR_DRIP: 
+				double RIp =    paralax_with_prior(ri(), gr(), magErr[0], magErr[1], magErr[2]);
+				double RI = paralax_without_prior(ri(), gr(), magErr[0], magErr[1], magErr[2]);
+				//std::cerr << RIp - RI << " " << RIp << " " << RI << "\n";
+				//std::cout << ml_gr() << " " << ml_ri() << "\n";
+				return RIp-RI;
+			break;
 		}
 		ASSERT(0);
 	}

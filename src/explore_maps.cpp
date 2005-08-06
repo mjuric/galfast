@@ -74,7 +74,11 @@ void lambertw(double dx, Radians l0, Radians b0, Radians l1, Radians b1)
 	}
 	out_stream.close();
 
+#ifdef HAVE_LIBCCFITS
 	fits::write(img, "counts.fits");
+#else
+	ASSERT(0) { cerr << "libCCfits support not compiled in.\n"; }
+#endif
 }
 
 void work(double dx, double dy, Radians l0, Radians b0, Radians l1, Radians b1)
@@ -103,7 +107,11 @@ void work(double dx, double dy, Radians l0, Radians b0, Radians l1, Radians b1)
 		int y = (int)((b - b0) / dy);
 		img(x, y)++;
 	}
+#ifdef HAVE_LIBCCFITS
 	fits::write(img, "counts.fits");
+#else
+	ASSERT(0) { cerr << "libCCfits support not compiled in.\n"; }
+#endif
 }
 
 int main(int argc, char **argv)

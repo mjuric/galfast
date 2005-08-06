@@ -18,10 +18,16 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+//#ifdef HAVE_LIBCCFITS
+#if 1
+
 #define NO_SDSS_STAR_CAT
 
 #include "dm.h" 
+#ifdef HAVE_LIBCCFITS
 #include "fitsloader.h"
+#endif
 #include "analysis.h"
 #include "xcat.h"
 #include "paralax.h"
@@ -94,6 +100,7 @@ bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags
 
 void makelookup(std::set<int> &runs, const std::string &select, const std::string &selindex, const std::string &runindex)
 {
+#ifdef HAVE_LIBCCFITS
 	// open map of fitsId to unique object LUT index
 	DMMArray<int> groupindex("match_index.dmm");
 
@@ -147,6 +154,10 @@ void makelookup(std::set<int> &runs, const std::string &select, const std::strin
 	cout << "Total stars accepted     : " << sel.size() << "\n";
 	cout << "\n";
 	cout.flush();
+#else
+	cerr << "CCfits support not compiled\n";
+	abort();
+#endif
 }
 
 mobject process_observations(int obs_offset, double ra, double dec, float Ar, vector<starmag> &obsv)
@@ -338,6 +349,14 @@ void recalculate_ml_colors(mobject &m)
 
 	if(paralax(s))	// calculate the absolute magnitude and distances
 	{
+//		if(abs(m.D/s.earth.D - 1) > 0.5 && m.ml_mag[1]-m.ml_mag[2] > 0.1) {
+//		cerr << m.D << " " << s.earth.D << "\n";
+//		cerr << m.ml_mag[0] << " " << s.ml_g << "\n";
+//		cerr << m.ml_mag[1] << " " << s.ml_r << "\n";
+//		cerr << m.ml_mag[2] << " " << s.ml_i << "\n";
+/*		cout << m.ml_mag[1]-m.ml_mag[2] << " " << s.ml_r-s.ml_i << " ";
+		cout << m.ml_mag[0]-m.ml_mag[1] << " " << s.ml_g-s.ml_r << "\n";*/
+//		}
 		m.D = s.earth.D;
 		m.ml_mag[0] = s.ml_g;
 		m.ml_mag[1] = s.ml_r;
@@ -494,3 +513,12 @@ try
 }
 
 }
+#else
+#include <iostream>
+
+int main(int argc, char **argv)
+{
+	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
+	return -1;
+}
+#endif // HAVE_LIBCCFITS

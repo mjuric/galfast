@@ -21,9 +21,13 @@ AC_caolan_CHECK_PACKAGE(libpeyton, main, peyton, astro/constants.h,
    AC_MSG_RESULT([libpeyton found.]),
    AC_MSG_ERROR([libpeyton NOT found]) )
 
-AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits,
+AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits/CCfits,
    AC_MSG_RESULT([CCfits found.]),
-   AC_MSG_ERROR([CCfits 2.4 or later NOT found]) )
+   AC_MSG_RESULT([CCfits 2.4 or later NOT found. Not compiling FITS support.]) )
+
+#AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits,
+#   AC_MSG_RESULT([CCfits found.]),
+#   AC_MSG_ERROR([CCfits 2.4 or later NOT found]) )
 
 AC_OUTPUT(Makefile src/Makefile src/common/Makefile)
 

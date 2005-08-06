@@ -6,12 +6,14 @@
 #include <astro/math.h>
 #include <astro/io/format.h>
 #include <astro/useall.h>
+#include <astro/system/fs.h>
 
 #include "textstream.h"
 #include "analysis.h"
 #include "paralax.h"
 
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 
 using namespace std;
@@ -53,6 +55,7 @@ try
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
+	opts.option("prior", "prior", 0, "ri_prior.txt", Option::optional, "ri_prior.txt", "Applies a prior along the locus. The parameter is the file containing the P(r-i) prior");
 
 	try {
 		opts.parse(argc, argv);
@@ -64,7 +67,51 @@ try
 
 	/////// Start your application code here
 	gsl_set_error_handler_off ();
-	
+
+	plx_gri_locus as;
+
+	// load density prior
+	string priorfile = opts["prior"];
+	if(priorfile.size())
+	{
+		if(!Filename(priorfile).exists())
+		{
+			cerr << priorfile << " does not exist. Aborting.\n";
+			exit(-1);
+		}
+		
+		as.mlri.setprior(priorfile);
+		cout << "# Using prior from " << priorfile << "\n";
+
+#if 0
+		plx_gri_locus as0;
+		{
+			double y0 = 0.07;
+			double x0 = as.gr(y0) + 0.05;
+			double s = .05;
+
+			float lnL;
+			double ri1 = as0.mlri(y0, x0, s, s, s, &lnL);
+			double prob1 = -as0.mlri.fn_to_minimize(ri1);
+			double ri2 = as.mlri(y0, x0, s, s, s);
+			double prob2 = -as.mlri.fn_to_minimize(ri2);
+			double norm = prob1 - prob2;
+			cerr << "# ml_ri(noprior) = " << ri1 << ", ml_ri(prior) = " << ri2 << "\n";
+
+			for(double ri = y0 - 0.2; ri < y0 + 0.2; ri+=0.001)
+			{
+				double prob1 = -as0.mlri.fn_to_minimize(ri);
+				double prob2 = -as.mlri.fn_to_minimize(ri);
+				prob2 += norm;
+				cout << ri << " " << prob1 << " " << prob2 << "\n";
+			}
+		}
+		return 0;
+#endif
+	} else {
+		cout << "# Using uniform prior along the locus\n";
+	}
+
 	int g_column = (int)opts["g_column"] - 1;
 	int r_column = (int)opts["r_column"] - 1;
 	int i_column = (int)opts["i_column"] - 1;
@@ -81,10 +128,9 @@ try
 	if(Ar_column != -1) { bind(in, Ar, Ar_column); }
 	else { Ar = 0; }
 
-	plx_gri_locus as;
 	cout << setprecision(6);
 
-	float ml_ri, ml_gr;
+	float ml_ri, ml_gr, lnL;
 	while(in.next())
 	{
 		if(in.iscomment()) { cout << in.line << "\n"; continue; }
@@ -96,7 +142,7 @@ try
 		//cerr << g << " " << r << " " << i << " " << gErr << " " << rErr << " " << iErr << " " << r - i << " " << g - r << "\n";
 
 		try {
-			ml_ri = as.mlri(r - i, g - r, gErr, rErr, iErr);
+			ml_ri = as.mlri(r - i, g - r, gErr, rErr, iErr, &lnL);
 			ml_gr = as.gr(ml_ri);
 			ml_magnitudes(g, r, i, g, r, i, gErr, rErr, iErr, ml_ri, ml_gr);
 
@@ -110,7 +156,7 @@ try
 			g = r = i = ml_ri = ml_gr = -1;
 		}
 
-		cout << in.line << ' ' << g << ' ' << r << ' ' << i << ' ' << ml_ri << ' ' << ml_gr << '\n';
+		cout << in.line << ' ' << g << ' ' << r << ' ' << i << ' ' << ml_ri << ' ' << ml_gr << ' ' << lnL << '\n';
 	}
 }
 catch(EAny &e)

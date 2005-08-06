@@ -20,6 +20,10 @@
 
 #ifndef common_fitsloader_h__
 #define common_fitsloader_h__
+
+#include "config.h"
+
+#ifdef HAVE_LIBCCFITS
  
 #include <valarray>
 #include <memory>
@@ -79,5 +83,7 @@ public:
 	bool next();
 	int fitsId() const { return fitsid; }	/// fits ID of the last record loaded
 };
+
+#endif // HAVE_LIBCCFITS
 
 #endif

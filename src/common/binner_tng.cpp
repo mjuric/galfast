@@ -681,7 +681,11 @@ int bin()
 		img(idx.x + xc, idx.y + yc) = float(p.N) / p.volume;
 	}
 
+#ifdef HAVE_LIBCCFITS
 	fits::write(img, "density.fits");
+#else
+	ASSERT(0) { cerr << "libCCfits support not compiled in.\n"; }
+#endif
 #endif
 #endif
 

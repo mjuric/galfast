@@ -1,3 +1,7 @@
+#include "config.h"
+
+#ifdef HAVE_LIBCCFITS
+
 #include <astro/constants.h>
 #include <astro/coordinates.h>
 #include <astro/system/log.h>
@@ -41,6 +45,8 @@
 using namespace std;
 
 /////////////
+
+#if 0
 
 template<typename T>
 class mmopen_struct
@@ -89,6 +95,8 @@ ibinarystream &operator >>(ibinarystream &in, mmopen_struct<T> &mm)
 	in.seekg(ios_base::cur, sizeof(T) * mm.size);
 	return in;
 }
+
+#endif
 
 /////////////
 
@@ -1605,3 +1613,12 @@ try
 }
 
 }
+#else
+#include <iostream>
+
+int main(int argc, char **argv)
+{
+	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
+	return -1;
+}
+#endif // HAVE_LIBCCFITS

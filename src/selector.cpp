@@ -1396,6 +1396,8 @@ int main(int argc, char **argv)
 #endif
 try
 {
+	gsl_set_error_handler_off ();
+
 	VERSION_DATETIME(version);
 
 	driver db;

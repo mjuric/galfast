@@ -18,15 +18,15 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/fitter.x</activetarget>
+      <activetarget>src/dm</activetarget>
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/fitter.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/locusfit.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
-      <programargs>fitbins.txt</programargs>
+      <programargs>--prior 1 2 3 4 5 6 7</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -68,7 +68,7 @@
         <f77flags/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits</configargs>
+        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton --without-CCfits</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
@@ -82,6 +82,7 @@
         <f77compilerbinary/>
         <cflags>-Wno-deprecated</cflags>
         <f77flags/>
+        <envvars/>
       </debug>
     </configurations>
     <make>
@@ -162,6 +163,7 @@
     <display>
       <staticmembers>false</staticmembers>
       <demanglenames>true</demanglenames>
+      <outputradix>10</outputradix>
     </display>
   </kdevdebugger>
   <kdevcvsservice>

@@ -2,6 +2,8 @@
 //--- libpeyton includes. Add any libpeyton includes _before_ including
 //--- astro/useall.h
 
+#include "config.h"
+
 #include "xcat.h"
 #include "paralax.h"
 #include "analysis.h"
@@ -15,14 +17,16 @@
 #include <astro/useall.h>
 #include <sstream>
 
-#include <CCfits>
-
 #include <iostream>
 #include <fstream>
 #include <valarray>
 
-using namespace std;
+#ifdef HAVE_LIBCCFITS
+#include <CCfits>
 using namespace CCfits;
+#endif
+
+using namespace std;
 
 sdss::RunGeometryDB db;
 std::map<int, sdss::Mask> masks;
@@ -187,8 +191,10 @@ catch(EAny &e)
 {
 	e.print();
 }
+#ifdef HAVE_LIBCCFITS
 catch(FitsException &e)
 {
 	cerr << "FITS exception!" << "\n";
 }
+#endif
 }

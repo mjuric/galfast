@@ -18,6 +18,9 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+#ifdef HAVE_LIBCCFITS
+
 #define NO_SDSS_STAR_CAT
 
 #include "dm.h" 
@@ -79,3 +82,12 @@ int main(int argc, char **argv)
 		}
 	}
 }
+#else
+#include <iostream>
+
+int main(int argc, char **argv)
+{
+	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
+	return -1;
+}
+#endif // HAVE_LIBCCFITS

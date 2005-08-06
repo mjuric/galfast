@@ -2,6 +2,10 @@
 //--- libpeyton includes. Add any libpeyton includes _before_ including
 //--- astro/useall.h
 
+#include "config.h"
+
+#ifdef HAVE_LIBCCFITS
+
 #include "xcat.h"
 #include "paralax.h"
 #include "analysis.h"
@@ -70,6 +74,7 @@ mmopen_struct<T> mmopen(MemoryMapVector<T> &v, int size = -1, std::string mode =
 
 #include "binarystream.h"
 
+#if 0
 template<typename T>
 ibinarystream & operator >>(ibinarystream &in, const mmopen_struct<T> &mmc)
 {
@@ -112,6 +117,8 @@ ibinarystream &operator >>(ibinarystream &in, const mmalign &mmp)
 	in.f.ignore(offs);
 	return in;
 };
+
+#endif
 
 /////////////
 
@@ -328,3 +335,13 @@ catch(FitsException &e)
 	cerr << "FITS exception!" << "\n";
 }
 }
+
+#else
+#include <iostream>
+
+int main(int argc, char **argv)
+{
+	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
+	return -1;
+}
+#endif

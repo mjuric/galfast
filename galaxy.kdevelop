@@ -18,11 +18,11 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/dm</activetarget>
+      <activetarget>src/simulate.x</activetarget>
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/locusfit.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
@@ -74,14 +74,14 @@
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags/>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ldflags>-lparser -lplotsub -ldevices -lutils -L/usr/X11R6/lib -lX11</ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-Wno-deprecated</cflags>
-        <f77flags/>
+        <f77flags></f77flags>
         <envvars/>
       </debug>
     </configurations>
@@ -151,11 +151,11 @@
   <kdevdebugger>
     <general>
       <programargs>fitbins.txt</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

@@ -22,6 +22,7 @@
 #include "interval_arithmetic.h"
 #include "dm.h"
 #include "projections.h"
+#include "paralax.h"
 
 #include <astro/math/vector.h>
 #include <astro/coordinates.h>
@@ -270,6 +271,283 @@ bool den_generator::next(mobject &m)
 /////////////////////////////
 #endif
 
+#include "model.h"
+
+struct direction
+{
+	Radians l, b;
+	double cl, cb, sl, sb;
+	
+	double d, d2,
+		x, y, z, r2, r, rcyl;
+
+	direction(Radians l_, Radians b_, double d_ = 0.0)
+	: l(l_), b(b_),
+	  cl(cos(l_)), cb(cos(b_)), sl(sin(l_)), sb(sin(b_))
+	{
+		set_dist(d_);
+	}
+
+	void set_dist(const double dnew)
+	{
+		d = dnew;
+		d2 = d*d;
+		x = Rg - d*cl*cb;
+		y = -d*sl*cb;
+		z = d*sb;
+		r2 = x*x + y*y + z*z;
+		r = sqrt(r2);
+		rcyl = sqrt(r2 - z*z);
+	}
+};
+
+//
+// Calculate differential of dr wrt. to dd
+//
+inline double dr_dd(const direction &d)
+{
+	return (d.d - Rg*d.cl*d.cb) / d.r;
+}
+
+//
+// Number of stars per cubic parsec at point d (the Galactic model)
+//
+model m;
+double model_rho(const direction &d)
+{
+	double rho = m.rho(d.rcyl, d.z);
+	return rho;
+}
+
+//
+// Calculate the number of stars per unit solid angle,
+// per unit d.d, at a point d
+//
+inline double drho_dd(const direction &d)
+{
+/*	double drdd = dr_dd(d);
+	double rho = model_rho(d) * d.r2 * drdd;*/
+	double rho = model_rho(d) * d.d2;
+//	double rho = model_rho(d);
+	return rho;
+}
+
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_matrix.h>
+#include <gsl/gsl_odeiv.h>
+#include <gsl/gsl_interp.h>
+#include <gsl/gsl_spline.h>
+#include <gsl/gsl_rng.h>
+#include <gsl/gsl_randist.h>
+#include <valarray>
+
+#define SELECT_H <sys/select.h>
+extern "C"
+{
+	#include "sm/sm_declare.h"
+}
+
+//
+// Calculate the integral of probability from which we can
+// draw stars
+//
+struct distanceSampler
+{
+	gsl_spline *f;
+	gsl_interp_accel *acc;
+	
+	double N; // Total number of stars in [dmin,dmax]
+
+	distanceSampler(const direction &d, const double dmin, const double dmax);
+	~distanceSampler();
+
+	inline double distance(double u) { return gsl_spline_eval(f, u, acc); }
+};
+
+int
+func(double dd, double const* y, double *dydd, void *param)
+{
+	direction &d = *(direction *)param;
+	d.set_dist(dd);
+
+	*dydd = drho_dd(d);
+	return GSL_SUCCESS;
+}
+
+
+distanceSampler::distanceSampler(const direction &d0, const double dmin, const double dmax)
+{
+	gsl_odeiv_step* s = gsl_odeiv_step_alloc(gsl_odeiv_step_rkf45, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(1e-6, 0.0);
+	gsl_odeiv_evolve* e = gsl_odeiv_evolve_alloc(1);
+
+	double h = 10;
+	double y = 0;
+	double dist = dmin;
+	direction d = d0;
+
+	gsl_odeiv_system sys = {func, NULL, 1, (void *)&d};
+
+	// integration from 0 to dmax, but in ninterp steps
+	// when integrating between dmin and dmax
+	const int ninterp = 1000;
+	std::valarray<double> yv(ninterp+1), dv(ninterp+1);
+	for(int i = 0; i < yv.size(); i++)
+	{
+		double di = dmin + i * (dmax - dmin) / ninterp;
+
+		while (dist < di)
+		{
+			gsl_odeiv_evolve_apply (e, c, s,
+									&sys,
+									&dist, di, &h,
+									&y);
+		}
+		//cout << "(dist, y) = " << dist << " " << y << "\n";
+		yv[i] = y;
+		dv[i] = di;
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	// normalization - convert the integrated density to probability
+	N = yv[yv.size()-1];
+	yv /= N;
+
+/*	FOR(0, yv.size())
+	{
+		cout << "(d, y) = " << dv[i] << " " << yv[i] << "\n";
+	}*/
+	
+	// construction of a spline spanning the dmin, dmax interval
+	// This will, for range [0, 1] return distances from [dmin,dmax]
+	f = gsl_spline_alloc(gsl_interp_cspline, yv.size());
+	gsl_spline_init(f, &yv[0], &dv[0], yv.size());
+	acc = gsl_interp_accel_alloc();
+
+/*	FOR(0, 1001)
+	{
+		double u = double(i)/1000.;
+		cout << u << " " << distance(u) << "\n";
+	}
+	exit(0);*/
+}
+
+distanceSampler::~distanceSampler()
+{
+	gsl_spline_free(f);
+	gsl_interp_accel_free(acc);
+}
+
+class spline_func
+{
+protected:
+	gsl_spline *f;
+	gsl_interp_accel *acc;
+public:
+	spline_func(const std::string &fn, int x_idx = 0, int y_idx = 1);
+	~spline_func();
+	double operator()(const double x) const { return gsl_spline_eval(f, x, acc); }
+};
+
+spline_func::~spline_func()
+{
+	gsl_spline_free(f);
+	gsl_interp_accel_free(acc);
+}
+
+spline_func::spline_func(const std::string &fn, int x_idx, int y_idx)
+	: f(NULL), acc(NULL)
+{
+	text_input_or_die(in, fn);
+	vector<double> x, y;
+	load(in, x, x_idx, y, y_idx);
+	ASSERT(x.size() == y.size());
+
+	f = gsl_spline_alloc(gsl_interp_cspline, x.size());
+	gsl_spline_init(f, &x[0], &y[0], x.size());
+	acc = gsl_interp_accel_alloc();
+}
+
+void hdr(ostream &out, float ri, float Mr, float rmin, float rmax, double dmin, double dmax, double N)
+{
+	out << "# (ri, Mr)     = " << ri << " " << Mr << "\n";
+	out << "# (rmin, rmax) = " << rmin << " " << rmax << "\n";
+	out << "# (dmin, dmax) = " << dmin << " " << dmax << "\n";
+	out << "# Ntot = " << N << "\n";
+}
+
+void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
+{
+	plx_gri_locus plx;
+	double dmin, dmax;
+	plx.distance_limits(dmin, dmax, ri, ri, rmin, rmax);
+	double Mr = plx.Mr(ri);
+
+	direction d0(l, b);
+	distanceSampler ds(d0, dmin, dmax);
+	hdr(cout, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
+
+	spline_func photoerr("sigma_mean.txt");
+
+	int seed = 42;
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(rng, seed);
+
+	ofstream denf("mq_den.txt");
+	hdr(denf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
+	FOR(0, 1001)
+	{
+		double dd = dmin + (dmax-dmin)*double(i)/1000.;
+		d0.set_dist(dd);
+		denf << dd << " " << drho_dd(d0) << "\n";
+	}
+
+	ofstream simf("mq_sim.txt");
+	hdr(simf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
+	FOR(0, n)
+	{
+		double u = gsl_rng_uniform(rng);
+		double d = ds.distance(u);
+
+		float m_r = stardist::m(d, Mr);
+		double s_mean = photoerr(m_r);
+		double err = gsl_ran_gaussian(rng, s_mean);
+		m_r += err;
+		double d_with_err = stardist::D(m_r, Mr);
+
+		simf << u << " " << d << " " << d_with_err << " " << err << "\n";
+	}
+
+	gsl_rng_free(rng);
+}
+
+void simulate()
+{
+	m.add_param("rho0", 1);
+	m.add_param("l", 3000);
+	m.add_param("h", 270);
+	m.add_param("z0", 25);
+
+	m.add_param("f", 0.04);
+	m.add_param("lt", 3500);
+	m.add_param("ht", 400);
+
+	m.add_param("fh", 0.0001);
+	m.add_param("q", 1.5);
+	m.add_param("n", 3);
+
+	//simulate(100000, 0., rad(90.), 0., 15000.);
+	//simulate(100000, rad(33.), rad(15.), 0., 15000.);
+//	simulate(100000, rad(0), rad(90.), 1.1, 15.0, 21.5);
+//	simulate(500000, rad(180), rad(30.), 1.1, 15.0, 21.5);
+	simulate(500000, rad(0), rad(90.), 1.1, 15.0, 21.5);
+//	simulate(500000, rad(0), rad(10.), 0.1, 15.0, 21.5);
+}
+
+
+
 struct BitImage
 {
 	const int nbits;
@@ -387,6 +665,7 @@ void makeSkyMap()
 
 int main(int argc, char **argv)
 {
+	//simulate();
 	makeSkyMap();
 	return 0;
 }

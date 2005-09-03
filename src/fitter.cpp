@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "analysis.h"
+#include "model.h"
 
 #include <cmath>
 #include <string>
@@ -27,7 +28,6 @@
 #include <fstream>
 #include <iomanip>
 
-#include <gsl/gsl_vector.h>
 #include <gsl/gsl_blas.h>
 #include <gsl/gsl_multifit_nlin.h>
 
@@ -41,182 +41,7 @@
 
 using namespace std;
 
-const double Rg = 8000.;
-
-struct rzpixel
-{
-	double r, z, N, V;
-	double rho, sigma;
-};
-
-struct model
-{
-	// model parameters
-	vector<double> p;
-	vector<double> covar;
-	vector<bool> fixed;
-	double chi2_per_dof;
-
-	double variance(int i) { return covar[i*p.size() + i]; }
-
-	vector<string> param_name, param_format;
-	std::map<string, int> param_name_to_index;
-
-	// Model data
-	vector<rzpixel> *map;
-	int ndata() { return map->size(); }
-
-	// Model function
-	#define rho0	p[0]
-	#define l	p[1]
-	#define h	p[2]
-	#define z0	p[3]
-	#define f	p[4]
-	#define lt	p[5]
-	#define ht	p[6]
-	#define fh	p[7]
-	#define q	p[8]
-	#define n	p[9]
-	double rho_thin(double r, double z)  const { return rho0 *     exp((Rg-r)/l  + (abs(z0) - abs(z + z0))/h); }
-	double rho_thick(double r, double z) const { return rho0 * f * exp((Rg-r)/lt + (abs(z0) - abs(z + z0))/ht); }
-	double rho_halo(double r, double z)  const { return rho0 * fh * pow(Rg/sqrt(halo_denom(r,z)),n); }
-	double rho(double r, double z)       const { return rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z); }
-
-	double norm_at_Rg() const { return f*exp(8000.*(1./l - 1./lt)); }
-
-	// Derivatives of the model function
-	double drho0(double r, double z, double rhom) const { return 1./rho0 * rhom; }
-	double dl(double r, double z, double rhothin) const { return r/sqr(l) * rhothin; }
-	double dh(double r, double z, double rhothin) const { return (-abs(z0)+abs(z+z0))/sqr(h) * rhothin; }
-	double dz0(double r, double z, double rhothin, double rhothick) const { return (sgn(z0)-sgn(z+z0))*(rhothin/h + rhothick/ht); }
-	double df(double r, double z, double rhothick) const { return 1./f * rhothick; }
-	double dlt(double r, double z, double rhothick) const { return r/sqr(lt) * rhothick; }
-	double dht(double r, double z, double rhothick) const { return (-abs(z0)+abs(z+z0))/sqr(ht) * rhothick; }
-	// -- Halo derivatives assume z0 << z (which is why there's no halo component in dz0()
-	double halo_denom(double r, double z) const { return sqr(r) + sqr(q)*sqr(z + z0); }
-	double dfh(double r, double z, double rhoh) const { return 1./fh * rhoh; }
-	double dq(double r, double z, double rhoh) const { return -n*q*sqr(z+z0)/halo_denom(r,z) * rhoh; }
-	double dn(double r, double z, double rhoh) const { return log(Rg/sqrt(halo_denom(r,z))) * rhoh; }
-	#undef rho0
-	#undef l
-	#undef h
-	#undef z0
-	#undef f
-	#undef lt
-	#undef ht
-	#undef fh
-	#undef q
-	#undef n
-
-	// Constructor
-	model() : ndof(0) {}
-
-	// Generic model fitting functions
-	int ndof;
-
-	void add_param(const std::string &name_ = "", double val = 0, bool fixed = false, const std::string &format = "%.9f")
-	{
-		p.push_back(val);
-
-		this->fixed.push_back(fixed);
-		ndof += fixed == false;
-
-		std::string name;
-		name = name_.size() ? name_ : (io::format("param_%02d") << p.size()-1);
-		param_name.push_back(name);
-
-		param_name_to_index[name] = p.size() - 1;
-		
-		param_format.push_back(format);
-	}
-	double &param(const std::string &name)
-	{
-		return p[param_name_to_index[name]];
-	}
-
-	void get_parameters(gsl_vector *x)
-	{
-		int k = 0;
-		FOR(0, p.size())
-		{
-			if(fixed[i]) continue;
-			gsl_vector_set(x, k++, p[i]);
-		}
-	}
-	void set_parameters(const gsl_vector *x)
-	{
-		int k = 0;
-		FOR(0, p.size())
-		{
-			if(fixed[i]) continue;
-			p[i] = gsl_vector_get(x, k++);
-		}
-	}
-
-	int fdf(gsl_vector *f, gsl_matrix *J);
-	int fit(int cullIter=1, double nsigma = 3.);
-	void cull(double nSigma);
-
-	enum {PRETTY, HEADING, LINE};
-	void print(ostream &out, int format = PRETTY);
-};
-
-#define DFINIT int pcnt_ = 0, j_ = 0;
-#define DFCALC(val) if(!fixed[pcnt_++]) gsl_matrix_set(J, i, j_++, (val)/x.sigma);
-int model::fdf (gsl_vector * f, gsl_matrix * J)
-{
-	// calculate f_i values for all datapoints
-	FOR(0, map->size())
-	{
-		const rzpixel &x = (*map)[i];
-		double rhothin = rho_thin(x.r, x.z);
-		double rhothick = rho_thick(x.r, x.z);
-		double rhohalo = rho_halo(x.r, x.z);
-		double rhom = rhothick + rhothin + rhohalo;
-
-		if(f)
-		{
-			double df = rhom - x.rho;
-			gsl_vector_set(f, i, df/x.sigma);
-		}
-
-		if(J)
-		{
-			DFINIT;
-			DFCALC(drho0(x.r, x.z, rhom));
-			DFCALC(dl(x.r, x.z, rhothin));
-			DFCALC(dh(x.r, x.z, rhothin));
-			DFCALC(dz0(x.r, x.z, rhothin, rhothick));
-			DFCALC(df(x.r, x.z, rhothick));
-			DFCALC(dlt(x.r, x.z, rhothick));
-			DFCALC(dht(x.r, x.z, rhothick));
-			DFCALC(dfh(x.r, x.z, rhohalo));
-			DFCALC(dq(x.r, x.z, rhohalo));
-			DFCALC(dn(x.r, x.z, rhohalo));
-		}
-	}
-
-	return GSL_SUCCESS;
-}
-#undef DFCALC
-#undef DFINIT
-
-void model::cull(double nSigma)
-{
-	// calculate f_i values for all datapoints
-	vector<rzpixel> newmap;
-	FOR(0, map->size())
-	{
-		const rzpixel &x = (*map)[i];
-		double rhom = rho(x.r, x.z);
-		if(abs(x.rho - rhom) <= nSigma*x.sigma)
-		{
-			newmap.push_back(x);
-		}
-	}
-	cerr << "Selected " << newmap.size() << " out of " << map->size() << " pixels\n";
-	*map = newmap;
-}
+static const double Rg = 8000.;
 
 extern "C"
 int model_fdf (const gsl_vector * v, void *params, gsl_vector * f, gsl_matrix * J)
@@ -323,48 +148,6 @@ int model::fit(int cullIter, double nsigma)
 		fit(cullIter, nsigma);
 	}
 	gsl_vector_free(v);
-}
-
-void model::print(ostream &out, int format)
-{
-	switch(format)
-	{
-	case PRETTY:
-		out << io::format("%15s = %d") << "n(DOF)" << ndof << "\n";
-		FOR(0, p.size())
-		{
-			out << io::format(std::string("%15s = ") + param_format[i]) << param_name[i] << p[i];
-			out << " +- " << io::format(param_format[i]) << sqrt(variance(i));
-			out << (fixed[i] ? " (const)" : " (var)");
-			out << "\n";
-		}
-		out << io::format("%15s = %.5g") << "chi^2/dof" << chi2_per_dof << "\n";
-		break;
-	case HEADING:
-		out << "# ";
-		FOR(0, p.size())
-		{
-			out << param_name[i] << " ";
-		}
-		out << "\n# ";
-		FOR(0, fixed.size())
-		{
-			out << (fixed[i] ? "const" : "var") << " ";
-		}
-		break;
-	case LINE:
-		FOR(0, p.size())
-		{
-			out << io::format(param_format[i]) << p[i];
-			if(i != p.size()-1) { out << " "; }
-		}
-		out << "    ";
-		FOR(0, p.size())
-		{
-			out << io::format(param_format[i]) << sqrt(variance(i));
-			if(i != p.size()-1) { out << " "; }
-		}
-	}
 }
 
 void load_disk(vector<rzpixel> *data, const std::string &filename)

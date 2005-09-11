@@ -123,6 +123,39 @@ public:
 		return *this;
 	}
 
+	itextstream &next2()
+	{
+		nread = -1;
+		do {
+			getline(f, line);
+		} while(!ret_comments && (line[0] == '#' && !f.eof()));
+
+		if(f.eof()) return *this;
+		if(line[0] == '#') { nread = 0; is_comment = true; return *this; }
+		else { is_comment = false; }
+
+		// parse line
+		std::istringstream str(line.c_str());
+		std::string token;
+		int cnt = -1;
+		nread = 0;
+		while(str >> token) {
+			cnt++;
+			if(cnt > max_field) break;
+			if(fields.find(cnt) == fields.end()) continue;
+
+			switch(fields[cnt].type) {
+				case INT: *(fields[cnt].v.v_int) = atoi(token.c_str()); break;
+				case SHORT: *(fields[cnt].v.v_short) = atoi(token.c_str()); break;
+				case DOUBLE: *(fields[cnt].v.v_double) = atof(token.c_str()); break;
+				case FLOAT: *(fields[cnt].v.v_float) = atof(token.c_str()); break;
+				case STRING: *(fields[cnt].v.v_string) = token; break;
+			}
+			nread++;
+		}
+		return *this;
+	}
+
 	operator bool() { return nread != -1; }
 	bool iscomment() { return is_comment; }
 };

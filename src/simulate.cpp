@@ -18,6 +18,532 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#if 0
+ 
+#include <map>
+#include <vector>
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <locale>
+#include <astro/util.h>
+
+#define CALL_MEMBER_FN(object,ptrToMember)  ((object).*(ptrToMember))
+
+inline bool isspace(const char c) { return c == ' ' || c == '\t'; }
+
+#include <cstdlib>
+template<typename F>
+	bool parsenum(F& var, const char *s0, int& at)
+	{
+	#if 0
+		char *endptr;
+		F ret = std::strtod(s + at, &endptr);
+		at = endptr - s;
+		return ret;
+	#else
+		const char *s = s0 + at;
+
+		while(isspace(*s)) { ++s; };
+		if(*s == 0) { return false; }
+
+		F num = 0.;
+		bool neg = *s == '-';
+		if((neg || *s == '+') && s[1] == 0) { return false; }
+
+		// before decimal point
+		char c;
+		while(isdigit(c = *(++s)))
+		{
+			num *= 10; num += c - '0';
+		}
+
+		if(c == '.')
+		{
+			// after decimal point
+			F div = 10.;
+			while(isdigit(c = *(++s)))
+			{
+				num += (c - '0') / div;
+				div *= 10.;
+			}
+		}
+		
+		if(c == 'e' || c == 'E')
+		{
+			// sign
+			bool eneg;
+			TODO!!
+
+			// exponent
+			int e = 0;
+			while(isdigit(c = *(++s)))
+			{
+				e *= 10; e += c - '0';
+			}
+			num *= pow(10., e);
+		}
+
+		if(neg) { num *= -1.; }
+
+//		cout << "\t=>" << num << "\n";
+		var = num;
+		at = s - s0;
+//		std::cout << "at=" << at << "\n";
+		return true;
+	#endif
+	}
+
+template<typename F>
+	std::istream& parsenum(F &var, std::istream& in)
+	{
+		using namespace std;
+
+		in >> ws;
+		if(!in) { return in; }
+
+		F num = 0.; char c;
+		in.get(c);
+		bool neg = c == '-';
+		if(!neg) { in.putback(c); }
+
+		// before decimal point
+		while(in.get(c) && isdigit(c))
+		{
+			num *= 10; num += c - '0';
+		}
+
+		if(c == '.' && in)
+		{
+			// after decimal point
+			F div = 10.;
+			while(in.get(c) && isdigit(c))
+			{
+				num += double(c - '0') / div;
+				div *= 10.;
+			}
+		}
+		
+		if((c == 'e' || c == 'E') && in)
+		{
+			// exponent
+			int e = 0;
+			while(in.get(c) && isdigit(c))
+			{
+				e *= 10; e += c - '0';
+			}
+			num *= pow(10., e);
+		}
+
+		if(neg) { num *= -1.; }
+
+//		cout << "\t=>" << num << "\n";		
+		var = num;
+		return in;
+	}
+
+#include <memory>
+
+class itstream
+{
+protected:
+	static const int maxline = 1000;
+	char buffer[maxline];
+
+	int ptr;
+	std::istringstream helper_stream;
+	bool helper_stream_needs_update, helper_stream_used;
+
+	std::istream &stream()
+	{
+		//std::cout << "using stream()\n";
+		if(helper_stream_needs_update)
+		{
+			helper_stream.str(buffer);
+			helper_stream_needs_update = false;
+		}
+		else //if((int)helper_stream.tellg() != ptr)
+		{
+			//std::cout << ptr << "\n";
+			helper_stream.seekg(ptr);
+		}
+
+		helper_stream_used = true;
+		return helper_stream;
+	}
+protected:
+	std::istream &in;
+
+	typedef bool (itstream::*parser_function)(void *varptr);
+	struct field
+	{
+		parser_function parser;
+		void *varptr;
+		int column;
+	};
+
+ 	typedef std::map<int, field> field_map;
+//	typedef std::vector<field> field_map;
+ 	field_map fields;
+
+public:
+	int nread, at;
+	bool is_comment, return_comments;
+	std::string comment;
+	
+public:
+	itstream(std::istream &f_) : in(f_), nread(0), return_comments(false), helper_stream_needs_update(true) {}
+
+	template<typename T>
+		bool parse(void *varptr)
+		{
+			T& var = *static_cast<T*>(varptr);
+			return stream() >> var;
+		}
+
+	template<typename T>
+		void bind(T &var, int position);
+
+	bool returncomments(bool rc) { return_comments = rc; }
+
+	itstream &skip_lines(int n = 1)
+	{
+		std::string line;
+		while(n > 0)
+		{
+			getline(in, line);
+			n--;
+
+			if(in.eof()) return *this;
+			if(return_comments && line[0] == '#') { n++; }
+		}
+	}
+
+	bool ignore_fields(int n);
+	itstream &next();
+
+	operator bool() { return nread == fields.size() || is_comment; }
+	bool iscomment() { return is_comment; }
+};
+
+template<>
+	bool itstream::parse<std::string>(void *varptr)
+	{
+		std::istream &in = stream();
+
+		// read in a string, optionally enclosed in single or double quotes
+		char q; bool quoted = false;
+		in >> q;
+		if(q != '\'' && q != '"') { in.putback(q); }
+		else { quoted = true; }
+		
+		std::string &var = *static_cast<std::string*>(varptr);
+		if(!quoted) { return in >> var; }
+
+		// reading of quoted strings
+		char buf[itstream::maxline];
+		std::string bstr;
+		while(in)
+		{
+			in.getline(buf, itstream::maxline, q);
+			bstr.append(buf, in.gcount());
+			
+			if(bstr.find('\n', bstr.size() - in.gcount()) != std::string::npos)
+			{
+				// runaway quoted string
+				in.setstate(std::ios::failbit);
+				return false;
+			}
+			
+			if(bstr.size() && *bstr.rbegin() == '\\')
+			{
+				// this quotation mark has been escaped
+				*bstr.rbegin() = q;
+				continue;
+			}
+
+			break;
+		}
+
+		if(in) { var = bstr; }
+		return true;
+	}
+
+template<>
+	bool itstream::parse<double>(void *varptr)
+	{
+		return parsenum(*static_cast<double *>(varptr), buffer, ptr);
+	}
+
+template<>
+	bool itstream::parse<float>(void *varptr)
+	{
+		return parsenum(*static_cast<float *>(varptr), buffer, ptr);
+	}
+
+bool itstream::ignore_fields(int n)
+{
+#if 0
+	std::string dummy;
+	FOR(0, n) { parse<std::string>(static_cast<void*>(&dummy), in); }
+	at += n;
+	return in;
+#else
+	const char *s = buffer + ptr;
+	char q;
+	while(n)
+	{
+		s--;
+
+		while(isspace(*(++s)));
+		if((q = *s) == 0) break;
+
+		if(q != '\'' && q != '"')
+		{
+			while(!isspace(*(++s)));
+		}
+		else
+		{
+			while(*(++s) != q && *s);
+			if(*s != q) break;
+		}
+		
+		--n;
+	}
+	at += n;
+	ptr = s - buffer;
+	return n == 0;
+#endif
+}
+
+itstream &itstream::next()
+{
+	// check for comments
+	while(in && in.peek() == '#')
+	{
+		if(return_comments)
+		{
+			getline(in, comment);
+			is_comment = true;
+		}
+		else
+		{
+			in.ignore(1000000, '\n');
+		}
+	}
+
+	// advance to the next line and read in all of the fields on the current line
+	is_comment = false;
+	nread = 0; at = 1; ptr = 0;
+	helper_stream_needs_update = true;
+	
+	in.getline(buffer, maxline);
+	if(in)
+	{
+		FOREACH(field_map::iterator, fields)
+		{
+			int id = (*i).first;
+			field &f = (*i).second;
+			helper_stream_used = false;
+
+			if(id != at && !ignore_fields(id - at)) break;
+			if(!CALL_MEMBER_FN(*this,f.parser)(f.varptr)) break;
+			if(helper_stream_used) { ptr = helper_stream.tellg(); }
+
+			++at;
+			++nread;
+		}
+	}
+
+	return *this;
+}
+
+template<typename T>
+	void itstream::bind(T &var, int column)
+	{
+		field f =
+			{
+				&itstream::parse<T>,
+				static_cast<void*>(&var),
+				column
+			};
+		fields[column] = f;
+/*		fields.push_back(f);*/
+	}
+
+#include <fstream>
+#include "textstream.h"
+#include <sys/time.h>
+
+double seconds()
+{
+	timeval tv;
+	int ret = gettimeofday(&tv, NULL);
+	assert(ret == 0);
+	return double(tv.tv_sec) + double(tv.tv_usec)/1e6;
+}
+
+using namespace std;
+
+double parse_itext(const std::string &buf)
+{
+	istringstream f(buf);
+	double begin = seconds();
+
+	float a; double b;
+	double b3, b4, b5, b6, b7, b8, b9;
+
+	itstream tf(f);
+
+	tf.bind(a, 1);
+	tf.bind(b, 2);
+	tf.bind(b3, 3);
+	tf.bind(b4, 4);
+	tf.bind(b5, 5);
+	tf.bind(b6, 6);
+	tf.bind(b7, 7);
+	tf.bind(b8, 8);
+	tf.bind(b9, 9);
+
+	while(tf.next())
+	{
+//		cout << a << " " << b << " " << b9 << "\n";
+		static int i = 0; if(i == 5) { cout << a << " " << b << " " << b9 << "\n"; }; i++;
+	}
+
+	return seconds() - begin;
+}
+
+double parse_stdio(const std::string &buf)
+{
+	istringstream f(buf);
+	double begin = seconds();
+
+	float a; double b;
+	double b3, b4, b5, b6, b7, b8, b9;
+
+	char bufx[1000];
+	while(f.getline(bufx, 1000))
+	{
+		//sscanf(bufx, "%f %*f %*f %*f %*f %*f %*f %f", &a, &b);
+		//sscanf(bufx, "%f %f", &a, &b);
+		sscanf(bufx, "%f %lf %lf %lf %lf %lf %lf %lf %lf", 
+			&a, &b, &b3, &b4, &b5, &b6, &b7, &b8, &b9);
+		//static int i = 0; if(i == 5) { cout << a << " " << b << " " << b9 << "\n"; }; i++;
+	}
+	return seconds() - begin;
+}
+
+double parse_iostr(const std::string &buf)
+{
+	istringstream f(buf);
+	double begin = seconds();
+
+	float a; double b;
+	double b3, b4, b5, b6, b7, b8, b9;
+
+	while(!f.eof())
+	{
+		f >> a >> b >> b3 >> b4 >> b5 >> b6 >> b7 >> b8 >> b9;
+		f.ignore(100000, '\n');
+		//static int i = 0; if(i == 5) { cout << a << " " << b << " " << b9 << "\n"; }; i++;
+	}
+	return seconds() - begin;
+}
+
+#if 1
+double parse_hand(const std::string &buf)
+{
+	istringstream f(buf);
+	double begin = seconds();
+
+	float a; double b;
+	double b3, b4, b5, b6, b7, b8, b9;
+
+	char bufx[1000];
+	int n = 0;
+	while(f.getline(bufx, 1000))
+	{
+		++n;
+		int at = 0;
+		parsenum<typeof(a)>(a, bufx, at);
+		parsenum<typeof(b)>(b, bufx, at);
+		parsenum<typeof(b3)>(b3, bufx, at);
+		parsenum<typeof(b4)>(b4, bufx, at);
+		parsenum<typeof(b5)>(b5, bufx, at);
+		parsenum<typeof(b6)>(b6, bufx, at);
+		parsenum<typeof(b7)>(b7, bufx, at);
+		parsenum<typeof(b8)>(b8, bufx, at);
+		parsenum<typeof(b9)>(b9, bufx, at);
+
+		//static int i = 0; if(i == 5) { cout << a << " " << b << " " << b9 << "\n"; }; i++;
+	}
+	//cerr << n << " lines read\n";
+	return seconds() - begin;
+}
+#else
+double parse_hand(const std::string &buf)
+{
+	istringstream f(buf);
+	double begin = seconds();
+
+	float a; double b;
+	double b3, b4, b5, b6, b7, b8, b9;
+
+	char bufx[1000];
+	int n = 0;
+	while(f)
+	{
+		++n;
+		int at = 0;
+		parsenum<typeof(a)>(a, f);
+		parsenum<typeof(b)>(b, f);
+		parsenum<typeof(b3)>(b3, f);
+		parsenum<typeof(b4)>(b4, f);
+		parsenum<typeof(b5)>(b5, f);
+		parsenum<typeof(b6)>(b6, f);
+		parsenum<typeof(b7)>(b7, f);
+		parsenum<typeof(b8)>(b8, f);
+		parsenum<typeof(b9)>(b9, f);
+		f.ignore(100000, '\n');
+
+		//static int i = 0; if(i == 5) { cout << a << " " << b << " " << b9 << "\n"; }; i++;
+	}
+	cerr << n << " lines read\n";
+	return seconds() - begin;
+}
+#endif
+
+int main()
+{
+	double begin = seconds();
+
+	ifstream af("test23.txt");
+	stringbuf ss(ios::out);
+	af >> &ss;
+	string buf = ss.str();
+	cerr << "loading done in " << seconds() - begin << " seconds\n";
+
+	double sitext = 0., sstdio = 0., siostr = 0., shand = 0.;
+	int N = 5;
+	FOR(0, N)
+	{
+		double titext = parse_itext(buf); sitext += titext;
+		double tstdio = parse_stdio(buf); sstdio += tstdio;
+		double tiostr = parse_iostr(buf); siostr += tiostr;
+		double thand  = parse_hand (buf); shand  += thand;
+		cout << titext << " " << tstdio << " " << tiostr << " " << thand << "\n";
+		cout.flush();
+	}
+	sitext /= N; sstdio /= N; siostr /= N; shand /= N;
+	cout << "\n" << sitext << " " << sstdio << " " << siostr << " " << shand << "\n";
+	cout << sitext/sstdio << " " << sstdio/sstdio << " " << siostr/sstdio << " " << shand /sstdio << "\n";
+
+	return 0;
+}
+
+#else
+
 #include "raytrace.h"
 #include "interval_arithmetic.h"
 #include "dm.h"
@@ -341,12 +867,6 @@ inline double drho_dd(const direction &d)
 #include <gsl/gsl_randist.h>
 #include <valarray>
 
-#define SELECT_H <sys/select.h>
-extern "C"
-{
-	#include "sm/sm_declare.h"
-}
-
 //
 // Calculate the integral of probability from which we can
 // draw stars
@@ -497,12 +1017,33 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 
 	ofstream denf("mq_den.txt");
 	hdr(denf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
+	model mold = m;
 	FOR(0, 1001)
 	{
 		double dd = dmin + (dmax-dmin)*double(i)/1000.;
 		d0.set_dist(dd);
-		denf << dd << " " << drho_dd(d0) << "\n";
+		denf << dd;
+		m = mold;
+		denf << " " << drho_dd(d0);
+/*		m.param("ht") = 510;
+		m.param("h") = 260;*/
+/*		m.param("rho0") = 0.95;
+		m.param("f") = 0.062;
+		m.param("ht") = 800;
+		m.param("h") = 260;*/
+		m.param("rho0") = 1.;
+		m.param("f") = 0.04;
+		m.param("ht") = 1000;
+		m.param("h") = 260;
+/*		for(int i = 240; i != 300; i+=10)
+		{
+			m.param("h") = i;
+			denf << " " << drho_dd(d0);
+		}*/
+		denf << " " << drho_dd(d0);
+		denf << "\n";
 	}
+	m = mold;
 
 	ofstream simf("mq_sim.txt");
 	hdr(simf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
@@ -514,6 +1055,7 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 		float m_r = stardist::m(d, Mr);
 		double s_mean = photoerr(m_r);
 		double err = gsl_ran_gaussian(rng, s_mean);
+		err = sqrt(sqr(err) + sqr(0.1));
 		m_r += err;
 		double d_with_err = stardist::D(m_r, Mr);
 
@@ -523,8 +1065,43 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 	gsl_rng_free(rng);
 }
 
+namespace stlops
+{
+	template<typename T>
+		inline OSTREAM(const std::vector<T> &a)
+		{
+			out << "[";
+			FOREACH(typename std::vector<T>::const_iterator, a)
+			{
+				if(i != a.begin()) { out << ", "; }
+				out << *i;
+			}
+			out << "]";
+			return out;
+		}
+}
+
 void simulate()
 {
+// 	using namespace stlops;
+// 	vector<int> ii; ii.push_back(10); ii.push_back(20);
+// 	cout << ii << "\n";
+// 	return;
+
+// 	m.add_param("rho0", 1);
+// 	m.add_param("l", 3000);
+// 	m.add_param("h", 270);
+// 	m.add_param("z0", 25);
+// 
+// 	m.add_param("f", 0.04);
+// 	m.add_param("lt", 3500);
+// //	m.add_param("ht", 400);
+// 	m.add_param("ht", 950);
+// 
+// 	m.add_param("fh", 0.0001);
+// 	m.add_param("q", 1.5);
+// 	m.add_param("n", 3);
+
 	m.add_param("rho0", 1);
 	m.add_param("l", 3000);
 	m.add_param("h", 270);
@@ -532,12 +1109,12 @@ void simulate()
 
 	m.add_param("f", 0.04);
 	m.add_param("lt", 3500);
-	m.add_param("ht", 400);
+	m.add_param("ht", 1400);
 
 	m.add_param("fh", 0.0001);
 	m.add_param("q", 1.5);
 	m.add_param("n", 3);
-
+	
 	//simulate(100000, 0., rad(90.), 0., 15000.);
 	//simulate(100000, rad(33.), rad(15.), 0., 15000.);
 //	simulate(100000, rad(0), rad(90.), 1.1, 15.0, 21.5);
@@ -665,8 +1242,8 @@ void makeSkyMap()
 
 int main(int argc, char **argv)
 {
-	//simulate();
-	makeSkyMap();
+	simulate();
+	//makeSkyMap();
 	return 0;
 }
 #if 0
@@ -876,18 +1453,4 @@ void ()
 }
 
 #endif
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#endif

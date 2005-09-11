@@ -57,6 +57,14 @@ struct model
 	std::vector<rzpixel> *map;
 	int ndata() { return map->size(); }
 
+	model(const model& m)
+		: p(m.p), covar(m.covar), fixed(m.fixed), chi2_per_dof(m.chi2_per_dof),
+		  param_name(m.param_name), param_format(m.param_format), 
+		  param_name_to_index(m.param_name_to_index),
+		  map(m.map != NULL ? new std::vector<rzpixel>(*m.map) : NULL)
+		{
+		}
+	
 	// Model function
 	#define rho0	p[0]
 	#define l	p[1]

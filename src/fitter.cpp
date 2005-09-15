@@ -168,6 +168,20 @@ void load_disk(vector<rzpixel> *data, const std::string &filename)
 
 void clean_disk(vector<rzpixel> *data, const std::string &how)
 {
+	double rbeam;
+	if(how == "ngpbeam")
+	{
+		// find the r value closest to the Sun
+		rbeam = 0;
+		FOREACH(vector<rzpixel>::iterator, *data)
+		{
+			rzpixel &pix = *i;
+			if(abs(pix.r-8000.) < abs(rbeam-8000))
+				rbeam = pix.r;
+		}
+		cerr << "Beam radius: r = " << rbeam << "pc\n";
+	}
+
 	//
 	// Remove the points near the plane of the galaxy
 	// and close to the edges of the survey
@@ -211,6 +225,11 @@ void clean_disk(vector<rzpixel> *data, const std::string &how)
 						
 			if(!(abs(pix.z) >= 500)) continue;
 		}
+		else if(how == "ngpbeam")
+		{
+			if(pix.r != rbeam) continue;
+			if(pix.z < 100) continue;
+		}
 
 		out.push_back(pix);
 	}
@@ -250,9 +269,10 @@ try
 	std::string binsfile = opts["binsfile"];
 	text_input_or_die(in, binsfile);
 
-	std::string how = "halo";
+//	std::string how = "halo";
 //	std::string how = "thick";
 //	std::string how = "thin";
+	std::string how = "ngpbeam";
 
 	model m;
 	double r0, r1; std::string rzfile, modelname;
@@ -322,6 +342,23 @@ try
 			m.param("z0"), 7
 			);
 	}
+	else if(how == "ngpbeam")
+	{
+		m.add_param("rho0", 0.06, false);
+		m.add_param("l", 2500, true);
+		m.add_param("h", 270, false);
+		m.add_param("z0", 24, true);
+
+		m.add_param("f", 0.04, false);
+		m.add_param("lt", 2500, true);
+		m.add_param("ht", 1200, false);
+
+		m.add_param("fh", 0.0, true);
+		m.add_param("q", 1.5, true);
+		m.add_param("n", 3, true);
+
+		bind(in, modelname, 0, r0, 1, r1, 2, rzfile, 3);
+	}
 
 	m.print(cout, model::HEADING);
 	cout << "\n";
@@ -348,7 +385,7 @@ try
 		cerr << "rho2(R=8kpc,Z=5kpc) = " << m.rho_thick(8000,5000) << "\n";
 		cerr << "rhoh(R=8kpc,Z=5kpc) = " << m.rho_halo(8000,5000) << "\n";
 
-		cout << setw(10) << modelname << setw(7) << r0 << setw(7) << r1 << setw(40) << rzfile;
+		cout << setw(10) << modelname << setw(7) << r0 << setw(7) << r1 << setw(40) << rzfile << setw(40) << rzfile;
 		cout << " " << setw(10) << m.chi2_per_dof << " ";
 		m.print(cout, model::LINE);
 		cout << "\n";

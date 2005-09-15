@@ -867,22 +867,160 @@ inline double drho_dd(const direction &d)
 #include <gsl/gsl_randist.h>
 #include <valarray>
 
+class spline
+{
+private:
+	gsl_interp *f;
+	gsl_interp_accel *acc;
+	std::valarray<double> xv, yv;
+public:
+	spline() : f(NULL), acc(NULL) {}
+	spline(const double *x, const double *y, int n);
+	void construct(const double *x, const double *y, int n);
+	~spline();
+
+ 	double operator ()(double x)        { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
+ 	double deriv(double x)              { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
+ 	double deriv2(double x)             { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
+ 	double integral(double a, double b) { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
+
+public:
+	spline& operator= (const spline& a);
+	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
+};
+
+spline::spline(const double *x, const double *y, int n)
+	: f(NULL), acc(NULL)
+{
+	construct(x, y, n);
+}
+
+spline& spline::operator= (const spline& a)
+{
+	construct(&a.xv[0], &a.yv[0], a.xv.size());
+	return *this;
+}
+
+void spline::construct(const double *x, const double *y, int n)
+{
+	gsl_interp_accel_free(acc);
+	gsl_interp_free(f);
+
+	// copy data
+	xv.resize(n); yv.resize(n);
+	copy(x, x+n, &xv[0]);
+	copy(y, y+n, &yv[0]);
+
+	// construct spline
+	f = gsl_interp_alloc(gsl_interp_cspline, n);
+	gsl_interp_init(f, &xv[0], &yv[0], n);
+	acc = gsl_interp_accel_alloc();
+}
+
+spline::~spline()
+{
+	gsl_interp_accel_free(acc);
+	gsl_interp_free(f);
+}
+
+///////////////////////////////////
+
+#if 1
+typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
+
+bool
+sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param)
+{
+	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rkf45, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(1e-6, 0.0);
+	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
+
+	const double a = xv[0];
+	const double b = xv[xv.size()-1];
+
+	double h = (b - a) / xv.size();	// initial step size
+	double y = 0;			// initial integration value
+	double x = a;			// initial integration point
+
+	gsl_odeiv_system sys = {f, NULL, 1, param};
+
+	// integration from 0 to dmax, but in ninterp steps
+	// when integrating between dmin and dmax
+	FOR(0, xv.size())
+	{
+		while (x < xv[i])
+		{
+			gsl_odeiv_evolve_apply (e, c, s,
+						&sys,
+						&x, xv[i], &h,
+						&y);
+		}
+		yv[i] = y;
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	return true;
+}
+
+double
+integrate(double a, double b, int_function f, void *param)
+{
+	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rkf45, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(1e-6, 0.0);
+	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
+
+	double h = (b - a) / 1000;	// initial step size
+	double y = 0;			// initial integration value
+	double x = a;			// initial integration point
+
+	gsl_odeiv_system sys = {f, NULL, 1, param};
+
+	// integration from 0 to dmax, but in ninterp steps
+	// when integrating between dmin and dmax
+	while (x < b)
+	{
+		gsl_odeiv_evolve_apply (e, c, s,
+					&sys,
+					&x, b, &h,
+					&y);
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	return y;
+}
+
+#endif
+
+///////////////////////////////////
+
 //
 // Calculate the integral of probability from which we can
 // draw stars
 //
 struct distanceSampler
 {
-	gsl_spline *f;
-	gsl_interp_accel *acc;
+/*	gsl_spline *f;
+	gsl_interp_accel *acc;*/
+	spline f;
 	
 	double N; // Total number of stars in [dmin,dmax]
 
 	distanceSampler(const direction &d, const double dmin, const double dmax);
 	~distanceSampler();
 
-	inline double distance(double u) { return gsl_spline_eval(f, u, acc); }
+/*	inline double distance(double u) { return gsl_spline_eval(f, u, acc); }*/
+	inline double distance(double u) { return f(u); }
 };
+
+distanceSampler::~distanceSampler()
+{
+/*	gsl_spline_free(f);
+	gsl_interp_accel_free(acc);*/
+}
 
 int
 func(double dd, double const* y, double *dydd, void *param)
@@ -894,7 +1032,24 @@ func(double dd, double const* y, double *dydd, void *param)
 	return GSL_SUCCESS;
 }
 
+#if 1
+distanceSampler::distanceSampler(const direction &d0, const double dmin, const double dmax)
+{
+	std::valarray<double> xv(1001), yv(1001);
+	FOR(0, xv.size()) { xv[i] = double(i) / (xv.size()-1.); }
+	xv = dmin + xv*(dmax-dmin);
 
+	direction d = d0;
+	sample_integral(xv, yv, func, (void *)&d);
+
+	// normalization - convert the integrated density to probability
+	N = yv[yv.size()-1];
+	yv /= N;
+
+	// construct spline approximation
+	f.construct(&yv[0], &xv[0], yv.size());
+}
+#else
 distanceSampler::distanceSampler(const direction &d0, const double dmin, const double dmax)
 {
 	gsl_odeiv_step* s = gsl_odeiv_step_alloc(gsl_odeiv_step_rkf45, 1);
@@ -942,9 +1097,10 @@ distanceSampler::distanceSampler(const direction &d0, const double dmin, const d
 	
 	// construction of a spline spanning the dmin, dmax interval
 	// This will, for range [0, 1] return distances from [dmin,dmax]
-	f = gsl_spline_alloc(gsl_interp_cspline, yv.size());
-	gsl_spline_init(f, &yv[0], &dv[0], yv.size());
-	acc = gsl_interp_accel_alloc();
+// 	f = gsl_spline_alloc(gsl_interp_cspline, yv.size());
+// 	gsl_spline_init(f, &yv[0], &dv[0], yv.size());
+// 	acc = gsl_interp_accel_alloc();
+	f.construct(&yv[0], &dv[0], yv.size());
 
 /*	FOR(0, 1001)
 	{
@@ -953,12 +1109,7 @@ distanceSampler::distanceSampler(const direction &d0, const double dmin, const d
 	}
 	exit(0);*/
 }
-
-distanceSampler::~distanceSampler()
-{
-	gsl_spline_free(f);
-	gsl_interp_accel_free(acc);
-}
+#endif
 
 class spline_func
 {
@@ -1157,6 +1308,18 @@ struct BitImage
 		}
 	}
 
+	void invindex(long long ind, int &x, int &y) const
+	{
+		x = (ind % h) - x0;
+		y = (ind / h) - y0;
+	}
+
+	void invindex(int byte, int bit, int &x, int &y) const
+	{
+		long long ind = ((long long)byte)*nbits + bit;
+		invindex(ind, x, y);
+	}
+
 	bool get(int x, int y) const
 	{
 		int byte, bit;
@@ -1176,6 +1339,43 @@ struct BitImage
 	}
 };
 
+#include <astro/io/binarystream.h>
+
+BOSTREAM2(const BitImage &img)
+{
+	out << img.nbits << img.w << img.h << img.x0 << img.y0 << img.dx;
+	out << img.data;
+	return out;
+}
+
+typedef pair<int, interval_set> xstripe;
+bool operator< (const xstripe &a, const xstripe &b) { return a.first < b.first; }
+
+void makeIntervalMap(std::map<int, interval_set> &v, BitImage &img)
+{
+	FOR(0, img.data.size())
+	{
+		int k = img.data[i];
+		if(k == 0) continue;
+
+		long long ind = ((long long)i)*img.nbits;
+
+		int m = 1;
+		FORj(j, 0, 32)
+		{
+			if((k & m) != 0)
+			{
+				int x, y;
+				img.invindex(ind, x, y);
+				//add_interval(v[x], make_pair(y-0.5, y+1.5));
+				add_interval(v[x], make_pair(y-0.01, y+1.01));
+			}
+			++ind;
+			m <<= 1;
+		}
+	}
+}
+
 void makeSkyMap()
 {
 	Radians dx = rad(.125 * 1/60.); /* sampling resolution in radians */
@@ -1194,16 +1394,19 @@ void makeSkyMap()
 		Mask mask(geom);
 		Radians muEnd = geom.muStart + mask.length() + dx;
 		cerr << geom.run << " ";
+if(geom.run != 752) continue;
+//if(geom.run != 752 && geom.run != 756) continue;
 		FORj(col, 0, 6)
 		{
-			for(Radians nu = mask.lo(col) + dx/2; nu < mask.hi(col) + dx; nu += dx)
+			for(Radians nu = mask.lo(col) + dx/2; nu < mask.hi(col) + dx; nu += dx/2.)
 			{
-				for(Radians mu = geom.muStart + dx/2; mu < muEnd; mu += dx)
+				for(Radians mu = geom.muStart + dx/2; mu < muEnd; mu += dx/2.)
 				{
 					Radians ra, dec;
-					coordinates::gcsequ(geom.node, geom.inc, mu, nu, ra, dec);
+					coordinates::gcsgal(geom.node, geom.inc, mu, nu, ra, dec);
+//					cerr << deg(ra) << " " << deg(dec) << "\n";
 
-					dec *= -1;
+//					dec *= -1;
 					if(dec <= 0) continue;
 
 					BitImage &img = dec > 0 ? north : south;
@@ -1224,10 +1427,18 @@ void makeSkyMap()
 				}
 			}
 			cerr << col+1;
+//			break;
 		}
 		cerr << "\n";
 	}
 
+	{
+		cerr << "Storing footprint..\n";
+		ofstream out("footprint.bin");
+		io::obstream bout(out);
+		bout << north;
+	}
+#if 1
 	int sum = 0;
 	FOR(0, north.data.size()) {
 		int k = north.data[i];
@@ -1237,13 +1448,274 @@ void makeSkyMap()
 			m <<= 1;
 		}
 	}
-	cerr << "North area: " << sum/*sqr(deg(dx))*/ << " square degrees";
+	cerr << "North area: " << sum*sqr(deg(dx)) << " square degrees";
+#endif
+#if 0
+	typedef std::map<int, interval_set> im_t;
+	std::map<int, interval_set> inorth, &im = inorth;
+	makeIntervalMap(inorth, north);
+	FOREACH(im_t::iterator, im)
+	{
+		double x = (*i).first * dx;
+		interval_set &y = (*i).second;
+		FORj(j, 0, y.size())
+		{
+			double y0 = y[j] * dx;
+			double y1 = y[++j] * dx;
+			cout << x << " " << (y0+y1)/2. << " " << (y1-y0)/2. << "\n";
+		}
+	}
+#endif
+}
+
+extern "C"
+{
+	#include "gpc/gpc.h"
+}
+
+gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
+{
+	Mask mask(geom);
+/*	Radians mu0 = 0; //geom.muStart;
+	Radians mu1 = 10; //geom.muStart + mask.length();*/
+	Radians mu0 = geom.muStart;
+	Radians mu1 = geom.muStart + mask.length();
+
+/*	dx = 0.3;*/
+	vector<double> ex, ey;
+
+	gpc_polygon p = {0, 0, NULL};
+
+	FORj(col, 0, 6)
+	{
+/*		Radians nu0 = 2*col;//mask.lo(col);
+		Radians nu1 = 2*col+1;//mask.hi(col);*/
+		Radians nu0 = mask.lo(col);
+		Radians nu1 = mask.hi(col);
+		Radians l, b, mu, nu;
+
+		// bottom edge
+		for(mu = mu0; mu < mu1; mu += dx)
+		{
+			coordinates::gcsgal(geom.node, geom.inc, mu, nu0, l, b);
+/*			l = mu; b = nu0;*/
+			ex.push_back(l);
+			ey.push_back(b);
+		}
+		// right edge
+		for(nu = nu0; nu < nu1; nu += dx)
+		{
+			coordinates::gcsgal(geom.node, geom.inc, mu1, nu, l, b);
+/*			l = mu1; b = nu;*/
+			ex.push_back(l);
+			ey.push_back(b);
+		}
+
+		// top edge
+		for(mu = mu1; mu > mu0; mu -= dx)
+		{
+			coordinates::gcsgal(geom.node, geom.inc, mu, nu1, l, b);
+/*			l = mu; b = nu1;*/
+			ex.push_back(l);
+			ey.push_back(b);
+		}
+
+		// left edge
+		for(nu = nu1; nu > nu0; nu -= dx)
+		{
+			coordinates::gcsgal(geom.node, geom.inc, mu0, nu, l, b);
+/*			l = mu0; b = nu;*/
+			ex.push_back(l);
+			ey.push_back(b);
+		}
+
+		// convert to contour in lambert coordinates
+		gpc_vertex v[ex.size()];
+		//FOR(0, ex.size())
+		FOR(0, ex.size())
+		{
+			proj.convert(ex[i], ey[i], v[i].x, v[i].y);
+/*			v[i].x = ex[i];
+			v[i].y = ey[i];*/
+		}
+
+// 		FOR(0, ex.size())
+// 		{
+// 			cout << v[i].x << " " << v[i].y << "\n";
+// 		}
+// 		exit(0);
+
+		// add contour to polygon
+		gpc_vertex_list c = { ex.size(), v };
+		gpc_add_contour(&p, &c, false);
+
+// 		FILE *ofp;
+// 		ofp= fopen("outfile", "w");
+// 		gpc_write_polygon(ofp, 0, &p);
+// 		fclose(ofp);
+
+		ex.clear();
+		ey.clear();
+		// yay!
+		cerr << col+1;
+//if(col == 0) break;
+	}
+	return p;
+}
+
+gpc_polygon make_circle(double r, double dx)
+{
+	gpc_polygon p = {0, 0, NULL};
+	int n = (int)(2*ctn::pi*r / dx);
+	gpc_vertex v[n];
+	gpc_vertex_list c = { n, v };
+	FOR(0, n)
+	{
+		v[i].x = r*cos(i*dx/r);
+		v[i].y = r*sin(i*dx/r);
+	}
+	gpc_add_contour(&p, &c, false);
+	return p;
+}
+
+double polygon_area(const gpc_polygon &p)
+{
+	double A = 0;
+	FOR(0, p.num_contours)
+	{
+		int n = p.contour[i].num_vertices;
+/*		int sign = p.hole[i] ? -1 : 1;
+		if(sign == -1) { cerr << "HOOOLE! [" << i << "] "; }*/
+		gpc_vertex *v = p.contour[i].vertex;
+		double cA = 0;
+		FORj(j, 0, n)
+		{
+			gpc_vertex &a = v[j];
+			gpc_vertex &b = (j + 1 == n) ? v[0] : v[j+1];
+
+			cA += a.x*b.y - b.x*a.y;
+		}
+		A += cA;
+/*		cerr << "part " << i << " = " << cA << (p.hole[i] ? "(hole)" : "") << "\n";*/
+	}
+	A *= 0.5;
+	return abs(A);
+}
+
+// gpc_vertex tv[] = {
+// 	{0, 0},
+// 	{2, 0},
+// 	{2, 1},
+// 	{1, 2},
+// 	{0, 1}
+// 	};
+// gpc_vertex_list tvl = {5, tv};
+// gpc_polygon tp = { 1, NULL, &tvl };
+
+void makeSkyMap2()
+{
+/*	cerr << polygon_area(tp) << "\n";
+	exit(0);*/
+	
+	//Radians dx = rad(.125 * 1/60.); /* polygon sampling resolution in radians */
+	Radians dx = rad(1.); /* polygon sampling resolution in radians */
+	cerr << "dx = " << dx << "\n";
+	lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
+
+	RunGeometryDB db;
+	double x, y;
+	gpc_polygon north = {0, 0, NULL}, south = {0, 0, NULL}, result;
+	gpc_polygon circle = make_circle(sqrt(2.), dx);
+
+	int k = 0;
+	FOREACH(RunGeometryDB::db_t::iterator, db.db)
+	{
+		const RunGeometry &geom = (*i).second;
+		cerr << geom.run << " ";
+
+		//if(geom.run != 752) continue;
+		//if(geom.run != 752 && geom.run != 756) continue;
+		
+		gpc_polygon rpoly = make_polygon(geom, lnorth, dx);
+		gpc_polygon_clip(GPC_INT, &rpoly, &circle, &result);
+		gpc_free_polygon(&rpoly); rpoly = result;
+		gpc_polygon_clip(GPC_UNION, &north, &rpoly, &result);
+		double A = polygon_area(rpoly);
+		gpc_free_polygon(&rpoly);
+
+		gpc_free_polygon(&north); north = result;
+
+		int nvert = 0;
+		FOR(0, north.num_contours) { nvert += north.contour[i].num_vertices; }
+		cerr << " [" << A*sqr(deg(1)) << "] [" << north.num_contours << " contours, " << nvert << " vertices]\n";
+//		if(++k == 30) break;
+	}
+// 	gpc_polygon_clip(GPC_INT, &north, &circle, &result);
+// 	gpc_free_polygon(&north); north = result;
+
+	int nvert = 0;
+	FOR(0, north.num_contours) { nvert += north.contour[i].num_vertices; }
+	cerr << "total [" << polygon_area(north)*sqr(deg(1)) << "deg2 area, "
+	     << north.num_contours << " contours, " << nvert << " vertices]\n";
+
+	// dump polygons
+	gpc_polygon &p = north;
+	//cerr << "numcont=" << p.num_contours << "\n";
+	FOR(0, p.num_contours)
+	{
+		gpc_vertex *v = p.contour[i].vertex;
+		//cerr << "numvert=" << p.contour[i].num_vertices << "\n";
+		FORj(j, 0, p.contour[i].num_vertices)
+		{
+			cout << v[j].x << " " << v[j].y << " " << i << "\n";
+		}
+		cout << "#\n";
+	}
+
+	// store polygon the gpc way
+	FILE *ofp;
+	ofp = fopen("outfile", "w");
+	gpc_write_polygon(ofp, 0, &north);
+	fclose(ofp);
+
+	// free memory
+	gpc_free_polygon(&north);
+	gpc_free_polygon(&circle);
+#if 0
+	int sum = 0;
+	FOR(0, north.data.size()) {
+		int k = north.data[i];
+		int m = 1;
+		FORj(j, 0, 32) {
+			sum += (k & m) != 0;
+			m <<= 1;
+		}
+	}
+	cerr << "North area: " << sum*sqr(deg(dx)) << " square degrees";
+#endif
+#if 0
+	typedef std::map<int, interval_set> im_t;
+	std::map<int, interval_set> inorth, &im = inorth;
+	makeIntervalMap(inorth, north);
+	FOREACH(im_t::iterator, im)
+	{
+		double x = (*i).first * dx;
+		interval_set &y = (*i).second;
+		FORj(j, 0, y.size())
+		{
+			double y0 = y[j] * dx;
+			double y1 = y[++j] * dx;
+			cout << x << " " << (y0+y1)/2. << " " << (y1-y0)/2. << "\n";
+		}
+	}
+#endif
 }
 
 int main(int argc, char **argv)
 {
-	simulate();
+	//simulate();
 	//makeSkyMap();
+	makeSkyMap2();
 	return 0;
 }
 #if 0

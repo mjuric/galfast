@@ -18,39 +18,40 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef projections__h
-#define projections__h
+/**
+	Basic algorithm outline, definitions:
+	  * (x, y) - Lambert map coordinates (transformable to l, b)
+	  * m - r band magnitude
 
-#include <astro/math.h>
-#include <cmath>
+	Integrations:
+	  * split (x, y) lambert space into 1deg^2 grid
+	  * For each nonempty (x,y) pixel (== a conical beam in 3D space):
+	     * split r-i into 0.01mag bins
+	     * For each r-i bin, calculate:
+	        * N(x, y, ri) = Integrate[rho(m; x,y,ri) dm, m_min, m_max]
+		  where m is r band magnitude, m_min and m_max are flux
+		  limits of the survey
+	  * Calculate the sum - this is the total number of stars expected 
+	    in survey volume. Normalize by this number to convert the
+	    density to probability.
+	  * Calculate marginal distributions:
+	     * N(ri|x,y), N(y|x), N(x)
+	  * Calculate spline approximations to integrals of marginalized
+	    distributions for use when transforming uniform variates
+	    
+	Sampling:
+	  * Generating the sample of N stars, step 1
+	     * 1: Sample p(x) to get x
+	     * Sample p(y|x) to get y
+	     * Reject and goto 1 if not in survey volume
+	     * Sample p(ri|x,y) to get ri
+	     * Store in array, goto 1 if number of stars != N
+	  * Calculating magnitudes
+	     * Sort the array of generated stars by x,y,ri
+	     * For each star generated
+	       * If not cached from previous star, calculate spline
+	         approximation to p(m | x, y, ri)
+	       * Draw a random variate from p(m | x, y, ri) - that is the
+	         magnitude.
+*/
 
-namespace peyton {
-namespace math {
-
-	inline bool between(const double x, const double x0, const double x1) { return x0 <= x && x < x1; }
-
-	template<typename T>
-	inline bool between(const T x, const std::pair<T, T> cmp) { return cmp.first <= x && x < cmp.second; }
-	
-	class lambert
-	{
-		double l0, cosphi1, sinphi1;
-	
-	public:
-		lambert(Radians l0_ = peyton::math::rad(90), Radians phi1 = peyton::math::rad(90))
-			: cosphi1(cos(phi1)), sinphi1(sin(phi1)), l0(l0_)
-		{ }
-
-		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
-		void convert(const T l, const T phi, T &x, T &y) const
-		{
-			double kp = sqrt(2./(1+sinphi1*sin(phi)+cosphi1*cos(phi)*cos(l - l0)));
-			x = kp*cos(phi)*sin(l - l0);
-			y = kp*(cosphi1*sin(phi)-sinphi1*cos(phi)*cos(l-l0));
-		}
-	};
-
-} // math
-} // peyton
-	
-#endif

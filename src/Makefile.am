@@ -7,7 +7,7 @@ INCLUDES = -I$(top_srcdir)/src/common -I/usr/include/sqlplus/ -I/usr/include/mys
 
 # the library search path.
 galaxy_LDFLAGS = $(all_libraries) 
-SUBDIRS = common
+SUBDIRS = common gpc
 unique_x_SOURCES =  unique.cpp
 unique_x_LDADD = $(top_builddir)/src/common/libcommon.a
 binning_x_SOURCES =  binning.cpp
@@ -43,10 +43,11 @@ merge_volumes_x_LDADD = $(top_builddir)/src/common/libcommon.a
 fitscatread_x_SOURCES =  fitscatread.cpp
 fitscatread_x_LDADD = $(top_builddir)/src/common/libcommon.a
 mlcolor_x_LDADD = $(top_builddir)/src/common/libcommon.a
-simulate_x_SOURCES = simulate.cpp
-simulate_x_LDADD = $(top_builddir)/src/common/libcommon.a
+simulate_x_SOURCES = simulate.cpp simulate2.cpp
+simulate_x_LDADD = $(top_builddir)/src/gpc/libgpc.a \
+	$(top_builddir)/src/common/libcommon.a
 locusfit_x_SOURCES =  locusfit.cpp
 locusfit_x_LDADD = $(top_builddir)/src/common/libcommon.a
 locus_demo_x_SOURCES =  locus_demo.cpp
-fitter_x_SOURCES =  fitter.cpp
+fitter_x_SOURCES = fitter.cpp onedimfit.cpp
 fitter_x_LDADD = $(top_builddir)/src/common/libcommon.a

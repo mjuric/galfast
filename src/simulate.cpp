@@ -549,6 +549,7 @@ int main()
 #include "dm.h"
 #include "projections.h"
 #include "paralax.h"
+#include "textstream.h"
 
 #include <astro/math/vector.h>
 #include <astro/coordinates.h>
@@ -903,8 +904,8 @@ spline& spline::operator= (const spline& a)
 
 void spline::construct(const double *x, const double *y, int n)
 {
-	gsl_interp_accel_free(acc);
-	gsl_interp_free(f);
+//	gsl_interp_accel_free(acc);
+//	gsl_interp_free(f);
 
 	// copy data
 	xv.resize(n); yv.resize(n);
@@ -1274,222 +1275,23 @@ void simulate()
 //	simulate(500000, rad(0), rad(10.), 0.1, 15.0, 21.5);
 }
 
-
-
-struct BitImage
-{
-	const int nbits;
-
-	int w, h;
-	int x0, y0;
-	double dx;
-
-	valarray<int> data;
-	
-	BitImage(double dx_, int w_, int h_)
-		: nbits(sizeof(int)*8), dx(dx_), w(w_), h(h_), x0(w/2), y0(h/2), data(((long long)w)*h/nbits + 1)
-	{
-		cerr << "w*h: " << ((long long)w)*h << "\n";
-		cerr << "w*h/nbits + 1: " << ((long long)w)*h/nbits + 1 << "\n";
-		cerr << "nbits: " << nbits << "\n";
-		cerr << "Size: " << data.size() << "\n";
-	}
-
-	void index(int x, int y, int &byte, int &bit) const
-	{
-		long long ind = ((long long)(y+y0))*h + (x+x0);
-		byte = ind / nbits;
-		bit = ind % nbits;
-
-		if(byte < 0 || byte >= data.size())
-		{
-			cerr << "Error: x = " << x << ", y = " << y << ", byte = " << byte << ", data.size() = " << data.size() << "\n";
-			ASSERT(!(ind < 0 || ind >= data.size()));
-		}
-	}
-
-	void invindex(long long ind, int &x, int &y) const
-	{
-		x = (ind % h) - x0;
-		y = (ind / h) - y0;
-	}
-
-	void invindex(int byte, int bit, int &x, int &y) const
-	{
-		long long ind = ((long long)byte)*nbits + bit;
-		invindex(ind, x, y);
-	}
-
-	bool get(int x, int y) const
-	{
-		int byte, bit;
-		index(x, y, byte, bit);
-
-		int v = data[byte];
-		return v & (1 << bit);
-	}
-	
-	void set(int x, int y)
-	{
-		int byte, bit;
-		index(x, y, byte, bit);
-
-		int &v = data[byte];
-		v |= (1 << bit);
-	}
-};
-
-#include <astro/io/binarystream.h>
-
-BOSTREAM2(const BitImage &img)
-{
-	out << img.nbits << img.w << img.h << img.x0 << img.y0 << img.dx;
-	out << img.data;
-	return out;
-}
-
-typedef pair<int, interval_set> xstripe;
-bool operator< (const xstripe &a, const xstripe &b) { return a.first < b.first; }
-
-void makeIntervalMap(std::map<int, interval_set> &v, BitImage &img)
-{
-	FOR(0, img.data.size())
-	{
-		int k = img.data[i];
-		if(k == 0) continue;
-
-		long long ind = ((long long)i)*img.nbits;
-
-		int m = 1;
-		FORj(j, 0, 32)
-		{
-			if((k & m) != 0)
-			{
-				int x, y;
-				img.invindex(ind, x, y);
-				//add_interval(v[x], make_pair(y-0.5, y+1.5));
-				add_interval(v[x], make_pair(y-0.01, y+1.01));
-			}
-			++ind;
-			m <<= 1;
-		}
-	}
-}
-
-void makeSkyMap()
-{
-	Radians dx = rad(.125 * 1/60.); /* sampling resolution in radians */
-	cerr << "dx = " << dx << "\n";
-	int l = int(2*sqrt(2.)/dx + 1) + 2;
-	cerr << "l = " << l << "\n";
-	BitImage north(dx, l, l),
-		south(dx, 1, 1);
-	lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
-
-	RunGeometryDB db;
-	double x, y;
-	FOREACH(RunGeometryDB::db_t::iterator, db.db)
-	{
-		const RunGeometry &geom = (*i).second;
-		Mask mask(geom);
-		Radians muEnd = geom.muStart + mask.length() + dx;
-		cerr << geom.run << " ";
-if(geom.run != 752) continue;
-//if(geom.run != 752 && geom.run != 756) continue;
-		FORj(col, 0, 6)
-		{
-			for(Radians nu = mask.lo(col) + dx/2; nu < mask.hi(col) + dx; nu += dx/2.)
-			{
-				for(Radians mu = geom.muStart + dx/2; mu < muEnd; mu += dx/2.)
-				{
-					Radians ra, dec;
-					coordinates::gcsgal(geom.node, geom.inc, mu, nu, ra, dec);
-//					cerr << deg(ra) << " " << deg(dec) << "\n";
-
-//					dec *= -1;
-					if(dec <= 0) continue;
-
-					BitImage &img = dec > 0 ? north : south;
-					lambert &proj = dec > 0 ? lnorth : lsouth;
-
-					proj.convert(ra, dec, x, y);
-//					proj.convert(0, 0, x, y);
-					int I = (int)floor(x/dx + 0.5);
-					int J = (int)floor(y/dx + 0.5);
-					if(abs(I) > img.x0 || abs(J) > img.y0)
-					{
-						cerr << "Problem: " << I << ", " << J;
-						cerr << " " << deg(ra) << ", " << deg(dec);
-						cerr << " " << x << ", " << y << "\n";
-						exit(-1);
-					}
-					img.set(I, J);
-				}
-			}
-			cerr << col+1;
-//			break;
-		}
-		cerr << "\n";
-	}
-
-	{
-		cerr << "Storing footprint..\n";
-		ofstream out("footprint.bin");
-		io::obstream bout(out);
-		bout << north;
-	}
-#if 1
-	int sum = 0;
-	FOR(0, north.data.size()) {
-		int k = north.data[i];
-		int m = 1;
-		FORj(j, 0, 32) {
-			sum += (k & m) != 0;
-			m <<= 1;
-		}
-	}
-	cerr << "North area: " << sum*sqr(deg(dx)) << " square degrees";
-#endif
-#if 0
-	typedef std::map<int, interval_set> im_t;
-	std::map<int, interval_set> inorth, &im = inorth;
-	makeIntervalMap(inorth, north);
-	FOREACH(im_t::iterator, im)
-	{
-		double x = (*i).first * dx;
-		interval_set &y = (*i).second;
-		FORj(j, 0, y.size())
-		{
-			double y0 = y[j] * dx;
-			double y1 = y[++j] * dx;
-			cout << x << " " << (y0+y1)/2. << " " << (y1-y0)/2. << "\n";
-		}
-	}
-#endif
-}
-
 extern "C"
 {
 	#include "gpc/gpc.h"
 }
 
-gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
+gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx)
 {
 	Mask mask(geom);
-/*	Radians mu0 = 0; //geom.muStart;
-	Radians mu1 = 10; //geom.muStart + mask.length();*/
 	Radians mu0 = geom.muStart;
 	Radians mu1 = geom.muStart + mask.length();
 
-/*	dx = 0.3;*/
 	vector<double> ex, ey;
 
 	gpc_polygon p = {0, 0, NULL};
 
 	FORj(col, 0, 6)
 	{
-/*		Radians nu0 = 2*col;//mask.lo(col);
-		Radians nu1 = 2*col+1;//mask.hi(col);*/
 		Radians nu0 = mask.lo(col);
 		Radians nu1 = mask.hi(col);
 		Radians l, b, mu, nu;
@@ -1498,7 +1300,6 @@ gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
 		for(mu = mu0; mu < mu1; mu += dx)
 		{
 			coordinates::gcsgal(geom.node, geom.inc, mu, nu0, l, b);
-/*			l = mu; b = nu0;*/
 			ex.push_back(l);
 			ey.push_back(b);
 		}
@@ -1506,7 +1307,6 @@ gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
 		for(nu = nu0; nu < nu1; nu += dx)
 		{
 			coordinates::gcsgal(geom.node, geom.inc, mu1, nu, l, b);
-/*			l = mu1; b = nu;*/
 			ex.push_back(l);
 			ey.push_back(b);
 		}
@@ -1515,7 +1315,6 @@ gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
 		for(mu = mu1; mu > mu0; mu -= dx)
 		{
 			coordinates::gcsgal(geom.node, geom.inc, mu, nu1, l, b);
-/*			l = mu; b = nu1;*/
 			ex.push_back(l);
 			ey.push_back(b);
 		}
@@ -1524,44 +1323,251 @@ gpc_polygon make_polygon(const RunGeometry &geom, lambert &proj, double dx)
 		for(nu = nu1; nu > nu0; nu -= dx)
 		{
 			coordinates::gcsgal(geom.node, geom.inc, mu0, nu, l, b);
-/*			l = mu0; b = nu;*/
 			ex.push_back(l);
 			ey.push_back(b);
 		}
 
 		// convert to contour in lambert coordinates
 		gpc_vertex v[ex.size()];
-		//FOR(0, ex.size())
 		FOR(0, ex.size())
 		{
 			proj.convert(ex[i], ey[i], v[i].x, v[i].y);
-/*			v[i].x = ex[i];
-			v[i].y = ey[i];*/
 		}
-
-// 		FOR(0, ex.size())
-// 		{
-// 			cout << v[i].x << " " << v[i].y << "\n";
-// 		}
-// 		exit(0);
 
 		// add contour to polygon
 		gpc_vertex_list c = { ex.size(), v };
 		gpc_add_contour(&p, &c, false);
 
-// 		FILE *ofp;
-// 		ofp= fopen("outfile", "w");
-// 		gpc_write_polygon(ofp, 0, &p);
-// 		fclose(ofp);
-
 		ex.clear();
 		ey.clear();
-		// yay!
-		cerr << col+1;
-//if(col == 0) break;
 	}
 	return p;
 }
+
+//
+// Simple crossing number algorithm, valid for non-self intersecting polygons.
+// See http://softsurfer.com/Archive/algorithm_0103/algorithm_0103.htm for details.
+//
+bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl)
+{
+	int cn = 0;
+	const int n = vl.num_vertices;
+	for(int i = 0; i != n; i++)
+	{
+		gpc_vertex &a = vl.vertex[i];
+		gpc_vertex &b = (i + 1 == n) ? vl.vertex[0] : vl.vertex[i+1];
+
+		if   (((a.y <= t.y) && (b.y > t.y))    		// an upward crossing
+		   || ((a.y > t.y)  && (b.y <= t.y)))  		// a downward crossing
+		{
+			// compute the actual edge-ray intersect x-coordinate
+			double vt = (float)(t.y - a.y) / (b.y - a.y);
+			if (t.x < a.x + vt * (b.x - a.x)) 	// t.x < intersect
+                		++cn;				// a valid crossing of y=t.y right of t.x
+		}
+	}
+
+	return (cn&1);    // 0 if even (out), and 1 if odd (in)	
+}
+
+bool in_polygon(const gpc_vertex &t, const gpc_polygon &p)
+{
+	bool in = false;
+	FOR(0, p.num_contours)
+	{
+		bool inc = in_contour(t, p.contour[i]);
+		in = (in != inc);
+//		if(inc) { cerr << "+"; }
+	}
+//	cerr << "\n";
+	return in;
+}
+
+class striped_polygon
+{
+public:
+	int n;
+	double dx;
+	vector<gpc_polygon> stripes;
+	double x0, x1;
+public:
+	striped_polygon(gpc_polygon &p, int n);
+	~striped_polygon();
+};
+
+void sm_write(const std::string &fn, const gpc_polygon &p);
+
+void poly_bounding_box(double &x0, double &x1, double &y0, double &y1,
+	const gpc_polygon &p)
+{
+	// find minimum and maximum vertex
+	x0 = x1 = p.contour[0].vertex[0].x;
+	y0 = y1 = p.contour[0].vertex[0].y;
+	FOR(0, p.num_contours)
+	{
+		const int n = p.contour[i].num_vertices;
+		FORj(j, 0, n)
+		{
+			const double x = p.contour[i].vertex[j].x;
+			const double y = p.contour[i].vertex[j].y;
+			x0 = std::min(x0, x);
+			x1 = std::max(x1, x);
+			y0 = std::min(y0, y);
+			y1 = std::max(y1, y);
+		}
+	}
+}
+
+striped_polygon::striped_polygon(gpc_polygon &p, int n_)
+	: n(n_)
+{
+	// split the polygon p into n stripes, for faster lookup
+	// when doing poin-in-polygon searches.
+	double y0, y1;
+	poly_bounding_box(x0, x1, y0, y1, p);
+	y0 += .01*y0; y1 += .01*y1;
+
+	// split into n polygons
+	dx = (x1-x0) / n;
+	stripes.resize(n);
+	FOR(0, n)
+	{
+		double xa = x0 +     i * dx;
+		double xb = x0 + (i+1) * dx;
+		gpc_vertex v[] = {{xa, y0}, {xb, y0}, {xb, y1}, {xa, y1}};
+		gpc_vertex_list vl = {4, v};
+		gpc_polygon rect = {1, NULL, &vl};
+
+		gpc_polygon_clip(GPC_INT, &p, &rect, &stripes[i]);
+//		cerr << i << " " << xa << " " << xb << " " << i * (x1-x0) / n << " " << (i+1) * (x1-x0) / n << "\n";
+
+/*		sm_write("stripe.gpc.txt", stripes[i]);
+		exit(0);*/
+	}
+}
+
+striped_polygon::~striped_polygon()
+{
+	FOR(0, stripes.size()) { gpc_free_polygon(&stripes[i]); }
+}
+
+bool in_polygon(const gpc_vertex& t, striped_polygon &p)
+{
+	// find the right poly stripe
+	int s = (int)floor((t.x - p.x0) / p.dx );
+	ASSERT(s < p.n)
+	{
+		cerr << t.x << " " << t.y << " " << s << " " << p.n << "\n";
+	}
+	return in_polygon(t, p.stripes[s]);
+}
+
+#include <sys/time.h>
+double seconds()
+{
+	timeval tv;
+	int ret = gettimeofday(&tv, NULL);
+	assert(ret == 0);
+	return double(tv.tv_sec) + double(tv.tv_usec)/1e6;
+}
+
+void testIntersection(const std::string &prefix)
+{
+	lambert proj(rad(90), rad(90));
+	double l = rad(300);
+	double b = rad(60);
+
+	gpc_polygon allsky;
+	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
+	gpc_read_polygon(fp, 1, &allsky);
+	fclose(fp);
+	striped_polygon sky(allsky, 100);
+//	gpc_polygon &sky = allsky;
+
+	// specific point test
+	double x, y;
+	proj.convert(l, b, x, y);
+	x = 0.272865; y = -0.387265;
+	//x = 0.280607; y = -0.387462;
+	x = 1.05179; y = 0.807653;
+
+	cerr << "Inside: " << in_polygon((gpc_vertex const&)make_pair(x, y), sky) << "\n";
+//exit(0);
+	// monte-carlo tests
+	double begin = seconds();
+
+	srand(23);
+	RunGeometryDB db;
+	for(int k = 0; k != 500; k++) {
+	FOREACH(RunGeometryDB::db_t::iterator, db.db)
+	{
+		const RunGeometry &geom = (*i).second;
+		Mask mask(geom);
+
+		Radians mu0 = geom.muStart;
+		Radians mu1 = geom.muStart + mask.length();
+
+		FORj(col, 0, 6)
+		{
+			Radians nu0 = mask.lo(col);
+			Radians nu1 = mask.hi(col);
+			Radians l, b, mu, nu;
+			mu = math::rnd(mu0, mu1);
+			nu = math::rnd(nu0, nu1);
+			coordinates::gcsgal(geom.node, geom.inc, mu, nu, l, b);
+			if(b < 0) { continue; }
+
+			proj.convert(l, b, x, y);
+			if(!in_polygon((gpc_vertex const&)make_pair(x, y), sky))
+			{
+				cerr << "-";
+// 				cerr << "Test failed for:\n";
+// 				cerr << " l, b = " << deg(l) << " " << deg(b) << "\n";
+// 				cerr << " mu, nu = " << deg(mu) << " " << deg(nu) << "\n";
+// 				cerr << " x, y = " << x << " " << y << "\n";
+// 				cerr << " run, col = " << geom.run << " " << col << "\n";
+// 				cerr << " mu0, mu1 = " << deg(mu0) << " " << deg(mu1) << "\n";
+// 				cerr << " nu0, nu1 = " << deg(nu0) << " " << deg(nu1) << "\n";
+			}
+		}
+	}
+		cerr << ".";
+	}
+	cerr << "\n";
+	cerr << "time: " << seconds() - begin << "\n";
+	gpc_free_polygon(&allsky);
+}
+
+#if 0
+void find_parent(const gpc_polygon &p, const gpc_polygon &c)
+{
+	gpc_vertex_list *parent;
+	FOR(i, p.num_contours)
+	{
+		if(p.hole[i]) continue;
+	}
+}
+
+void make_hierarchy(const gpc_polygon &p)
+{
+	// intersect each hole with every other contour, finding
+	// contours with non-empty intersections. These are the
+	// contours where the hole lives. To guard against contours
+	// living in contours which live in other contours' holes,
+	// count up _all_ contours giving nonempty intersections,
+	// and calculate mutual intersections. The contour which is
+	// contained in all other contours and contains the hole is
+	// the true parent of the hole.
+
+	map
+	FOR(i, p.num_contours)
+	{
+		if(!p.hole[i]) continue;
+		gpc_polygon c = {1, NULL, &p.contour[i]};
+		gpc_vertex_list *owner = find_parent(p, c);
+	}
+}
+#endif
 
 gpc_polygon make_circle(double r, double dx)
 {
@@ -1584,8 +1590,6 @@ double polygon_area(const gpc_polygon &p)
 	FOR(0, p.num_contours)
 	{
 		int n = p.contour[i].num_vertices;
-/*		int sign = p.hole[i] ? -1 : 1;
-		if(sign == -1) { cerr << "HOOOLE! [" << i << "] "; }*/
 		gpc_vertex *v = p.contour[i].vertex;
 		double cA = 0;
 		FORj(j, 0, n)
@@ -1595,127 +1599,97 @@ double polygon_area(const gpc_polygon &p)
 
 			cA += a.x*b.y - b.x*a.y;
 		}
+		cA = abs(cA) * (p.hole[i] ? -1 : 1);
 		A += cA;
-/*		cerr << "part " << i << " = " << cA << (p.hole[i] ? "(hole)" : "") << "\n";*/
 	}
 	A *= 0.5;
 	return abs(A);
 }
 
-// gpc_vertex tv[] = {
-// 	{0, 0},
-// 	{2, 0},
-// 	{2, 1},
-// 	{1, 2},
-// 	{0, 1}
-// 	};
-// gpc_vertex_list tvl = {5, tv};
-// gpc_polygon tp = { 1, NULL, &tvl };
-
-void makeSkyMap2()
+void sm_write(const std::string &fn, const gpc_polygon &p)
 {
-/*	cerr << polygon_area(tp) << "\n";
-	exit(0);*/
-	
-	//Radians dx = rad(.125 * 1/60.); /* polygon sampling resolution in radians */
-	Radians dx = rad(1.); /* polygon sampling resolution in radians */
-	cerr << "dx = " << dx << "\n";
-	lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
-
-	RunGeometryDB db;
-	double x, y;
-	gpc_polygon north = {0, 0, NULL}, south = {0, 0, NULL}, result;
-	gpc_polygon circle = make_circle(sqrt(2.), dx);
-
-	int k = 0;
-	FOREACH(RunGeometryDB::db_t::iterator, db.db)
-	{
-		const RunGeometry &geom = (*i).second;
-		cerr << geom.run << " ";
-
-		//if(geom.run != 752) continue;
-		//if(geom.run != 752 && geom.run != 756) continue;
-		
-		gpc_polygon rpoly = make_polygon(geom, lnorth, dx);
-		gpc_polygon_clip(GPC_INT, &rpoly, &circle, &result);
-		gpc_free_polygon(&rpoly); rpoly = result;
-		gpc_polygon_clip(GPC_UNION, &north, &rpoly, &result);
-		double A = polygon_area(rpoly);
-		gpc_free_polygon(&rpoly);
-
-		gpc_free_polygon(&north); north = result;
-
-		int nvert = 0;
-		FOR(0, north.num_contours) { nvert += north.contour[i].num_vertices; }
-		cerr << " [" << A*sqr(deg(1)) << "] [" << north.num_contours << " contours, " << nvert << " vertices]\n";
-//		if(++k == 30) break;
-	}
-// 	gpc_polygon_clip(GPC_INT, &north, &circle, &result);
-// 	gpc_free_polygon(&north); north = result;
-
-	int nvert = 0;
-	FOR(0, north.num_contours) { nvert += north.contour[i].num_vertices; }
-	cerr << "total [" << polygon_area(north)*sqr(deg(1)) << "deg2 area, "
-	     << north.num_contours << " contours, " << nvert << " vertices]\n";
-
-	// dump polygons
-	gpc_polygon &p = north;
-	//cerr << "numcont=" << p.num_contours << "\n";
+	// dump polygons in SM compatible format
+	ofstream out(fn.c_str());
 	FOR(0, p.num_contours)
 	{
 		gpc_vertex *v = p.contour[i].vertex;
-		//cerr << "numvert=" << p.contour[i].num_vertices << "\n";
 		FORj(j, 0, p.contour[i].num_vertices)
 		{
-			cout << v[j].x << " " << v[j].y << " " << i << "\n";
+			out << v[j].x << " " << v[j].y << " " << i << "\n";
 		}
-		cout << "#\n";
+		out << "#\n";
 	}
+}
 
-	// store polygon the gpc way
-	FILE *ofp;
-	ofp = fopen("outfile", "w");
-	gpc_write_polygon(ofp, 0, &north);
+//lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
+void makeSkyMap(const std::string &prefix, const lambert &proj)
+{
+	Radians dx = rad(.25); /* polygon sampling resolution in radians */
+//	Radians dx = rad(1); /* polygon sampling resolution - good for footprint plots */
+	cerr << "hemisphere = " << prefix << ", dx = " << dx << " radians\n";
+
+	RunGeometryDB db;
+	double x, y;
+	gpc_polygon sky = {0, 0, NULL};
+/*	proj.convert(rad(0.), rad(-30.), x, y);
+	cerr << sqrt(x*x+y*y) << "\n";*/
+	gpc_polygon circle = make_circle(sqrt(2.), dx);
+
+	text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
+	std::set<int> runs;
+	load(in, runs, 0);
+	cerr << "Processing " << runs.size() << " runs.\n";
+
+	int k = 0;
+	FOREACH(std::set<int>::iterator, runs)
+	{
+		const RunGeometry &geom = db.getGeometry(*i);
+// 		cerr << geom.run << " ";
+ 		cerr << ".";
+
+		//if(geom.run != 752) continue;
+		//if(geom.run != 752 && geom.run != 756) continue;
+
+		gpc_polygon rpoly = make_polygon(geom, proj, dx);
+		gpc_polygon_clip(GPC_INT, &rpoly, &circle, &rpoly);
+		gpc_polygon_clip(GPC_UNION, &sky, &rpoly, &sky);
+
+// 		double A = polygon_area(rpoly);
+// 		gpc_free_polygon(&rpoly);
+// 
+// 		int nvert = 0;
+// 		FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+// 		cerr << " [" << A*sqr(deg(1)) << "] [" << sky.num_contours << " contours, " << nvert << " vertices]\n";
+	}
+	cerr << "\n";
+
+	int nvert = 0;
+	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+	cerr << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
+	     << sky.num_contours << " contours, " << nvert << " vertices]\n";
+
+	// store the footprint polygon
+	sm_write(prefix + ".foot.txt", sky);
+	FILE *ofp = fopen((prefix + ".gpc.txt").c_str(), "w");
+	gpc_write_polygon(ofp, 1, &sky);
 	fclose(ofp);
 
 	// free memory
-	gpc_free_polygon(&north);
+	gpc_free_polygon(&sky);
 	gpc_free_polygon(&circle);
-#if 0
-	int sum = 0;
-	FOR(0, north.data.size()) {
-		int k = north.data[i];
-		int m = 1;
-		FORj(j, 0, 32) {
-			sum += (k & m) != 0;
-			m <<= 1;
-		}
-	}
-	cerr << "North area: " << sum*sqr(deg(dx)) << " square degrees";
-#endif
-#if 0
-	typedef std::map<int, interval_set> im_t;
-	std::map<int, interval_set> inorth, &im = inorth;
-	makeIntervalMap(inorth, north);
-	FOREACH(im_t::iterator, im)
-	{
-		double x = (*i).first * dx;
-		interval_set &y = (*i).second;
-		FORj(j, 0, y.size())
-		{
-			double y0 = y[j] * dx;
-			double y1 = y[++j] * dx;
-			cout << x << " " << (y0+y1)/2. << " " << (y1-y0)/2. << "\n";
-		}
-	}
-#endif
 }
+
+void test_nurbs();
+void test_lapack();
 
 int main(int argc, char **argv)
 {
 	//simulate();
-	//makeSkyMap();
-	makeSkyMap2();
+/*	makeSkyMap("north", lambert(rad(90), rad(90)));
+ 	makeSkyMap("south", lambert(rad(-90), rad(-90)));*/
+//	testIntersection("north");
+//	test_nurbs();
+	test_lapack();
 	return 0;
 }
 #if 0

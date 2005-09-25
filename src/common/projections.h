@@ -44,9 +44,19 @@ namespace math {
 		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
 		void convert(const T l, const T phi, T &x, T &y) const
 		{
-			double kp = sqrt(2./(1+sinphi1*sin(phi)+cosphi1*cos(phi)*cos(l - l0)));
+			T kp = sqrt(2./(1+sinphi1*sin(phi)+cosphi1*cos(phi)*cos(l - l0)));
 			x = kp*cos(phi)*sin(l - l0);
 			y = kp*(cosphi1*sin(phi)-sinphi1*cos(phi)*cos(l-l0));
+		}
+
+		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
+		void inverse(const T x, const T y, T &l, T &phi) const
+		{
+			T r = sqrt(x*x + y*y);
+			T c = 2*asin(0.5*r);
+
+			phi = (asin(cos(c)*sinphi1 + y*sin(c)*cosphi1/r));
+			l = (l0 + atan2(x*sin(c), r*cosphi1*cos(c) - y*sinphi1*sin(c)));
 		}
 	};
 

@@ -15,11 +15,12 @@
     <description>Galaxy tomography codes</description>
     <ignoreparts/>
     <secondaryLanguages/>
+    <versioncontrol>kdevcvsservice</versioncontrol>
   </general>
   <kdevautoproject>
     <general>
       <activetarget>src/simulate.x</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
@@ -45,7 +46,7 @@
         <merge_volumes.x/>
         <fitscatread.x/>
         <mlcolor.x/>
-        <simulate.x/>
+        <simulate.x></simulate.x>
         <locusfit.x/>
         <fitter.x/>
       </runarguments>
@@ -58,14 +59,14 @@
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O2 -g0</cxxflags>
         <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton/workspace --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --prefix=/home/mjuric/projects/galaxy/workspace</configargs>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=0</cppflags>
-        <ldflags/>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
-        <cflags/>
-        <f77flags/>
+        <ldflags>-lnurbsf -lmatrix -lmatrixN -lmatrixI -lGL -lGLU -llapack -lg2c</ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
+        <cflags></cflags>
+        <f77flags></f77flags>
         <envvars/>
       </optimized>
       <debug>
@@ -148,15 +149,23 @@
       <headerCompletionDelay>250</headerCompletionDelay>
     </codecompletion>
     <references/>
+    <creategettersetter>
+      <prefixGet></prefixGet>
+      <prefixSet>set</prefixSet>
+      <prefixVariable>m_,_</prefixVariable>
+      <parameterName>theValue</parameterName>
+      <inlineGet>true</inlineGet>
+      <inlineSet>true</inlineSet>
+    </creategettersetter>
   </kdevcppsupport>
   <kdevdebugger>
     <general>
       <programargs>fitbins.txt</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

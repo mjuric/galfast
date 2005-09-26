@@ -91,7 +91,7 @@ OSTREAM(const starmag &sm)
 OSTREAM(const binned_runset &brs)
 {
 	int nstars = 0, nobs = 0;
-	FOREACH(binned_runset::pixelmap::const_iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const binned_runset::pixel &p = (*i).second;
 		nstars += p.uniqueN;
@@ -99,15 +99,15 @@ OSTREAM(const binned_runset &brs)
 	}
 	
 	out << "# dx = " << brs.dx << "\n";
-	out << "# runs = {"; out << brs.runs.size() << " : "; FOREACH(std::set<int>::const_iterator, brs.runs) { out << " " << *i; }; out << " }\n";
-	out << "# colorbins = {"; FOREACH(std::set<ribin>::const_iterator, brs.colorbins) { out << " [" << (*i).first << ", " << (*i).second << ")"; }; out << " }\n";
+	out << "# runs = {"; out << brs.runs.size() << " : "; FOREACH(brs.runs) { out << " " << *i; }; out << " }\n";
+	out << "# colorbins = {"; FOREACH(brs.colorbins) { out << " [" << (*i).first << ", " << (*i).second << ")"; }; out << " }\n";
 	out << "# pixels = " << brs.pixels.size() << "\n";
 	out << "# stars = " << nstars << "\n";
 	out << "# observations = " << nobs << "\n";
 	out << "#\n";
 	out << "#   x          y       z    obs      volume    unq   unqVolume Nrun runs[Nrun]\n";
 
-	FOREACH(binned_runset::pixelmap::const_iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const S3 &idx = (*i).first;
 		const binned_runset::pixel &p = (*i).second;
@@ -115,7 +115,7 @@ OSTREAM(const binned_runset &brs)
 		out << setw(8) << brs.dx*idx.x << setw(8) << brs.dx*idx.y << setw(8) << brs.dx*idx.z;
 		out << setw(7) << p.N << " " << setw(11) << p.volume << setw(7) << p.uniqueN << " " << setw(11) << p.uniqueVolume;
 		out << setw(4) << p.runs.size();
-		FOREACHj(std::set<short>::const_iterator, j, p.runs) { out << setw(6) << *j; }
+		FOREACHj(j, p.runs) { out << setw(6) << *j; }
 
 		out << "\n";
 	}
@@ -126,7 +126,7 @@ OSTREAM(const binned_runset &brs)
 template<typename V>
 BOSTREAM(const std::set<V> &m)
 {
-	out << m.size(); FOREACH(typename std::set<V>::const_iterator, m) { out << *i; }
+	out << m.size(); FOREACH(m) { out << *i; }
 	return out;
 }
 
@@ -375,7 +375,7 @@ void merge(binned_runset &brs, vector<binned_run *> &runs)
 		binned_run &br = *(*i);
 		ASSERT(br.dx == brs.dx);
 
-		FOREACHj(binned_run::pixelmap::iterator, j, br.pixels)
+		FOREACHj(j, br.pixels)
 		{
 			const S3 &idx = (*j).first;
 			binned_run::pixel &p = (*j).second;
@@ -401,7 +401,7 @@ void merge(binned_runset &brs, vector<binned_run *> &runs)
 		if(i == runs.end() || (*i)->colorbin.first != ri0)
 		{
 			// add up unique stars for each pixel
-			FOREACHj(binned_run::pixelmap::iterator, j, tmp)
+			FOREACHj(j, tmp)
 			{
 				const S3 &idx = (*j).first;
 				binned_run::pixel &dest = (*j).second;
@@ -436,7 +436,7 @@ int bin(const set<int> &runs, pair<float, float> r, pair<float, float> ri)
 	paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 	cout << "Distance limits: " << Dmin << " " << Dmax << "\n";
 
-	FOREACH(std::set<int>::const_iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 		binned_run br;
@@ -498,7 +498,7 @@ int make_run_plots(const set<int> &runs)
 	double Dmin, Dmax;
 	int boundsr, novolr;
 
-	FOREACHj(std::set<int>::const_iterator, j, runs)
+	FOREACHj(j, runs)
 	{
 		int run = *j;
 		cerr << "Run " << run << "...";
@@ -536,7 +536,7 @@ int merge_maps(const std::string &outputPrefix, const set<int> &runs, pair<float
 	binned_runset brs;
 
 	vector<binned_run *> bruns;
-	FOREACH(std::set<int>::const_iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 		string fn = io::format("bins/density.%s%05d.%5.3f-%5.3f.%5.3f-%5.3f.bin")
@@ -547,7 +547,7 @@ int merge_maps(const std::string &outputPrefix, const set<int> &runs, pair<float
 	merge(brs, bruns);
 	if(uniqMapFn.size()) { mergeUniqVolume(brs, uniqMapFn, r, ri); }
 
-	FOREACH(vector<binned_run *>::iterator, bruns) { delete *i; }
+	FOREACH(bruns) { delete *i; }
 
 	// store merged 3D volumes
 	string fn = io::format("merged/txt/%s.%5.3f-%5.3f.%5.3f-%5.3f.txt")
@@ -650,7 +650,7 @@ int bin()
 	binned_runset brs;
 
 	vector<binned_run *> runs;
-	FOREACH(romap::iterator, runoffs)
+	FOREACH(runoffs)
 	{
 		int run = (*i).first;
 		std::string fn = io::format("bins/density.%05d.bin") << run;
@@ -672,7 +672,7 @@ int bin()
 	int yc = img.y() / 2;
 	int z = 400 / 50;
 	
-	FOREACH(binned_runset::pixelmap::iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const S3 idx = (*i).first;
 		if(idx.z != z) continue;

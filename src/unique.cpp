@@ -248,7 +248,7 @@ public:
 		cout << "LUT file size:  " << cat.size() * sizeof(object) / (1024*1024) << "MB\n";
 
 		ticker tick(10000);
-		FOREACH(sdss_star_cat::iterator, cat)
+		FOREACH(cat)
 		{
 			sdss_star &s = *i;
 			object o = { s.ra, s.dec, -1, -1 };
@@ -345,7 +345,7 @@ public:
 	void stats(map<int, int> &hist)
 	{
 		ticker tick(10000);
-		FOREACH(DMMArray<object>::iterator, objects)
+		FOREACH(objects)
 		{
 			tick.tick();
 			if((*i).parent >= 0) continue;
@@ -580,7 +580,7 @@ public:
 	void initrunepochs(sdss_star_cat &cat)
 	{
 		FOR(0, MAXRUNS) { runepochs[i] = 0; }
-		FOREACH(std::set<int>::iterator, cat.runs)
+		FOREACH(cat.runs)
 		{
 			runepochs[*i] = (geomDB.getGeometry(*i).tstart - MJD_OF_J2000_NOON)
 				/ (365.);

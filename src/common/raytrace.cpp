@@ -804,7 +804,7 @@ raytrace_fill::raytrace_fill(ExtendedRunInfo &egeom_, int col_, double dx_, XIma
 
 raytrace_fill::~raytrace_fill()
 {
-	FOREACH(isectmap::iterator, isect)
+	FOREACH(isect)
 	{
 		delete (*i).second;
 	}
@@ -1453,7 +1453,7 @@ int zrayng(const set<int> &runs, float dx, pair<float, float> r, pair<float, flo
 
  	ExtendedRunInfo::geomDB.reset(new RunGeometryDB);
 
-	FOREACH(set<int>::const_iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 
@@ -1583,7 +1583,7 @@ double pixelate_interval(binned_run &br, S2 idx, const interval_set &is0, float 
 	S3 k(idx);
 	
 
-	FOREACH(interval_set::const_iterator, is)
+	FOREACH(is)
 	{
 		float x0 = *i / dz + 0.5; i++;
 		float x1 = *i / dz + 0.5;
@@ -1657,7 +1657,7 @@ double pixelate_volume(binned_run &br, const volume_map &vm, int n)
 	float dv = sqr(vm.dx) * dx;
 
 	double vvm = 0, vbr = 0;
-	FOREACH(volume_map::pixelmap::const_iterator, vm.pixels)
+	FOREACH(vm.pixels)
 	{
 		S2 idx = (*i).first;
 		const interval_set &is = (*i).second;
@@ -1748,7 +1748,7 @@ void rhoray(int argc, char **argv)
 	gsl_set_error_handler_off ();
 
 	cout << "# col mapped predicted difference\n";
-	FOREACH(set<int>::iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 		ExtendedRunInfo egeom(run, d0, d1);
@@ -1793,7 +1793,7 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
 
 	ExtendedRunInfo::geomDB.reset(new RunGeometryDB);
 
-	FOREACH(std::set<int>::const_iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 		cout << run << " ... "; cout.flush();
@@ -1818,8 +1818,8 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
 		vm.Dmin *= fact;
 		vm.dx = dx;
 		{
-		FOREACH(volume_map::pixelmap::iterator, vm.pixels) {
-			FOREACHj(interval_set::iterator, j, (*i).second) {
+		FOREACH(vm.pixels) {
+			FOREACHj(j, (*i).second) {
 				*j *= fact;
 			}
 		}
@@ -1942,7 +1942,7 @@ int merge_volumes(const std::string &outfn, const std::set<int> &runs)
 	binary_output_or_die(out, outfn);
 
 	int n = 1;
-	FOREACH(std::set<int>::const_iterator, runs)
+	FOREACH(runs)
 	{
 		int run = *i;
 		cout << setw(4) << n << " : " << run << "\n"; cout.flush();
@@ -2029,7 +2029,7 @@ public:
 	bool next()
 	{
 		if(!ss.next(idx, is)) return false;
-		FOREACH(interval_set::iterator, is) { *i *= dxfactor; }
+		FOREACH(is) { *i *= dxfactor; }
 		return true;
 	}
 
@@ -2062,7 +2062,7 @@ public:
 		if(!prepareInterval()) return 0;
 
 		double sum = 0;
-		FOREACH(interval_set::iterator, is)
+		FOREACH(is)
 		{
 			float x0 = *i / dx; i++;
 			float x1 = *i / dx;
@@ -2249,7 +2249,7 @@ void mergeUniqVolume(binned_runset &brs, const std::string &uniqMapFn, pair<floa
 	paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 	
 	double vsouth = 0, vnorth = 0;
-	FOREACH(binned_run::pixelmap::iterator, br.pixels)
+	FOREACH(br.pixels)
 	{
 		const S3 &v = (*i).first;
 		binned_run::pixel &p = (*i).second;
@@ -2267,7 +2267,7 @@ void mergeUniqVolume(binned_runset &brs, const std::string &uniqMapFn, pair<floa
 	cerr << "Solid angle north  : " << OmegaSouth << "\n";
 	cerr << "Solid angle south  : " << OmegaNorth << "\n";
 
-	FOREACH(binned_runset::pixelmap::iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const S3 &k = (*i).first;
 		binned_runset::pixel &p = (*i).second;

@@ -83,7 +83,7 @@
 			exit(0);
 		}
 
-		FOREACH(Options::iterator, options)
+		FOREACH(options)
 		{
 			cout << (*i).first << " -> '" << (*i).second << "'\n";
 		}

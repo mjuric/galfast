@@ -19,7 +19,11 @@
  ***************************************************************************/
 
 #include "model.h"
+#include "textstream.h"
+#include "analysis.h"
+
 #include <iostream>
+#include <fstream>
 
 #include <astro/system/options.h>
 #include <astro/exceptions.h>
@@ -31,44 +35,36 @@
 
 using namespace std;
 
-void model::get_parameters(gsl_vector *x)
+/////////////
+
+const char *disk_model::param_name[disk_model::nparams] = { "rho0", "l", "h", "z0", "f", "lt", "ht", "fh", "q", "n" };
+const char *disk_model::param_format[disk_model::nparams] = { "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f" };
+
+/////////////
+
+void model_fitter::get_parameters(gsl_vector *x)
 {
 	int k = 0;
-	FOR(0, p.size())
+	FOR(0, nparams)
 	{
 		if(fixed[i]) continue;
 		gsl_vector_set(x, k++, p[i]);
 	}
 }
-void model::set_parameters(const gsl_vector *x)
+
+void model_fitter::set_parameters(const gsl_vector *x)
 {
 	int k = 0;
-	FOR(0, p.size())
+	FOR(0, nparams)
 	{
 		if(fixed[i]) continue;
 		p[i] = gsl_vector_get(x, k++);
 	}
 }
 
-void model::add_param(const std::string &name_, double val, bool fixed, const std::string &format)
-{
-	p.push_back(val);
-
-	this->fixed.push_back(fixed);
-	ndof += fixed == false;
-
-	std::string name;
-	name = name_.size() ? name_ : (io::format("param_%02d") << p.size()-1);
-	param_name.push_back(name);
-
-	param_name_to_index[name] = p.size() - 1;
-	
-	param_format.push_back(format);
-}
-
 #define DFINIT int pcnt_ = 0, j_ = 0;
 #define DFCALC(val) if(!fixed[pcnt_++]) gsl_matrix_set(J, i, j_++, (val)/x.sigma);
-int model::fdf (gsl_vector * f, gsl_matrix * J)
+int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 {
 	// calculate f_i values for all datapoints
 	FOR(0, map->size())
@@ -106,7 +102,7 @@ int model::fdf (gsl_vector * f, gsl_matrix * J)
 #undef DFCALC
 #undef DFINIT
 
-void model::cull(double nSigma)
+void model_fitter::cull(double nSigma)
 {
 	// calculate f_i values for all datapoints
 	vector<rzpixel> newmap;
@@ -123,13 +119,13 @@ void model::cull(double nSigma)
 	*map = newmap;
 }
 
-void model::print(ostream &out, int format)
+void model_fitter::print(ostream &out, int format)
 {
 	switch(format)
 	{
 	case PRETTY:
 		out << io::format("%15s = %d") << "n(DOF)" << ndof << "\n";
-		FOR(0, p.size())
+		FOR(0, nparams)
 		{
 			out << io::format(std::string("%15s = ") + param_format[i]) << param_name[i] << p[i];
 			out << " +- " << io::format(param_format[i]) << sqrt(variance(i));
@@ -140,7 +136,7 @@ void model::print(ostream &out, int format)
 		break;
 	case HEADING:
 		out << "# ";
-		FOR(0, p.size())
+		FOR(0, nparams)
 		{
 			out << param_name[i] << " ";
 		}
@@ -151,17 +147,46 @@ void model::print(ostream &out, int format)
 		}
 		break;
 	case LINE:
-		FOR(0, p.size())
+		FOR(0, nparams)
 		{
 			out << io::format(param_format[i]) << p[i];
-			if(i != p.size()-1) { out << " "; }
+			if(i != nparams-1) { out << " "; }
 		}
 		out << "    ";
-		FOR(0, p.size())
+		FOR(0, nparams)
 		{
 			out << io::format(param_format[i]) << sqrt(variance(i));
-			if(i != p.size()-1) { out << " "; }
+			if(i != nparams-1) { out << " "; }
 		}
 	}
 }
 
+/// model_factory class
+
+model_factory::model_factory(const std::string &modelsfile)
+{
+	text_input_or_die(in, modelsfile);
+
+	float ri0, ri1;	
+	disk_model dm;
+	bind(in, ri0, 0, ri1, 1);
+	FOR(0, disk_model::nparams) { bind(in, dm.p[i], i+2); }
+
+	while(in.next())
+	{
+		models.push_back(make_pair(make_pair(ri0, ri1), dm));
+	}
+}
+
+disk_model *model_factory::get(float ri)
+{
+	FOR(0, models.size())
+	{
+		std::pair<float, float> &bin = models[i].first;
+		if(bin.first <= ri && ri <= bin.second)
+		{
+			return new disk_model(models[i].second);
+		}
+	}
+	return NULL;
+}

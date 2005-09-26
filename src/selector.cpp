@@ -327,7 +327,7 @@ public:
 
 driver::~driver()
 {
-	FOREACH(list<selector_d>::iterator, selectors)
+	FOREACH(selectors)
 	{
 		delete (*i).out;
 		delete (*i).s;
@@ -465,7 +465,7 @@ void selector::start()
 		binary_input_or_die(in, fn);
 		in >> br;
 		brs.dx = br.dx;
-		FOREACH(binned_run::pixelmap::iterator, br.pixels)
+		FOREACH(br.pixels)
 		{
 			const S3 &k = (*i).first;
 			binned_run::pixel &p = (*i).second;
@@ -515,7 +515,7 @@ void selector::start()
 		binary_input_or_die(in, fn);
 		in >> br;
 		brs.dx = br.dx;
-		FOREACH(binned_run::pixelmap::iterator, br.pixels)
+		FOREACH(br.pixels)
 		{
 			const S3 &k = (*i).first;
 			binned_run::pixel &p = (*i).second;
@@ -828,7 +828,7 @@ void selector::finish()
 {
 	if(outputMode == OM_MAP)
 	{
-		FOREACH(binnedmap::iterator, binned)
+		FOREACH(binned)
 		{
 			int v = (*i).second;
 			const S2 &k = (*i).first;
@@ -838,7 +838,7 @@ void selector::finish()
 	}
 	else if(outputMode == OM_CMD)
 	{
-		FOREACH(binnedmap::iterator, binned)
+		FOREACH(binned)
 		{
 			int v = (*i).second;
 			const S2 &k = (*i).first;
@@ -850,7 +850,7 @@ void selector::finish()
 	{
 		binned_runset bout;
 		bout.dx = brs.dx;
-		FOREACH(binned_runset::pixelmap::iterator, brs.pixels)
+		FOREACH(brs.pixels)
 		{
 			S3 k = (*i).first;
 			binned_runset::pixel &p = (*i).second;
@@ -865,7 +865,7 @@ void selector::finish()
 		out << "# Statistics:\n";
 		int total = 0, stars = 0;
 		typedef map<int,int> nappmap;
-		FOREACH(nappmap::iterator, om_stats.napp)
+		FOREACH(om_stats.napp)
 		{
 			out << (*i).first << " " << (*i).second << "\n";
 			total += (*i).first * (*i).second;
@@ -1057,7 +1057,7 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		binary_input_or_die(in, fn);
 		in >> br;
 		brs.dx = br.dx;
-		FOREACH(binned_run::pixelmap::iterator, br.pixels)
+		FOREACH(br.pixels)
 		{
 			const S3 &k = (*i).first;
 			binned_run::pixel &p = (*i).second;
@@ -1332,7 +1332,7 @@ selector *driver::newSelector(const std::string &filename)
 
 void driver::run()
 {
-	FOREACHj(list<selector_d>::iterator, j, selectors)
+	FOREACHj(j, selectors)
 	{
 		(*j).s->start();
 	}
@@ -1341,13 +1341,13 @@ void driver::run()
 	{
 		tick.tick();
 
-		FOREACHj(list<selector_d>::iterator, j, selectors)
+		FOREACHj(j, selectors)
 		{
 			(*j).s->select(arr[att]);
 		}
 	}
 	
-	FOREACHj(list<selector_d>::iterator, j, selectors)
+	FOREACHj(j, selectors)
 	{
 		(*j).s->finish();
 	}

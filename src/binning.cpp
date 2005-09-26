@@ -251,7 +251,7 @@ struct mstar_record
 		double mu, nu;
 
 		int cnt = 0;
-		FOREACH(std::set<int>::iterator, runs) {
+		FOREACH(runs) {
 			int rcnt = 0, rtotal = 0;
 			const int run = *i;
 
@@ -262,7 +262,7 @@ struct mstar_record
 
 			cout << "Checking run " << geom.run << "\n";
 			sdss_star_cat::subset s(cat->getrun(run));
-			FOREACH(sdss_star_cat::subset::iterator, s) {
+			FOREACH(s) {
 				rtotal++;
 				Radians ra = (*i).ra, dec = (*i).dec;
 
@@ -309,7 +309,7 @@ struct mstar_record
 		text_output_or_die(text, "binned.txt");
 
 //		int k = 0;
-		FOREACHj(set<int>::iterator, run, runs)
+		FOREACHj(run, runs)
 		{
 			sdss::RunGeometry geom;
 			geomDB.getGeometry(*run, geom);
@@ -317,7 +317,7 @@ struct mstar_record
 			
 			// cerr << "\nRun " << *run << ":\n";
 			sdss_star_cat::subset ss(cat->getrun(*run));
-			FOREACH(sdss_star_cat::subset::iterator, ss) {
+			FOREACH(ss) {
 				sdss_star &s = *i;
 //				if(s.ri() > 1.0 && s.ri() < 1.1 && s.r < 20.5 && s.r > 15) k++;
 //				if(s.ri() > 1.0 && s.ri() < 1.1 && s.r < 20.5 && s.r > 15 && !filter(s) && k==5) {cout << s << "\n"; exit(-1);}
@@ -360,11 +360,11 @@ struct mstar_record
 		ticker tick(100);
 
 		int n = 0;
-		FOREACHj(set<int>::const_iterator, run, runs)
+		FOREACHj(run, runs)
 		{
 			sdss_star_cat::subset ss(cat->getrun(*run));
 			sparse_volume vm;
-			FOREACH(sdss_star_cat::subset::iterator, ss) {
+			FOREACH(ss) {
 				sdss_star &s = *i;
 				if(!filter(s)) continue;
 
@@ -377,7 +377,7 @@ struct mstar_record
 				tick.tick();
 			}
 
-			FOREACH(sparse_volume::volume_map::iterator, vm.volume)
+			FOREACH(vm.volume)
 			{
 				set_or_add(merged, (*i).first, (*i).second);
 				vi.runs[(*i).first].push_back(*run);
@@ -401,11 +401,11 @@ struct mstar_record
 		int xc = x / 2;
 		ticker tick(100);
 
-		FOREACHj(set<int>::iterator, run, runs)
+		FOREACHj(run, runs)
 		{
 			cerr << "\nRun " << *run << ":\n";
 			sdss_star_cat::subset ss(cat->getrun(*run));
-			FOREACH(sdss_star_cat::subset::iterator, ss) {
+			FOREACH(ss) {
 				sdss_star &s = *i;
 				if(!filter(s)) continue;
 
@@ -679,7 +679,7 @@ struct mstar_record
 	{
 		// load volume covered by the run
 		XImage run_volume;
-		FOREACH(set<int>::const_iterator, runs)
+		FOREACH(runs)
 		{
 			load_volume_map(*i, ri, run_volume);
 
@@ -704,7 +704,7 @@ struct mstar_record
 		run_counts.be_compatible_with(counts);
 		counts.array = 0.;
 
-		FOREACH(set<int>::const_iterator, runs)
+		FOREACH(runs)
 		{
 			load_counts_map(*i, ri_lo, ri_hi, run_counts);
 
@@ -859,14 +859,14 @@ struct mstar_record
 
 		// number of measurements (samples)
 		int n = 0;
-		FOREACH(XImage::iterator, den) { n += *i > 0; }
+		FOREACH(den) { n += *i > 0; }
 
 		text_output_or_die(out, io::format("analysis/density.ri=%4.2f.txt") << ri);
 
 		gsl::vector Y(n), w(n);
 		gsl::matrix X(n, 3);
 		int k = 0;
-		FOREACH(XImage::iterator, den)
+		FOREACH(den)
 		{
 			double rho = Rg + dx*((i.x-x/2) + .5);
 			double z   = dx*((i.y-y/2) + .5);
@@ -923,14 +923,14 @@ struct mstar_record
 
 		// number of measurements (samples)
 		int n = 0;
-		FOREACH(XImage::iterator, den) { n += *i > 0; }
+		FOREACH(den) { n += *i > 0; }
 
 		text_output_or_die(out, io::format("analysis/density.ri=%4.2f.txt") << ri);
 
 		gsl::vector Y(n), w(n);
 		gsl::matrix X(n, 3);
 		int k = 0;
-		FOREACH(XImage::iterator, den)
+		FOREACH(den)
 		{
 			double rho = Rg + dx*((i.x-x/2) + .5);
 			double z   = dx*((i.y-y/2) + .5);
@@ -1086,7 +1086,7 @@ void safe_divide(sparse_volume &density, const sparse_volume &counts, const spar
 	density.r1 = counts.r1;
 
 	// calculating density
-	FOREACH(sparse_volume::volume_map::const_iterator, counts.volume)
+	FOREACH(counts.volume)
 	{
 		sparse_volume::K p = (*i).first;
 		float c = (*i).second;
@@ -1369,7 +1369,7 @@ try
 		std::string filename = io::format("counts3d/counts.%.3f-%.3f.%s.bin") << ri0 << ri1 << suffix;
 		header h("Binned star counts in geocentric galactic cartesian coordinates, in dx units");
 		string sruns;
-		FOREACH(set<int>::iterator, runs) { sruns += str(*i) + " "; }
+		FOREACH(runs) { sruns += str(*i) + " "; }
 		h["runs"] = sruns;
 		h["dx"] = str(vm.dx);
 		h["hasinfo"] = 1;
@@ -1381,7 +1381,7 @@ try
 	{
 		set<int> runs;
 		r.loadRuns(runs);
-		FOREACH(std::set<int>::const_iterator, runs)
+		FOREACH(runs)
 		{
 			int run = *i;
 			

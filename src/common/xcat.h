@@ -248,7 +248,7 @@ inline obinarystream &operator <<(obinarystream &out, const std::map<K, V, L> &m
 {
 	out << m.size();
 	typedef std::map<K, V, L> M;
-	FOREACH(typename M::const_iterator, m) { out << (*i).first << (*i).second; }
+	FOREACH(m) { out << (*i).first << (*i).second; }
 	return out;
 }
 
@@ -268,7 +268,7 @@ template <typename V>
 inline obinarystream &operator <<(obinarystream &out, const std::vector<V> &a)
 {
 	out << a.size();
-	FOREACH(typename std::vector<V>::const_iterator, a) { out << *i; }
+	FOREACH(a) { out << *i; }
 	return out;
 }
 

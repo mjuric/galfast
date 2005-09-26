@@ -41,7 +41,7 @@ sdss_star_cat::sdss_star_cat(std::string dir_)
 
 	// add all files to memory map
 	valarray<int> cols; header h; int size; int n = 0;
-	FOREACH(std::set<int>::iterator, runs)
+	FOREACH(runs)
 	{
 		cerr << *i << " ";
 

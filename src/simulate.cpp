@@ -839,7 +839,7 @@ inline double dr_dd(const direction &d)
 //
 // Number of stars per cubic parsec at point d (the Galactic model)
 //
-model m;
+model_fitter m;
 double model_rho(const direction &d)
 {
 	double rho = m.rho(d.rcyl, d.z);
@@ -1169,7 +1169,7 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 
 	ofstream denf("mq_den.txt");
 	hdr(denf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
-	model mold = m;
+	model_fitter mold = m;
 	FOR(0, 1001)
 	{
 		double dd = dmin + (dmax-dmin)*double(i)/1000.;
@@ -1183,10 +1183,10 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 		m.param("f") = 0.062;
 		m.param("ht") = 800;
 		m.param("h") = 260;*/
-		m.param("rho0") = 1.;
-		m.param("f") = 0.04;
-		m.param("ht") = 1000;
-		m.param("h") = 260;
+		m.rho0 = 1.;
+		m.f = 0.04;
+		m.ht = 1000;
+		m.h = 260;
 /*		for(int i = 240; i != 300; i+=10)
 		{
 			m.param("h") = i;
@@ -1223,7 +1223,7 @@ namespace stlops
 		inline OSTREAM(const std::vector<T> &a)
 		{
 			out << "[";
-			FOREACH(typename std::vector<T>::const_iterator, a)
+			FOREACH(a)
 			{
 				if(i != a.begin()) { out << ", "; }
 				out << *i;
@@ -1254,18 +1254,18 @@ void simulate()
 // 	m.add_param("q", 1.5);
 // 	m.add_param("n", 3);
 
-	m.add_param("rho0", 1);
-	m.add_param("l", 3000);
-	m.add_param("h", 270);
-	m.add_param("z0", 25);
+	m.rho0 = 1;
+	m.l = 3000;
+	m.h = 270;
+	m.z0 = 25;
 
-	m.add_param("f", 0.04);
-	m.add_param("lt", 3500);
-	m.add_param("ht", 1400);
+	m.f = 0.04;
+	m.lt = 3500;
+	m.ht = 1400;
 
-	m.add_param("fh", 0.0001);
-	m.add_param("q", 1.5);
-	m.add_param("n", 3);
+	m.fh = 0.0001;
+	m.q = 1.5;
+	m.n = 3;
 	
 	//simulate(100000, 0., rad(90.), 0., 15000.);
 	//simulate(100000, rad(33.), rad(15.), 0., 15000.);
@@ -1499,7 +1499,7 @@ void testIntersection(const std::string &prefix)
 	srand(23);
 	RunGeometryDB db;
 	for(int k = 0; k != 500; k++) {
-	FOREACH(RunGeometryDB::db_t::iterator, db.db)
+	FOREACH(db.db)
 	{
 		const RunGeometry &geom = (*i).second;
 		Mask mask(geom);
@@ -1641,7 +1641,7 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 	cerr << "Processing " << runs.size() << " runs.\n";
 
 	int k = 0;
-	FOREACH(std::set<int>::iterator, runs)
+	FOREACH(runs)
 	{
 		const RunGeometry &geom = db.getGeometry(*i);
 // 		cerr << geom.run << " ";
@@ -1681,6 +1681,7 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 
 void test_nurbs();
 void test_lapack();
+void integrations(const std::string &prefix);
 
 int main(int argc, char **argv)
 {
@@ -1689,7 +1690,8 @@ int main(int argc, char **argv)
  	makeSkyMap("south", lambert(rad(-90), rad(-90)));*/
 //	testIntersection("north");
 //	test_nurbs();
-	test_lapack();
+//	test_lapack();
+	integrations("north");
 	return 0;
 }
 #if 0

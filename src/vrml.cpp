@@ -23,7 +23,7 @@
 		pl.clone(&root)->setLocation(-1, 0, 0);
 
 		// run geometries
-		FOREACH(set<int>::iterator, runs) {
+		FOREACH(runs) {
 			geomDB.getGeometry(*i, geom);
 //			if(geom.run != 745) { continue; }
 

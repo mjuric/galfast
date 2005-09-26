@@ -416,7 +416,7 @@ public:
 inline OSTREAM(const binned_run &brs)
 {
 	int nstars = 0, nobs = 0;
-	FOREACH(binned_run::pixelmap::const_iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const binned_run::pixel &p = (*i).second;
 		nstars += p.stars.size();
@@ -432,7 +432,7 @@ inline OSTREAM(const binned_run &brs)
 	out << "#\n";
 	out << "#    x     y     z  obs  volume  unq Nrun runs[Nrun]\n";
 
-	FOREACH(binned_run::pixelmap::const_iterator, brs.pixels)
+	FOREACH(brs.pixels)
 	{
 		const peyton::math::S3 &idx = (*i).first;
 		const binned_run::pixel &p = (*i).second;
@@ -452,7 +452,7 @@ inline obinarystream &operator <<(obinarystream &out, const binned_run::pixel &p
 {
 	out << p.volume;
 	out << p.stars.size();
-	FOREACH(std::set<int>::const_iterator, p.stars) { out << *i; }
+	FOREACH(p.stars) { out << *i; }
 	return out;
 }
 
@@ -474,7 +474,7 @@ inline obinarystream &operator <<(obinarystream &out, const binned_run &br)
 
 	out << br.dx << br.run << br.colorbin << br.Dmin << br.Dmax;
 	out << br.pixels.size();
-	FOREACH(binned_run::pixelmap::const_iterator, br.pixels) { out << (*i).first << (*i).second; }
+	FOREACH(br.pixels) { out << (*i).first << (*i).second; }
 	return out;
 }
 

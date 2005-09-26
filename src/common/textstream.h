@@ -63,13 +63,13 @@ public:
 	bool unbind(T &s)
 	{
 		void *ptr = (void *)&s;
-		FOREACH(field_map::iterator, fields) {
+		FOREACH(fields) {
 			if((*i).second.v.v_void != ptr) continue;
 
 			fields.erase(i);
 			
 			max_field = 0;
-			FOREACH(field_map::iterator, fields) { max_field = std::max(max_field, (*i).first); }
+			FOREACH(fields) { max_field = std::max(max_field, (*i).first); }
 
 			return true;
 		}

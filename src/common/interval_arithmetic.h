@@ -44,7 +44,7 @@ inline OSTREAM(const interval_set &is)
 	ASSERT(is.size() % 2 == 0);
 	
 	out << "[";
-	FOREACH(interval_set::const_iterator, is)
+	FOREACH(is)
 	{
 		out << " (" << *i;
 		out << ", " << *(++i) << ")";
@@ -59,7 +59,7 @@ inline BOSTREAM(const interval_set &is)
 	ASSERT(is.size() % 2 == 0);
 	
 	out << is.size();
-	FOREACH(interval_set::const_iterator, is)
+	FOREACH(is)
 	{
 		out << *i;
 		++i;
@@ -117,7 +117,7 @@ inline void add_interval(interval_set &is, const interval &k)
 inline void add_interval(interval_set &is, const interval_set &is0)
 {
 	interval_set::value_type tmp;
-	FOREACH(interval_set::const_iterator, is0)
+	FOREACH(is0)
 	{
 		tmp = *i;
 		++i;
@@ -176,7 +176,7 @@ inline interval_set::value_type length(const interval_set &is)
 	ASSERT(is.size() % 2 == 0);
 
 	interval_set::value_type sum = 0;
-	FOREACH(interval_set::const_iterator, is)
+	FOREACH(is)
 	{
 		sum -= *i;
 		++i;

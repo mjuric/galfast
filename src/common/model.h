@@ -38,50 +38,28 @@ struct rzpixel
 	double rho, sigma;
 };
 
-struct model
+struct disk_model
 {
 	static const double Rg = 8000.;
-
-	// model parameters
-	std::vector<double> p;
-	std::vector<double> covar;
-	std::vector<bool> fixed;
-	double chi2_per_dof;
-
-	double variance(int i) { return covar[i*p.size() + i]; }
-
-	std::vector<std::string> param_name, param_format;
-	std::map<std::string, int> param_name_to_index;
-
-	// Model data
-	std::vector<rzpixel> *map;
-	int ndata() { return map->size(); }
-
-	model(const model& m)
-		: p(m.p), covar(m.covar), fixed(m.fixed), chi2_per_dof(m.chi2_per_dof),
-		  param_name(m.param_name), param_format(m.param_format), 
-		  param_name_to_index(m.param_name_to_index),
-		  map(m.map != NULL ? new std::vector<rzpixel>(*m.map) : NULL)
-		{
-		}
 	
-	// Model function
-	#define rho0	p[0]
-	#define l	p[1]
-	#define h	p[2]
-	#define z0	p[3]
-	#define f	p[4]
-	#define lt	p[5]
-	#define ht	p[6]
-	#define fh	p[7]
-	#define q	p[8]
-	#define n	p[9]
+	static const size_t nparams = 10;
+	static const char *param_name[nparams];
+	static const char *param_format[nparams];
+
+	union {
+		double p[nparams];
+		struct { double rho0, l, h, z0, f, lt, ht, fh, q, n; };
+	};
+
+	disk_model() {}
+
+	// Model functions
 	double rho_thin(double r, double z)  const { return rho0 *     exp((Rg-r)/l  + (std::abs(z0) - std::abs(z + z0))/h); }
 	double rho_thick(double r, double z) const { return rho0 * f * exp((Rg-r)/lt + (std::abs(z0) - std::abs(z + z0))/ht); }
 	double rho_halo(double r, double z)  const { return rho0 * fh * pow(Rg/sqrt(halo_denom(r,z)),n); }
 	double rho(double r, double z)       const { return rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z); }
 
-	double norm_at_Rg() const { return f*exp(8000.*(1./l - 1./lt)); }
+	double norm_at_Rg() const { return f*exp(Rg*(1./l - 1./lt)); }
 
 	// Derivatives of the model function
 	double drho0(double r, double z, double rhom) const { return 1./rho0 * rhom; }
@@ -96,27 +74,53 @@ struct model
 	double dfh(double r, double z, double rhoh) const { return 1./fh * rhoh; }
 	double dq(double r, double z, double rhoh) const { return -n*q*peyton::sqr(z+z0)/halo_denom(r,z) * rhoh; }
 	double dn(double r, double z, double rhoh) const { return log(Rg/sqrt(halo_denom(r,z))) * rhoh; }
-	#undef rho0
-	#undef l
-	#undef h
-	#undef z0
-	#undef f
-	#undef lt
-	#undef ht
-	#undef fh
-	#undef q
-	#undef n
+};
+
+struct model_fitter : public disk_model
+{
+	// model parameters
+	std::vector<double> covar;
+	std::vector<bool> fixed;
+	double chi2_per_dof;
+
+	double variance(int i) { return covar[i*nparams + i]; }
+
+	std::map<std::string, int> param_name_to_index;
+
+	// Model data
+	std::vector<rzpixel> *map;
+	int ndata() { return map->size(); }
+
+	model_fitter(const model_fitter& m)
+		: disk_model(m),
+		  covar(m.covar), fixed(m.fixed), chi2_per_dof(m.chi2_per_dof),
+		  param_name_to_index(m.param_name_to_index),
+		  map(m.map != NULL ? new std::vector<rzpixel>(*m.map) : NULL)
+		{
+		}
 
 	// Constructor
-	model() : ndof(0) {}
+	model_fitter()
+		: ndof(0), fixed(false, nparams)
+	{
+		for(int i = 0; i != nparams; i++) { param_name_to_index[param_name[i]] = i; }
+	}
 
-	// Generic model fitting functions
+	// Generic model_fitter fitting functions
 	int ndof;
 
-	void add_param(const std::string &name_ = "", double val = 0, bool fixed = false, const std::string &format = "%.9f");
-	double &param(const std::string &name)
+ 	double &param(const std::string &name)
+ 	{
+ 		return p[param_name_to_index[name]];
+	}
+	std::vector<bool>::reference fix(const std::string &name)
 	{
-		return p[param_name_to_index[name]];
+		return fixed[param_name_to_index[name]];
+	}
+ 	void set_param(const std::string &name, double val, bool fixed)
+	{
+		param(name) = val;
+		fix(name) = fixed;
 	}
 
 	void get_parameters(gsl_vector *x);
@@ -130,6 +134,13 @@ struct model
 	void print(std::ostream &out, int format = PRETTY);
 };
 
-
+class model_factory
+{
+public:
+	std::vector<std::pair<std::pair<float, float>, disk_model> > models;
+public:
+	model_factory(const std::string &models);
+	disk_model *get(float ri);
+};
 
 #endif

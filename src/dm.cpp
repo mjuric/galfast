@@ -317,7 +317,7 @@ void average_magnitudes()
 			// process and store
 			mobject m = process_observations(starmags.size(), ra, dec, Ar, obsv);
 
-			FOREACH(vector<starmag>::iterator, obsv) { starmags.push_back((starmag&)*i); }
+			FOREACH(obsv) { starmags.push_back((starmag&)*i); }
 
 			out.push_back(m);
 		}
@@ -430,7 +430,7 @@ void make_run_index_offset_map()
 	}
 	
 	ofstream out("dm_run_index.map");
-	FOREACH(romap::iterator, runoffs) { out << (*i).first << "\t" << (*i).second << "\n"; }
+	FOREACH(runoffs) { out << (*i).first << "\t" << (*i).second << "\n"; }
 }
 
 void loadRuns(set<int> &runs, const std::string &runfile = "")

@@ -114,7 +114,7 @@ std::ostream &Transform::write(std::ostream &out) const
 		<< "\tchildren [\n";
 
 //	cout << "\tchildren...\n";
-	FOREACH(std::list<Node *>::const_iterator, children) {
+	FOREACH(children) {
 //		cout << "\t\tchild... [" << (*i)->type() << "] \n";
 		(*i)->write(out);
 	}
@@ -281,7 +281,7 @@ public:
 
 void IndexedFaceSet::add(std::vector<peyton::math::V3> &poly)
 {
-	FOREACH(std::vector<peyton::math::V3>::iterator, poly) {
+	FOREACH(poly) {
 		int j;
 		for(j = 0; j != vert.size(); j++) {
 			if(epsilon == 0) {
@@ -305,7 +305,7 @@ std::ostream &IndexedFaceSet::write(std::ostream &out) const
 	out << "\tcoord Coordinate {\n";
 	out << "\t\tpoint[\n";
 
-	FOREACH(std::vector<f3>::const_iterator, vert) {
+	FOREACH(vert) {
 		const f3 &v = *i;
 		out << "\t\t\t" << v << "\n";
 	}
@@ -314,7 +314,7 @@ std::ostream &IndexedFaceSet::write(std::ostream &out) const
 	out << "\t}\n";
 	out << "\tcoordIndex [\n";
 	bool first = true;
-	FOREACH(std::vector<int>::const_iterator, idx) {
+	FOREACH(idx) {
 		if(first) { out << "\t\t"; first = false; }
 		out << *i;
 		if(*i == -1) { first = true; out << "\n"; }

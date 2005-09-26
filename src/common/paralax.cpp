@@ -36,8 +36,8 @@ void plx_gri_locus::ml_grri::setprior(const std::string &priorfile)
 	vector<double> x, logp;
 	load(pin, x, 0, logp, 1);
 	double s = 0;
-	FOREACH(vector<double>::iterator, logp) { s += *i; } // calculate sum for normalization
-	FOREACH(vector<double>::iterator, logp) { *i = log(*i/s); }
+	FOREACH(logp) { s += *i; } // calculate sum for normalization
+	FOREACH(logp) { *i = log(*i/s); }
 	
 	prior = gsl_spline_alloc(gsl_interp_cspline, x.size());
 	gsl_spline_init(prior, &x[0], &logp[0], x.size());

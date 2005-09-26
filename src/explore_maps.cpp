@@ -45,7 +45,7 @@ void lambertw(double dx, Radians l0, Radians b0, Radians l1, Radians b1)
 	lambert map(rad(0), rad(90));
 #if 1
 	ticker tick(10000);
-	FOREACH(DMMArray<mobject>::iterator, arr)
+	FOREACH(arr)
 	{
 		tick.tick();
 		mobject &m = *i;
@@ -67,7 +67,7 @@ void lambertw(double dx, Radians l0, Radians b0, Radians l1, Radians b1)
 	}
 #endif	
 	text_output_or_die(out, "counts.txt");
-	FOREACH(XImage::iterator, img)
+	FOREACH(img)
 	{
 		if(*i == 0) continue;
 		out << (0.5 + i.x)*dx - 2 << (0.5 + i.y)*dx - 2 << *i << nl();
@@ -90,7 +90,7 @@ void work(double dx, double dy, Radians l0, Radians b0, Radians l1, Radians b1)
 	XImage img(w,h);
 
 	ticker tick(10000);
-	FOREACH(DMMArray<mobject>::iterator, arr)
+	FOREACH(arr)
 	{
 		tick.tick();
 		mobject &m = *i;

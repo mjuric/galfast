@@ -33,7 +33,7 @@ header::header()
 obinarystream &operator <<(obinarystream &out, const header::data_map &data)
 {
 	out << data.size();
-	FOREACH(header::data_map::const_iterator, data) { out << (*i).first << (*i).second; }
+	FOREACH(data) { out << (*i).first << (*i).second; }
 	return out;
 }
 
@@ -70,7 +70,7 @@ OSTREAM(const header &h)
 	cout << h.description << "\n\n";
 
 	cout << "Header keywords:" << "\n";
-	FOREACH(header::data_map::const_iterator, h.data) { cout << "    " << (*i).first << " = " << (*i).second << "\n"; }
+	FOREACH(h.data) { cout << "    " << (*i).first << " = " << (*i).second << "\n"; }
 	cout << "\n";
 	
 	cout << "File saved on " << ctime(&h.datetime) << "\n";

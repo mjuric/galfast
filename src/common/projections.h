@@ -34,11 +34,11 @@ namespace math {
 	
 	class lambert
 	{
-		double l0, cosphi1, sinphi1;
+		double l0, phi1, cosphi1, sinphi1;
 	
 	public:
-		lambert(Radians l0_ = peyton::math::rad(90), Radians phi1 = peyton::math::rad(90))
-			: cosphi1(cos(phi1)), sinphi1(sin(phi1)), l0(l0_)
+		lambert(Radians l0_ = peyton::math::rad(90), Radians phi1_ = peyton::math::rad(90))
+			: phi1(phi1_), cosphi1(cos(phi1_)), sinphi1(sin(phi1_)), l0(l0_)
 		{ }
 
 		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
@@ -55,8 +55,8 @@ namespace math {
 			T r = sqrt(x*x + y*y);
 			T c = 2*asin(0.5*r);
 
-			phi = (asin(cos(c)*sinphi1 + y*sin(c)*cosphi1/r));
-			l = (l0 + atan2(x*sin(c), r*cosphi1*cos(c) - y*sinphi1*sin(c)));
+			phi =     r != 0. ? asin(cos(c)*sinphi1 + y*sin(c)*cosphi1/r) : phi1;
+			l = l0 + (r != 0. ? atan2(x*sin(c), r*cosphi1*cos(c) - y*sinphi1*sin(c)) : 0.);
 		}
 	};
 

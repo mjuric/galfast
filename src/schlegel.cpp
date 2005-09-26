@@ -214,7 +214,7 @@ int importCatalog(int run, const string &output, int id)
 	string pattern = io::format("data/schlegel/calibObj-%06d-?-star.fits.gz") << run;
 	dir inputfiles(pattern);
 	int n = 0;
-	FOREACH(dir::iterator, inputfiles)
+	FOREACH(inputfiles)
 	{
 		cerr << "\t" << *i << "\n";
 		fits_loader in(*i, s, flags1, flags2);
@@ -269,7 +269,7 @@ int importCatalog(int run, const string &output, int id)
 	// store page aligned array of stars
 	out << stars.size();
 	MemoryMap::pagesizealign(out.f);
-	FOREACH(vector<sdss_star>::iterator, stars) { out << *i; }
+	FOREACH(stars) { out << *i; }
 
 	return stars.size();
 }
@@ -320,7 +320,7 @@ try
 	}
 
 	int id = 0;
-	FOREACH(set<int>::iterator, runs)
+	FOREACH(runs)
 	{
 		id += importCatalog(*i, output, id);
 	}

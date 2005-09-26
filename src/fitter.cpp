@@ -46,7 +46,7 @@ static const double Rg = 8000.;
 extern "C"
 int model_fdf (const gsl_vector * v, void *params, gsl_vector * f, gsl_matrix * J)
 {
-	model *m = (model *)params;
+	model_fitter *m = (model_fitter *)params;
 
 	m->set_parameters(v);
 	m->fdf(f, J);
@@ -74,7 +74,7 @@ int print_state (size_t iter, gsl_multifit_fdfsolver * s, int dof)
 	fprintf(stderr, "|f(x)| = %g\n", gsl_blas_dnrm2 (s->f));
 }
 
-int model::fit(int cullIter, double nsigma)
+int model_fitter::fit(int cullIter, double nsigma)
 {
 	//
 	// Generic fit driver
@@ -117,7 +117,7 @@ int model::fit(int cullIter, double nsigma)
 	// expand the covariance matrix
 	gsl_matrix *cov = gsl_matrix_alloc (ndof, ndof);
 	gsl_multifit_covar (s->J, 0.0, cov);
-	int np = p.size();
+	int np = nparams;
 	covar.resize(np*np); fill(covar.begin(), covar.end(), 0.);
 	int y = 0;
 	FORj(r, 0, np) // rows
@@ -173,7 +173,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how)
 	{
 		// find the r value closest to the Sun
 		rbeam = 0;
-		FOREACH(vector<rzpixel>::iterator, *data)
+		FOREACH(*data)
 		{
 			rzpixel &pix = *i;
 			if(abs(pix.r-8000.) < abs(rbeam-8000))
@@ -187,7 +187,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how)
 	// and close to the edges of the survey
 	//
 	vector<rzpixel> out;
-	FOREACH(vector<rzpixel>::iterator, *data)
+	FOREACH(*data)
 	{
 		rzpixel &pix = *i;
 		double phi = deg(atan2(pix.z,pix.r-8000));
@@ -274,21 +274,21 @@ try
 //	std::string how = "thin";
 	std::string how = "ngpbeam";
 
-	model m;
+	model_fitter m;
 	double r0, r1; std::string rzfile, modelname;
 	if(how == "thin")
 	{
-		m.add_param("rho0", 0, false);
-		m.add_param("l", 0, false);
-		m.add_param("h", 0, false);
-		m.add_param("z0", 0, true);
+		m.set_param("rho0", 0, false);
+		m.set_param("l", 0, false);
+		m.set_param("h", 0, false);
+		m.set_param("z0", 0, true);
 		
-		m.add_param("f", 0.0, true);
-		m.add_param("lt", 3500, true);
-		m.add_param("ht", 400, true);
-		m.add_param("fh", 0.0, true);
-		m.add_param("q", 1.5, true);
-		m.add_param("n", 3, true);
+		m.set_param("f", 0.0, true);
+		m.set_param("lt", 3500, true);
+		m.set_param("ht", 400, true);
+		m.set_param("fh", 0.0, true);
+		m.set_param("q", 1.5, true);
+		m.set_param("n", 3, true);
 
 		bind(in, modelname, 0, r0, 1, r1, 2, rzfile, 3,
 			m.param("rho0"), 4,
@@ -299,19 +299,19 @@ try
 	}
 	else if(how == "thick")
 	{
-		m.add_param("rho0", 0, true);
-		m.add_param("l", 0, false);
-		m.add_param("h", 0, false);
-		m.add_param("z0", 0, true);
+		m.set_param("rho0", 0, true);
+		m.set_param("l", 0, false);
+		m.set_param("h", 0, false);
+		m.set_param("z0", 0, true);
 
-//		m.add_param("f", 0.012, true);
-		m.add_param("f", 0.03, false);
-		m.add_param("lt", 4800, false);
-		m.add_param("ht", 1500, false);
+//		m.set_param("f", 0.012, true);
+		m.set_param("f", 0.03, false);
+		m.set_param("lt", 4800, false);
+		m.set_param("ht", 1500, false);
 
-		m.add_param("fh", 0.0, true);
-		m.add_param("q", 1.5, true);
-		m.add_param("n", 3, true);
+		m.set_param("fh", 0.0, true);
+		m.set_param("q", 1.5, true);
+		m.set_param("n", 3, true);
 
 		bind(in, modelname, 0, r0, 1, r1, 2, rzfile, 3,
 			m.param("rho0"), 4,
@@ -322,18 +322,18 @@ try
 	}
 	else if(how == "halo")
 	{
-		m.add_param("rho0", 0, false);
-		m.add_param("l", 0, true);
-		m.add_param("h", 0, true);
-		m.add_param("z0", 0, true);
+		m.set_param("rho0", 0, false);
+		m.set_param("l", 0, true);
+		m.set_param("h", 0, true);
+		m.set_param("z0", 0, true);
 		
-		m.add_param("f", 0.0647, true);
-		m.add_param("lt", 3300, true);
-		m.add_param("ht", 1100, true);
+		m.set_param("f", 0.0647, true);
+		m.set_param("lt", 3300, true);
+		m.set_param("ht", 1100, true);
 
-		m.add_param("fh", 0.0015, false);
-		m.add_param("q", 2.3, false);
-		m.add_param("n", 1.16, true);
+		m.set_param("fh", 0.0015, false);
+		m.set_param("q", 2.3, false);
+		m.set_param("n", 1.16, true);
 
 		bind(in, modelname, 0, r0, 1, r1, 2, rzfile, 3,
 			m.param("rho0"), 4,
@@ -344,23 +344,23 @@ try
 	}
 	else if(how == "ngpbeam")
 	{
-		m.add_param("rho0", 0.06, false);
-		m.add_param("l", 2500, true);
-		m.add_param("h", 270, false);
-		m.add_param("z0", 24, true);
+		m.set_param("rho0", 0.06, false);
+		m.set_param("l", 2500, true);
+		m.set_param("h", 270, false);
+		m.set_param("z0", 24, true);
 
-		m.add_param("f", 0.04, false);
-		m.add_param("lt", 2500, true);
-		m.add_param("ht", 1200, false);
+		m.set_param("f", 0.04, false);
+		m.set_param("lt", 2500, true);
+		m.set_param("ht", 1200, false);
 
-		m.add_param("fh", 0.0, true);
-		m.add_param("q", 1.5, true);
-		m.add_param("n", 3, true);
+		m.set_param("fh", 0.0, true);
+		m.set_param("q", 1.5, true);
+		m.set_param("n", 3, true);
 
 		bind(in, modelname, 0, r0, 1, r1, 2, rzfile, 3);
 	}
 
-	m.print(cout, model::HEADING);
+	m.print(cout, model_fitter::HEADING);
 	cout << "\n";
 //	cout << "# name ri0 ri1 chi2/dof rho0 l h z0 err(rho0 l h z0)\n";
 
@@ -387,7 +387,7 @@ try
 
 		cout << setw(10) << modelname << setw(7) << r0 << setw(7) << r1 << setw(40) << rzfile << setw(40) << rzfile;
 		cout << " " << setw(10) << m.chi2_per_dof << " ";
-		m.print(cout, model::LINE);
+		m.print(cout, model_fitter::LINE);
 		cout << "\n";
 
 		m.set_parameters(v);

@@ -55,6 +55,8 @@
 	         magnitude.
 */
 
+#include "gsl/gsl_randist.h"
+
 namespace lapack
 {
 	extern "C"
@@ -69,21 +71,72 @@ extern "C"
 	#include "gpc/gpc.h"
 }
 
-#include <nurbs++/nurbsS.h>
+//#include <nurbs++/nurbsS.h>
 
 #include <boost/tuple/tuple.hpp>
+#include <boost/shared_ptr.hpp>
+#include <fstream>
 
 #include "projections.h"
 #include "model.h"
+#include "paralax.h"
 
 #include <vector>
 #include <map>
 #include <string>
 
+#include <astro/io/binarystream.h>
 #include <astro/math.h>
 #include <astro/util.h>
 #include <astro/system/log.h>
 #include <astro/useall.h>
+
+BLESS_POD(gpc_vertex);
+
+BOSTREAM2(const gpc_vertex_list& p)
+{
+	out << p.num_vertices;
+	FOR(0, p.num_vertices)
+	{
+		out << p.vertex[i];
+	}
+	return out;
+}
+
+BOSTREAM2(const gpc_polygon& p)
+{
+	out << p.num_contours;
+	FOR(0, p.num_contours)
+	{
+		out << p.hole[i];
+		out << p.contour[i];
+	}
+	return out;
+}
+
+BISTREAM2(gpc_vertex_list& p)
+{
+	in >> p.num_vertices;
+	p.vertex = (gpc_vertex*)malloc(p.num_vertices*sizeof(gpc_vertex));
+	FOR(0, p.num_vertices)
+	{
+		in >> p.vertex[i];
+	}
+	return in;
+}
+
+BISTREAM2(gpc_polygon& p)
+{
+	in >> p.num_contours;
+	p.contour = (gpc_vertex_list*)malloc(p.num_contours*sizeof(gpc_vertex_list));
+	p.hole = (int*)malloc(p.num_contours*sizeof(int));
+	FOR(0, p.num_contours)
+	{
+		in >> p.hole[i];
+		in >> p.contour[i];
+	}
+	return in;
+}
 
 void poly_bounding_box(double &x0, double &x1, double &y0, double &y1, const gpc_polygon &p);
 
@@ -101,142 +154,254 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 	return rect;
 }
 
-#if 0
-typedef double (*fun_2d)(double x, double y);
-void generic_nurbs_approximation(PlNurbsSurfacef &surf, fun_2d f,
-	double x0, double x1, double dx,
-	double y0, double y1, double dy
-	)
-{
-	using namespace PLib;
-
-	// calculate the number of matrix points needed
-	int nx = (int)floor((x1 - x0) / dx) + 1; //if(nx * dx != (x1-x0)) { nx++; }
-	int ny = (int)floor((y1 - y0) / dy) + 1; //if(ny * dy != (y1-y0)) { ny++; }
-
-	Matrix_Point3Df pts(nx, ny);
-	for(int i = 0; i < nx; i++)
-	{
-		double x = x0 + i*dx;
-		if(i == nx-1) { x = x1; }
-		for(int j = 0; j < ny; j++)
-		{
-			double y = y0 + j*dy;
-			if(j == ny-1) { y = y1; }
-			
-			double fval = f(x, y);
-			pts(i, j) = Point3Df(x, y, fval);
-		}
-	}
-
-	surf.globalInterp(pts,3,3);
-	surf.writeVRML97("surface.wrl");
-}
-
-double surffun(double x, double y)
-{
-	return 1+x*y;//*y*y;
-}
-
-void test_nurbs()
-{
-	using namespace PLib;
-
-	PlNurbsSurfacef surf;
-	generic_nurbs_approximation(surf, surffun,
-		-1, 1, .1,
-		-1, 1, .1);
-
-	Point3Df pt(.66, .66, 1);
-	float u = .66, v = .66;
-	cerr << surf.projectOn(pt, u, v, 10000) << "\n";
-	cerr << u << " " << v << "\n";
-	cerr << surf(u, v) << "\n";
-/*	for(int i = 0; i != 100; i++)
-	{
-		double x = math::rnd(-1, 1);
-		double y = math::rnd(-1, 1);
-		double v = surffun(x, y);
-		double va = surf(x, y);
-		cerr << "(x, y, v, vapprox, eps) = "
-			<< x << ", " << y << ": " << v << " " << va << " => " <<
-			(va - v)/v << "\n";
-	}*/
-}
-#endif
-
 lambert proj(rad(90), rad(90));
-double dx = deg(1.); // model grid angular resolution
+double dx = rad(1); // model grid angular resolution
 double dri = 0.01; // model CMD resolution
 double ri0 = 0.0, ri1 = 1.5;	// color limits
 double m0 = 14, m1 = 22;	// magnitude limits
 double dm = 0.01;	// model CMD magnitude resolution
-typedef std::map<float, model> models_t;
-std::map<float, model> models; // a model for a given color ri
 
-#if 0
-distanceSampler::distanceSampler(const direction &d0, const double m0, const double m1)
+struct pencil_beam
 {
-	int n = ceil((m1-m0)/dm);
-	std::valarray<double> m(n+1), y(n+1);
-	FOR(0, xv.size()) { xv[i] = m0 + dm*i; }
-	m[m.size()-1] = m1; // last entry is the flux limit
+	Radians l, b;
+	double cl, cb, sl, sb;
 
-	// calculate N(m) splines for colors where the model has been given
-	FOREACH(models_t::iterator, models)
+	pencil_beam(Radians l_, Radians b_, double d_ = 0.0)
+	: l(l_), b(b_),
+	  cl(cos(l_)), cb(cos(b_)), sl(sin(l_)), sb(sin(b_))
+	{ }
+};
+
+struct coord_pack
+{
+	const static double Rg = 8000.;
+
+	double d, x, y, z, rcyl;
+
+	coord_pack(const pencil_beam &p, const double d_)
 	{
+		d = d_;
+
+		x = Rg - d*p.cl*p.cb;
+		y = -d*p.sl*p.cb;
+		z = d*p.sb;
+
+		rcyl = sqrt(x*x + y*y);
 	}
+};
 
-	direction d = d0;
-	sample_integral(xv, yv, func, (void *)&d);
+#define VARRAY(type, ptr, i) *((type*)(((void **)(ptr))[i]))
+extern "C"
+double model_fun_1(double m, void *param)
+{
+	pencil_beam &p = VARRAY(pencil_beam, param, 0);
+	disk_model &model = VARRAY(disk_model, param, 1);
+	double Mr = VARRAY(double, param, 2);
 
-	// normalization - convert the integrated density to probability
-	N = yv[yv.size()-1];
-	yv /= N;
-
-	// construct spline approximation
-	f.construct(&yv[0], &xv[0], yv.size());
+	double d = stardist::D(m, Mr);
+	coord_pack c(p, d);
+	double rho = model.rho(c.rcyl, c.z);
+	rho *= pow(d, 3.);
+	return rho;
 }
-#endif
 
-void do_cmd_integrals(std::vector<double> &pdf, const double x, const double y)
+int model_fun(double m, double const* y, double *dydx, void *param)
+{
+	*dydx = model_fun_1(m, param);
+	return GSL_SUCCESS;
+}
+
+typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
+bool
+sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param);
+double
+integrate(double a, double b, int_function f, void *param);
+
+#include "gsl/gsl_integration.h"
+
+// sample_interval()
+// {
+// 	n = 0;
+// 	for(double m = m0; m < m1; m += dm)
+// 	{
+// 		double error, ntmp;
+// 		gsl_function F;
+// 		F.function = &model_fun_1;
+// 		F.params = params;
+// 		gsl_integration_qag(&F, m, m+dm, 0, 1e-4, 1000, GSL_INTEG_GAUSS61, w, &ntmp, &error);
+// 		cout << m << " " << error << "\n";
+// 		n += ntmp;
+// 	}
+// 	n *= sqr(dx) * log(10.)/5.;
+// 	cout << n << "\n";
+// }
+
+double do_cmd_integrals(std::vector<double> &pdf, model_factory &factory, const double x, const double y)
 {
 	// deproject to (l,b)
 	Radians l, b;
 	proj.inverse(x, y, l, b);
+	pencil_beam pb(l, b);
+	plx_gri_locus plx;
 
-	// TODO: continue here...
+	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
+	pdf.reserve((size_t)((ri1-ri0)/dx)+2);
+	double sum = 0;
+	for(double ri = ri0; ri <= ri1; ri += dri)
+	{
+		std::auto_ptr<disk_model> m(factory.get(ri));
+		double Mr = plx.Mr(ri);
+
+		void *params[3] = { &pb, &*m, &Mr };
+
+		double n, error;
+		gsl_function F = { &model_fun_1, params };
+		gsl_integration_qag (&F, m0, m1, 0, 1e-7, 1000, GSL_INTEG_GAUSS21, w, &n, &error);
+		n *= sqr(dx) * log(10.)/5.;
+
+		// store cumulative distribution (note: sum += n line _must_ come after push_back)
+		pdf.push_back(sum);
+		sum += n;
+	}
+	gsl_integration_workspace_free(w);
+
+	// convert to probability
+	FOREACH(pdf) { *i /= sum; }
+
+	return sum;
 }
+double polygon_area(const gpc_polygon &p);
+
+#define IT(x) typeof((x).begin())
 
 void integrations(const std::string &prefix)
 {
-	gpc_polygon sky;
-	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
-	gpc_read_polygon(fp, 1, &sky);
-	fclose(fp);
+	using namespace std;
+	model_factory factory("sim_models.txt");
 
-	std::map<std::pair<int, int>, gpc_polygon> skymap;	
+ 	gpc_polygon sky;
+ 	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
+ 	gpc_read_polygon(fp, 1, &sky);
+ 	fclose(fp);
+
+#if 0
+	typedef boost::shared_ptr<vector<double> > dvectorptr;
+	typedef std::pair<int, dvectorptr> Sy;
+	typedef boost::shared_ptr<std::map<double, Sy> > Sxmapptr;
+	typedef std::pair<int, Sxmapptr> Sx;
+	std::map<double, Sx> pdf2;
+#endif
+
+	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
 	std::map<std::pair<int, int>, std::vector<double> > pdf; // N(x, y)(ri), marginalized over magnitude
+	std::map<std::pair<int, int>, double> pdfxy; // N(x,y), marginalized over color and magnitude
+	std::map<int, double> pdfx; // N(x), marginalized over Lambert y coordinate, color and magnitude
+	double N = 0; // Grand total - number of stars in the whole field
 	double x0, x1, y0, y1;
-	poly_bounding_box(x0, x1, y0, y1, sky);
-	int X = 0, Y = 0;
+ 	poly_bounding_box(x0, x1, y0, y1, sky);
+
+// 	do_cmd_integrals(pdf[std::make_pair(X, Y)], factory, 0, 0);
+// 	return;
+
+	int X = 0;
+	std::vector<int> Yused;
 	for(double x = x0; x < x1; x += dx, X++)
 	{
 		double xa = x, xb = x+dx;
+		int Y = 0;
+		double xpdf = 0.;
+		Yused.clear();
 		for(double y = y0; y < y1; y += dx, Y++)
 		{
 			double ya = y, yb = y+dx;
 			gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
-			gpc_polygon p;
-			gpc_polygon_clip(GPC_INT, &sky, &r, &p);
-			if(p.num_contours == 0) continue;
+			gpc_polygon poly;
+			gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
+			if(poly.num_contours == 0) continue;
 
-			skymap[std::make_pair(X, Y)] = p;
+			skymap[std::make_pair(X, Y)] = poly;
+			Yused.push_back(Y);
 
-			// calculate CMD integrals
-			do_cmd_integrals(pdf[std::make_pair(X, Y)], (xa + xb)/2., (ya + yb)/2.);
+			// calculate CMD integrals & marginal distributions
+			std::pair<int, int> p(X, Y);
+			double margin = do_cmd_integrals(pdf[p], factory, (xa + xb)/2., (ya + yb)/2.);
+
+			// store cumulative distribution
+			pdfxy[p] = xpdf;
+			xpdf += margin;
+
+			cout << pdf.size() << " " << X << " " << Y << ", " << margin << " stars\n";
 		}
+		cout << "--- xpdf = " << xpdf << "\n";
+
+		// convert starcounts to probabilities
+		FOREACH(Yused) { pdfxy[std::make_pair(X, *i)] /= xpdf; }
+
+		pdfx[X] = N;
+		N += xpdf;
+
+/*		static int kk = 0;
+		if(++kk == 10) break;*/
+	}
+	cout << "--- Total = " << N << " stars\n";
+
+	// convert starcounts to probabilities
+	FOREACH(pdfx) { (*i).second /= N; }
+	FOREACH(pdfx) { cout << (*i).second << "\n"; }
+
+	// store all probability density maps to a binary file
+	ofstream outf((prefix + ".pdf.dat").c_str());
+	io::obstream out(outf);
+	out << N;
+	out << pdfx;
+	out << pdfxy;
+	out << pdf;
+
+	out << x0 << x1 << y0 << y1;
+	out << skymap;
+
+	cout << io::binary::manifest << "\n";
+}
+
+struct star
+{
+	double x, y, ri, m;
+};
+
+void montecarlo(const std::string &prefix, unsigned int K)
+{
+	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
+	std::map<std::pair<int, int>, std::vector<double> > pdf; // N(x, y)(ri), marginalized over magnitude
+	std::map<std::pair<int, int>, double> pdfxy; // N(x,y), marginalized over color and magnitude
+	std::map<int, double> pdfx; // N(x), marginalized over Lambert y coordinate, color and magnitude
+	double N = 0; // Grand total - number of stars in the whole field
+	double x0, x1, y0, y1;
+
+	// read the probability density maps and auxilliary data
+	std::ifstream inf((prefix + ".pdf.dat").c_str());
+	io::ibstream in(inf);
+	in >> N;
+	in >> pdfx;
+	in >> pdfxy;
+	in >> pdf;
+
+	in >> x0 >> x1 >> y0 >> y1;
+	in >> skymap;
+
+	// generate K stars in a two step process. First, draw (x,y) positions
+	// from the distribution for all K stars. Then, sort the resulting array
+	// by (x,y), and then for all stars in given (x,y) pixel draw ri and m.
+	// This two-step process is necessary in order to avoid recalculating 
+	// P(m|x,y,ri) distribution at each step (because it's time-consuming,
+	// and there's not enough space to cache it).
+	int seed = 42;
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(rng, seed);
+	FOR(0, K)
+	{
+		double u = gsl_rng_uniform(rng);
+		IT(pdfx) x = pdfx.upper_bound(u); --x;
 	}
 }
 
@@ -657,3 +822,7 @@ void fit_int_spline()
 
 #endif
 #endif
+
+void test_lapack()
+{
+}

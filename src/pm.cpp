@@ -287,7 +287,7 @@ public:
 	void stats(map<int, int> &hist)
 	{
 		ticker tick(10000);
-		FOREACH(DMMArray<object>::iterator, objects)
+		FOREACH(objects)
 		{
 			tick.tick();
 			if((*i).parent >= 0) continue;
@@ -474,7 +474,7 @@ public:
 			if(obsv.size() < 2) continue;		// ignore groups with less than two selected observations
 
 			out << obsv.size();
-			FOREACH(vector<int>::iterator, obsv) { out << *i; }
+			FOREACH(obsv) { out << *i; }
 			g++;
 		}
 		out.f.seekp(0);
@@ -586,7 +586,7 @@ public:
 	void initrunepochs(set<int> runs)
 	{
 		FOR(0, MAXRUNS) { runepochs[i] = 0; }
-		FOREACH(set<int>::iterator, runs)
+		FOREACH(runs)
 		{
 			runepochs[*i] = (geomDB.getGeometry(*i).tstart - MJD_OF_J2000_NOON)
 				/ (365.);
@@ -1029,7 +1029,7 @@ void importCatalog(const std::string &catfile, const std::string fitsdir)
 	set<catline> cat;
 	sdss_star s;
 	valarray<int> flags1(5), flags2(5);
-	FOREACHj(set<int>::iterator, run, runs)
+	FOREACHj(run, runs)
 	{
 		catline c;
 		c.run = *run;
@@ -1050,7 +1050,7 @@ void importCatalog(const std::string &catfile, const std::string fitsdir)
 	}
 	
 	// store linear fitsID maps together with run map
-	FOREACH(set<catline>::iterator, cat)
+	FOREACH(cat)
 	{
 		cf << io::format("%6d") << (*i).run;
 		FORj(j, 0, 7)

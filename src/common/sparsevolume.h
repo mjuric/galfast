@@ -29,7 +29,7 @@ struct sparse_volume
 inline obinarystream &operator <<(obinarystream &out, const sparse_volume::volume_map &vm)
 {
 	out << vm.size();
-	FOREACH(sparse_volume::volume_map::const_iterator, vm) { out << (*i).first << (*i).second; }
+	FOREACH(vm) { out << (*i).first << (*i).second; }
 	return out;
 }
 
@@ -109,7 +109,7 @@ struct sparse_volume_info
 inline obinarystream &operator <<(obinarystream &out, const sparse_volume_info::volume_map &vm)
 {
 	out << vm.size();
-	FOREACH(sparse_volume_info::volume_map::const_iterator, vm) { out << (*i).first << (*i).second; }
+	FOREACH(vm) { out << (*i).first << (*i).second; }
 	return out;
 }
 

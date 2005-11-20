@@ -47,6 +47,7 @@
 #include <fstream>
 #include <valarray>
 #include <numeric>
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <time.h>
@@ -92,9 +93,9 @@ inline OSTREAM(const packed_id &pid)
 ///
 
 // magnitudes
-#define M_ML_G			(10 + 0)
-#define M_ML_R			(10 + 1)
-#define M_ML_I			(10 + 2)
+#define M_ML_G			(100 + 0)
+#define M_ML_R			(100 + 1)
+#define M_ML_I			(100 + 2)
 
 struct sdss_color : public std::pair<int, int>
 {
@@ -122,6 +123,12 @@ public:
 			case 'i' : return 2;
 			case 'z' : return 3;
 			case 'u' : return 4;
+			case 'A' : return 5;
+			case '1' : return 10;
+			case '2' : return 11;
+			case '3' : return 12;
+			case '4' : return 13;
+			case '5' : return 14;
 			case 'G' : return M_ML_G;
 			case 'R' : return M_ML_R;
 			case 'I' : return M_ML_I;
@@ -140,6 +147,12 @@ public:
 			case 2 : return 'i';
 			case 3 : return 'z';
 			case 4 : return 'u';
+			case 5 : return 'A' ;
+			case 10 : return '1'; // u uncorrected for ext.
+			case 11 : return '2'; // g uncorrected for ext.
+			case 12 : return '3'; // r uncorrected for ext.
+			case 13 : return '4'; // i uncorrected for ext.
+			case 14 : return '5'; // z uncorrected for ext.
 			case M_ML_G : return 'G';
 			case M_ML_R : return 'R';
 			case M_ML_I : return 'I';
@@ -178,6 +191,14 @@ public:
 		if(color.size()) { set(color); }
 	}
 };
+
+inline ISTREAM(sdss_color &c)
+{
+	std::string color;
+	in >> color;
+	c.set(color);
+	return in;
+}
 
 /////////////////
 
@@ -301,14 +322,24 @@ public:
 
 	inline float magnitude(const int m) const
 	{
-		if(m < 10)
+		if(m < 5)
 		{
 			return mag[m];
 		}
 		else
 		{
-			// ML magnitude
-			return ml_mag[m-10];
+/*			if(m >= 10 && m <= 14)
+				std::cerr << g() << " " << mag[((m-10)+4)%5] << " " << extinction(Ar, m-10) << " " << Ar << "\n";*/
+			switch(m)
+			{
+				case 5: return Ar;
+				case 10:
+				case 11:
+				case 12:
+				case 13:
+				case 14: return mag[((m-10)+4)%5] + extinction(Ar, m-10);
+				default: return ml_mag[m-100]; // ML magnitude
+			}
 		}
 	}
 };
@@ -337,6 +368,10 @@ void sdss_color::set(const std::string &color)
 		}
 	}
 }
+
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<starmag> &obsv);
+void loadRuns(std::set<int> &runs, const std::string &runfile = "");
+void print_mobject(std::ostream &out, const mobject &m);
 
 //////////////////////
 

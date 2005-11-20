@@ -29,25 +29,27 @@ double paralax_without_prior(float ri, float gr, float sg, float sr, float si);
 class plx_gri_locus : public paralax_relation
 {
 public:
+	static const double a = 4.9;	//	a = 5.0;
+	static const double b = 2.45;//	b = 2.4;
+	static const double c = 1.68;//	c = 1.6;
+	static const double d = 0.050;//	d = 0.1;
+	static const double f = 1.39;
+public:
 	float gr(float ri)
 	{
 		// old locus relation
-		float F = ((5.0*ri + 2.4)*ri + 1.6)*ri + 0.1;
+		//float F = ((5.0*ri + 2.4)*ri + 1.6)*ri + 0.1;
 		// new locus relation
 		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.049;
 		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.035;
-		return 1.39*(1-exp(-F));
+		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.040;
+		float F = ((a*ri + b)*ri + c)*ri + d;
+		return f*(1-exp(-F));
 	}
 
 	#define sqr peyton::sqr
 	float ri(float gr)
 	{
-		double a = 4.9;		a = 5.0;
-		double b = 2.45;	b = 2.4;
-		double c = 1.68;	c = 1.6;
-		double d = 0.035;	d = 0.1;
-		double f = 1.39;
-
 		double aa = sqr(b) - 3*a*c;
 		double a0 = 2*pow(b, 3) - 9*a*b*c + 27*sqr(a)*(d + std::log(1-gr/f));
 		double a1 = sqrt(-4*pow(aa, 3) + sqr(a0));

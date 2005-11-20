@@ -26,11 +26,15 @@
 #include <iosfwd>
 #include <cmath>
 #include <string>
+#include <valarray>
 
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
+#include <gsl/gsl_interp.h>
+#include <gsl/gsl_spline.h>
 
 #include <astro/types.h>
+#include <astro/system/log.h>
 
 struct rzpixel
 {
@@ -134,13 +138,40 @@ struct model_fitter : public disk_model
 	void print(std::ostream &out, int format = PRETTY);
 };
 
+class spline
+{
+private:
+	gsl_interp *f;
+	gsl_interp_accel *acc;
+	std::valarray<double> xv, yv;
+public:
+	spline() : f(NULL), acc(NULL) {}
+	spline(const double *x, const double *y, int n);
+	void construct(const double *x, const double *y, int n);
+	void construct(const std::valarray<double> &x, const std::valarray<double> &y)
+		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
+	void construct(const std::vector<double> &x, const std::vector<double> &y)
+		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
+	~spline();
+
+ 	double operator ()(double x)        { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
+ 	double deriv(double x)              { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
+ 	double deriv2(double x)             { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
+ 	double integral(double a, double b) { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
+
+public:
+	spline& operator= (const spline& a);
+	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
+};
+
 class model_factory
 {
 public:
 	std::vector<std::pair<std::pair<float, float>, disk_model> > models;
+	spline lf;
 public:
 	model_factory(const std::string &models);
-	disk_model *get(float ri);
+	disk_model *get(float ri, double dri);
 };
 
 #endif

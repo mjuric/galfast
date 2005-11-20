@@ -176,17 +176,67 @@ model_factory::model_factory(const std::string &modelsfile)
 	{
 		models.push_back(make_pair(make_pair(ri0, ri1), dm));
 	}
+
+	// luminosity function
+	text_input_or_die(lfin, "lumfun.txt")
+	vector<double> ri, phi;
+	load(lfin, ri, 0, phi, 1);
+	lf.construct(ri, phi);
 }
 
-disk_model *model_factory::get(float ri)
+disk_model *model_factory::get(float ri, double dri)
 {
+#if 0
 	FOR(0, models.size())
 	{
 		std::pair<float, float> &bin = models[i].first;
 		if(bin.first <= ri && ri <= bin.second)
 		{
-			return new disk_model(models[i].second);
+			disk_model *dm = new disk_model(models[i].second);
+/*			if(!(0.5 <= ri && ri <= 0.52)) { dm->rho0 /= 1000; }*/
+			return dm;
 		}
 	}
-	return NULL;
+#else
+	std::auto_ptr<disk_model> dm(new disk_model(models[0].second));
+	dm->rho0 = lf(ri)*dri;
+	//dm->f = 0;
+#endif
+	return dm.release();
 }
+
+
+spline::spline(const double *x, const double *y, int n)
+	: f(NULL), acc(NULL)
+{
+	construct(x, y, n);
+}
+
+spline& spline::operator= (const spline& a)
+{
+	construct(&a.xv[0], &a.yv[0], a.xv.size());
+	return *this;
+}
+
+void spline::construct(const double *x, const double *y, int n)
+{
+//	gsl_interp_accel_free(acc);
+//	gsl_interp_free(f);
+
+	// copy data
+	xv.resize(n); yv.resize(n);
+	copy(x, x+n, &xv[0]);
+	copy(y, y+n, &yv[0]);
+
+	// construct spline
+	f = gsl_interp_alloc(gsl_interp_cspline, n);
+	gsl_interp_init(f, &xv[0], &yv[0], n);
+	acc = gsl_interp_accel_alloc();
+}
+
+spline::~spline()
+{
+	gsl_interp_accel_free(acc);
+	gsl_interp_free(f);
+}
+

@@ -576,6 +576,9 @@ int main()
 #include "analysis.h"
 #include "binarystream.h"
 
+#include <nag.h>
+#include <nage02.h>
+
 using namespace std;
 
 #if 0
@@ -854,7 +857,8 @@ inline double drho_dd(const direction &d)
 {
 /*	double drdd = dr_dd(d);
 	double rho = model_rho(d) * d.r2 * drdd;*/
-	double rho = model_rho(d) * d.d2;
+//	double rho = model_rho(d) * d.d2;
+	double rho = model_rho(d) * d.d2 * d.d;
 //	double rho = model_rho(d);
 	return rho;
 }
@@ -867,62 +871,6 @@ inline double drho_dd(const direction &d)
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <valarray>
-
-class spline
-{
-private:
-	gsl_interp *f;
-	gsl_interp_accel *acc;
-	std::valarray<double> xv, yv;
-public:
-	spline() : f(NULL), acc(NULL) {}
-	spline(const double *x, const double *y, int n);
-	void construct(const double *x, const double *y, int n);
-	~spline();
-
- 	double operator ()(double x)        { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
- 	double deriv(double x)              { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
- 	double deriv2(double x)             { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
- 	double integral(double a, double b) { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
-
-public:
-	spline& operator= (const spline& a);
-	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
-};
-
-spline::spline(const double *x, const double *y, int n)
-	: f(NULL), acc(NULL)
-{
-	construct(x, y, n);
-}
-
-spline& spline::operator= (const spline& a)
-{
-	construct(&a.xv[0], &a.yv[0], a.xv.size());
-	return *this;
-}
-
-void spline::construct(const double *x, const double *y, int n)
-{
-//	gsl_interp_accel_free(acc);
-//	gsl_interp_free(f);
-
-	// copy data
-	xv.resize(n); yv.resize(n);
-	copy(x, x+n, &xv[0]);
-	copy(y, y+n, &yv[0]);
-
-	// construct spline
-	f = gsl_interp_alloc(gsl_interp_cspline, n);
-	gsl_interp_init(f, &xv[0], &yv[0], n);
-	acc = gsl_interp_accel_alloc();
-}
-
-spline::~spline()
-{
-	gsl_interp_accel_free(acc);
-	gsl_interp_free(f);
-}
 
 ///////////////////////////////////
 
@@ -1150,6 +1098,92 @@ void hdr(ostream &out, float ri, float Mr, float rmin, float rmax, double dmin, 
 	out << "# Ntot = " << N << "\n";
 }
 
+Nag_Spline fit_nag_spline(std::valarray<double> &x, std::valarray<double> &y, std::valarray<double> &w)
+{
+	int m = y.size();
+	Nag_Spline spline;
+	Nag_Comm warmstart;
+	double s = 2;
+	double fp;
+	cerr << "SF" << x.size() << " " << y.size() << " " << w.size() << " " << m << "\n";
+#if 0
+	double a[] = {1., 2., 3., 4., 5., 6.};
+	double b[] = {1.1, 2.3, 3.2, 4.0, 5.1, 6.4};
+	double wt[] = {1., 1., 1., 1., 1., 1.};
+	nag_1d_spline_fit(Nag_Cold, 6, &a[0], &b[0], &wt[0], s, 10,
+		&fp, &warmstart, &spline, NAGERR_DEFAULT);
+#endif
+	FOR(0, m) { cerr << x[i] << " " << y[i] << " " << w[i] << "\n"; }
+	nag_1d_spline_fit(Nag_Cold, m, &x[0], &y[0], &w[0], s, m/2.,
+		&fp, &warmstart, &spline, NAGERR_DEFAULT);
+	cerr << "EF\n";
+
+	return spline;
+}
+
+void histogram(std::valarray<double> &h, 
+	const std::valarray<double> &b, 
+	const std::valarray<double> &x,
+	double *nless = NULL, double *nmore = NULL)
+{
+	const double *b0 = &b[0], *b1 = &b[b.size()];
+	h.resize(b.size()-1);
+	h *= 0.;
+	double dummy;
+	if(nless == NULL) { nless = &dummy; }
+	if(nmore == NULL) { nmore = &dummy; }
+	*nmore = *nless = 0.;
+	FOR(0, x.size())
+	{
+		double v = x[i];
+		const double *bin = upper_bound(b0, b1, v);
+		if(bin == b0) {(*nless)++; continue; }	// lower than lowest
+		if(bin == b1) {(*nmore)++; continue; }	// higher than highest bin
+		long idx = bin - b0 - 1;
+		h[idx]++;
+	}
+	cerr << *nmore << " " << *nless << "\n";
+}
+
+void midpoints(std::valarray<double> &bh, const std::valarray<double> &b)
+{
+	bh.resize(b.size()-1);
+	FOR(0, bh.size())
+	{
+		bh[i] = (b[i] + b[i+1]) / 2.;
+	}
+}
+
+void make_bins(std::valarray<double> &b, double b0, double b1, double dx)
+{
+	int nm = (int)((b1 - b0) / dx);
+	if(gsl_fcmp(dx*nm, b1 - b0, 2*GSL_DBL_EPSILON) < 0)
+	{
+		++nm;
+	}
+	++nm;
+
+	b.resize(nm);
+	FOR(0, b.size())
+	{
+		b[i] = b0 + dx*double(i);
+	}
+	b[b.size()-1] = b1;
+}
+
+void print_hist(std::ostream &out, 
+	const std::valarray<double> &bins, const std::valarray<double> &h,
+	double *hl = NULL, double *hh = NULL)
+{
+	if(hl != NULL) { out << bins[0] << "\t" << *hl << "\n"; }
+	FOR(0, bins.size()-1)
+	{
+		double b = (bins[i] + bins[i+1]) / 2.;
+		out << b << "\t" << h[i] << "\n";
+	}
+	if(hh != NULL) { out << bins[bins.size()-1] << "\t" << *hh << "\n"; }
+}
+
 void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 {
 	plx_gri_locus plx;
@@ -1199,6 +1233,7 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 
 	ofstream simf("mq_sim.txt");
 	hdr(simf, ri, Mr, rmin, rmax, dmin, dmax, ds.N);
+	valarray<double> x(n), x0(n);
 	FOR(0, n)
 	{
 		double u = gsl_rng_uniform(rng);
@@ -1207,14 +1242,69 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 		float m_r = stardist::m(d, Mr);
 		double s_mean = photoerr(m_r);
 		double err = gsl_ran_gaussian(rng, s_mean);
-		err = sqrt(sqr(err) + sqr(0.1));
+		//err = sqrt(sqr(err) + sqr(0.1));
+		err = 0.3;
 		m_r += err;
 		double d_with_err = stardist::D(m_r, Mr);
 
+		x[i] = d_with_err;
+		x0[i] = d;
 		simf << u << " " << d << " " << d_with_err << " " << err << "\n";
 	}
-
 	gsl_rng_free(rng);
+
+	// construct histogram
+	valarray<double> h, bh, bins, w;
+	double hl, hm;
+	make_bins(bins, 0, 1800, 10);
+	midpoints(bh, bins);
+	histogram(h, bins, x, &hl, &hm);
+	w.resize(h.size());
+	FOR(0, w.size()) { w[i] = h[i] > 0. ? 1./h[i] : 1.; }
+
+	// fit spline
+	Nag_Spline spl = fit_nag_spline(bh, h, w);
+	//cerr << "Spline fitted.\n";
+	FOR(0, bh.size())
+	{
+		double y;
+		nag_1d_spline_evaluate(bh[i], &y, &spl, NAGERR_DEFAULT);
+		//cout << i << " " << bh[i] << " " << h[i] << " " << y << "\n";
+	}
+
+	// dump histogram
+	ofstream hist("mq_hist.txt");
+	print_hist(hist, bins, h, &hl, &hm);
+
+	// apply the correction
+	valarray<double> xc(x.size());
+	FOR(0, x.size())
+	{
+		xc[0] = -1;
+		double s = x[i];
+		double y = log(s);
+		double delta2 = sqr(0.46*.5);
+		double dd = exp(y + delta2);
+		if(dd > bh[bh.size()-1]) { continue; }
+		if(s > bh[bh.size()-1]) { continue; }
+		double ydd, yd;
+		nag_1d_spline_evaluate(dd, &ydd, &spl, NAGERR_DEFAULT);
+		nag_1d_spline_evaluate(s, &yd, &spl, NAGERR_DEFAULT);
+		double ratio = ydd/yd;
+		double r = s*exp(.5*delta2)*ratio;
+//		cout << s << " " << r << " " << ratio << "\n";
+		xc[i] = r;
+	}
+
+	valarray<double> hc, h0;
+	histogram(hc, bins, xc, &hl, &hm);
+	histogram(h0, bins, x0, &hl, &hm);
+	FOR(0, bh.size())
+	{
+		double y;
+		nag_1d_spline_evaluate(bh[i], &y, &spl, NAGERR_DEFAULT);
+		cout << bh[i] << " " << y << " " << hc[i] << " " << h0[i] << "\n";
+	}
 }
 
 namespace stlops
@@ -1266,7 +1356,7 @@ void simulate()
 	m.fh = 0.0001;
 	m.q = 1.5;
 	m.n = 3;
-	
+
 	//simulate(100000, 0., rad(90.), 0., 15000.);
 	//simulate(100000, rad(33.), rad(15.), 0., 15000.);
 //	simulate(100000, rad(0), rad(90.), 1.1, 15.0, 21.5);
@@ -1538,38 +1628,7 @@ void testIntersection(const std::string &prefix)
 	gpc_free_polygon(&allsky);
 }
 
-#if 0
-void find_parent(const gpc_polygon &p, const gpc_polygon &c)
-{
-	gpc_vertex_list *parent;
-	FOR(i, p.num_contours)
-	{
-		if(p.hole[i]) continue;
-	}
-}
-
-void make_hierarchy(const gpc_polygon &p)
-{
-	// intersect each hole with every other contour, finding
-	// contours with non-empty intersections. These are the
-	// contours where the hole lives. To guard against contours
-	// living in contours which live in other contours' holes,
-	// count up _all_ contours giving nonempty intersections,
-	// and calculate mutual intersections. The contour which is
-	// contained in all other contours and contains the hole is
-	// the true parent of the hole.
-
-	map
-	FOR(i, p.num_contours)
-	{
-		if(!p.hole[i]) continue;
-		gpc_polygon c = {1, NULL, &p.contour[i]};
-		gpc_vertex_list *owner = find_parent(p, c);
-	}
-}
-#endif
-
-gpc_polygon make_circle(double r, double dx)
+gpc_polygon make_circle(double x0, double y0, double r, double dx)
 {
 	gpc_polygon p = {0, 0, NULL};
 	int n = (int)(2*ctn::pi*r / dx);
@@ -1577,8 +1636,8 @@ gpc_polygon make_circle(double r, double dx)
 	gpc_vertex_list c = { n, v };
 	FOR(0, n)
 	{
-		v[i].x = r*cos(i*dx/r);
-		v[i].y = r*sin(i*dx/r);
+		v[i].x = x0+r*cos(i*dx/r);
+		v[i].y = y0+r*sin(i*dx/r);
 	}
 	gpc_add_contour(&p, &c, false);
 	return p;
@@ -1633,7 +1692,7 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 	gpc_polygon sky = {0, 0, NULL};
 /*	proj.convert(rad(0.), rad(-30.), x, y);
 	cerr << sqrt(x*x+y*y) << "\n";*/
-	gpc_polygon circle = make_circle(sqrt(2.), dx);
+	gpc_polygon circle = make_circle(0., 0., sqrt(2.), dx);
 
 	text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
 	std::set<int> runs;
@@ -1681,17 +1740,24 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 
 void test_nurbs();
 void test_lapack();
-void integrations(const std::string &prefix);
+namespace sim
+{
+	void calculate_pdf(const std::string &prefix);
+	void montecarlo(const std::string &prefix, unsigned int K);
+}
 
 int main(int argc, char **argv)
 {
-	//simulate();
+//	simulate();
 /*	makeSkyMap("north", lambert(rad(90), rad(90)));
  	makeSkyMap("south", lambert(rad(-90), rad(-90)));*/
 //	testIntersection("north");
 //	test_nurbs();
 //	test_lapack();
-	integrations("north");
+
+ 	sim::calculate_pdf("north");
+	sim::montecarlo("north", 100);
+
 	return 0;
 }
 #if 0

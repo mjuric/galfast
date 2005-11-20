@@ -70,15 +70,24 @@ void locusCorrect(double gr, double ri, double sigma_g, double sigma_r, double s
 {
 	plx_gri_locus plx;
 	double ml_ri = plx.mlri(ri, gr, sigma_g, sigma_r, sigma_i);
+	double ml_gr = plx.gr(ml_ri);
+
+	// calculate osculating error ellipse
+	double x = ml_gr - gr;
+	double y = ml_ri - ri;
+	double z2 =
+		peyton::sqr(x)/plx.mlri.sx2
+		- 2*plx.mlri.sxy*(x)*(y)/(plx.mlri.sx2*plx.mlri.sy2)
+		+ peyton::sqr(y)/plx.mlri.sy2;
 
 	cerr << "\tlocal set xp = " << gr << "\n";
 	cerr << "\tlocal set yp = " << ri << "\n";
 	cerr << "\tlocal define eg " << sigma_g << "\n";
 	cerr << "\tlocal define er " << sigma_r << "\n";
 	cerr << "\tlocal define ei " << sigma_i << "\n";
-	cerr << "\tlocal define mlx " << plx.gr(ml_ri) << "\n";
+	cerr << "\tlocal define mlx " << ml_gr << "\n";
 	cerr << "\tlocal define mly " << ml_ri << "\n";
-	cerr << "\tlocal define d (" << plx.mlri.fn_to_minimize(ml_ri) << "**.5)\n";
+	cerr << "\tlocal define d (" << z2 << "**.5)\n";
 
 	cerr << "\n";
 	cerr << "# sx2 = " << plx.mlri.sx2 << "\n";
@@ -88,10 +97,10 @@ void locusCorrect(double gr, double ri, double sigma_g, double sigma_r, double s
 
 int main(int argc, char **argv)
 {
-	locusCorrect(0.935453, 0.407865, .05, .025, .02);
-	locusCorrect(1.312,   1.15445, .07, .02, .04);
-	locusCorrect(0.269789, 0.174989, .02, .03, .03);
-	return 0;
+// 	locusCorrect(0.935453, 0.407865, .05, .025, .02);
+// 	locusCorrect(1.312,   1.15445, .07, .02, .04);
+// 	locusCorrect(0.269789, 0.174989, .02, .03, .03);
+// 	return 0;
 
 try
 {

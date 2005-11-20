@@ -12,13 +12,13 @@ namespace __gnu_cxx
 };
 
 template <typename T>
-void neighbors(std::queue<T> &q, const T &v)
+inline void neighbors(std::queue<T> &q, const T &v)
 {
 	ASSERT(0); // this function must be overloaded for every class that you flood with
 }
 
 template <>
-void neighbors(std::queue<I2> &q, const I2 &v)
+inline void neighbors(std::queue<I2> &q, const I2 &v)
 {
 	q.push(I2(v.x+1, v.y  ));
 	q.push(I2(v.x-1, v.y  ));

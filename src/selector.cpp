@@ -22,6 +22,7 @@
 #include <astro/system/options.h>
 #include <astro/system/shell.h>
 #include <astro/system/fs.h>
+#include <boost/shared_ptr.hpp>
 
 #include "dm.h"
 #include "projections.h"
@@ -154,6 +155,7 @@ public:
 	#define T_DISTANCE	0x4000
 	#define F_CART		0x8000
 	#define F_SIGMA		0x10000
+	#define F_LIMIT		0x20000
 	int filters;
 	
 	// supporting per-mobject fields
@@ -190,6 +192,7 @@ public:
 		
 		m_cart_t() { use[0] = use[1] = use[2] = false; }
 	} m_cart;
+	int nread, nlimit;
 
 	driver &db;
 public:
@@ -202,6 +205,7 @@ public:
 	#define OM_CYLINDRICAL	7
 	#define OM_CATSTATS	8
 	#define OM_HISTOGRAM	9
+	#define OM_CATSTATS2	10
 	
 	int outputMode;
 	
@@ -278,7 +282,24 @@ public:
 		int ndx;
 		bool earth_on_x_axis;
 	} om_planecut;
-	
+
+	// for OM_CATSTATS2
+	struct stat_elem {
+		double result;
+		stat_elem() : result(0.) {}
+		
+		virtual void finalize() {}
+		virtual void print(std::ostream &out) { out << result; }
+		
+		virtual void add(const mobject &s) = 0;
+		virtual ~stat_elem() {};
+		
+		static bool
+		create(boost::shared_ptr<selector::stat_elem> &e,
+			std::string cmd, std::istream &in);
+	};
+	std::vector<boost::shared_ptr<stat_elem> > om_stats2;
+
 	// for OM_CATSTATS
 	struct {
 		typedef map<int, int> nappmap;
@@ -305,8 +326,10 @@ protected:
 
 	ostream &out;
 public:
+	bool running;
+public:
 	selector(ostream &out_, driver &db_)
-		: db(db_), n(0), filters(0), outputMode(OM_STARS), out(out_)
+		: running(true), db(db_), n(0), filters(0), outputMode(OM_STARS), out(out_)
 		{
 			ASSERT(!out.fail());
 		}
@@ -324,6 +347,39 @@ public:
 	void action(mobject m);
 	void finish();
 };
+
+class stat_mean : public selector::stat_elem
+{
+public:
+	sdss_color c;
+	int n;
+	stat_mean(istream &in)
+		: n(0)
+	{
+		in >> c;
+		std::cerr << "Color: " << c.name << "\n";
+	}
+	virtual void add(const mobject &m)
+	{
+		double v = m.field(c);
+		result += v;
+		++n;
+	}
+	virtual void finalize()
+	{
+		result /= n;
+	}
+};
+
+bool selector::stat_elem::create(
+	boost::shared_ptr<selector::stat_elem> &e, std::string stat, std::istream &in)
+{
+	if(stat == "mean") { e.reset(new stat_mean(in)); }
+	else
+		{ die("Unknown statistical function '" + stat + "'\n"); }
+
+	return true;
+}
 
 driver::~driver()
 {
@@ -594,6 +650,15 @@ bool selector::select(mobject m)
 	{
 		selected = (n % nskip) == 0;
 	}
+	FILTER(F_LIMIT)
+	{
+		++nread;
+		selected = nread <= nlimit;
+		if(nread == nlimit)
+		{
+			running = false;
+		}
+	}
 	FILTER(F_BEAM)
 	{
 		selected = coordinates::distance(lon, lat, ra, dec) < radius;
@@ -813,6 +878,12 @@ void selector::action(mobject m)
 			om_stats.napp[m.n] = 1;
 		}
 		} break;
+	case OM_CATSTATS2: {
+		FOREACH(om_stats2)
+		{
+			(*i)->add(m);
+		}
+		}
 	case OM_HISTOGRAM: {
 		float x = m.color(om_hist.c);
 		if(!between(x, om_hist.x0, om_hist.x1)) break;
@@ -873,6 +944,19 @@ void selector::finish()
 		}
 		out << "# total observations: " << total << "\n";
 		out << "# total stars:        " << stars << "\n";
+	}
+	else if(outputMode == OM_CATSTATS2)
+	{
+		out << "# Statistics:\n";
+		bool first = true;
+		FOREACH(om_stats2)
+		{
+			if(!first) { out << "\t"; }
+			else { first = false; }
+			(*i)->finalize();
+			(*i)->print(out);
+		}
+		out << "\n";
 	}
 	else if(outputMode == OM_HISTOGRAM)
 	{
@@ -1075,6 +1159,18 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		out << "# outputing statistics\n";
 		out << "#\n";
 	}
+	else if(cmd == "stat")
+	{
+		outputMode = OM_CATSTATS2;
+		out << "# outputing statistics\n";
+		out << "#\n";
+		
+		std::string stat;
+		ss >> stat;
+		boost::shared_ptr<stat_elem> se;
+		stat_elem::create(se, stat, ss);
+		om_stats2.push_back(se);
+	}
 	else if(cmd == "histogram")
 	{
 		// histogram [<xcolor|xmag> [dx [x0 x1]]]
@@ -1168,6 +1264,14 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		ss >> nskip; ASSERT(!ss.fail());
 		filters |= F_SPARSE;
 		out << "# outputing every " << nskip << " star\n";
+		out << "#\n";
+	}
+	else if(cmd == "limit")
+	{
+		nread = 0;
+		ss >> nlimit; ASSERT(!ss.fail());
+		filters |= F_LIMIT;
+		out << "# limiting scan to " << nlimit << " stars\n";
 		out << "#\n";
 	}
 	else if(cmd == "run")
@@ -1341,10 +1445,16 @@ void driver::run()
 	{
 		tick.tick();
 
+		bool running = false;
 		FOREACHj(j, selectors)
 		{
-			(*j).s->select(arr[att]);
+			if((*j).s->running)
+			{
+				(*j).s->select(arr[att]);
+				running = true;
+			}
 		}
+		if(!running) { break; }
 	}
 	
 	FOREACHj(j, selectors)

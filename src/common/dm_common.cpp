@@ -98,20 +98,23 @@ bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags
 	return true;
 }
 
-void makelookup(std::set<int> &runs, const std::string &select, const std::string &selindex, const std::string &runindex)
+template<typename Streamer>
+void makelookup(
+	std::set<int> &runs, 		// list of runs to import
+	const std::string &select, 	// name of the object catalog (indexed by uniq ID) (DMM file)
+	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file)
+	const std::string &runindex // name of the sloanID -> uniqID (DMM file)
+	)
 {
 #ifdef HAVE_LIBCCFITS
-	// open map of fitsId to unique object LUT index
-	DMMArray<int> groupindex("match_index.dmm");
-
 	// setup SDSS FITS file catalog streamer
 	sdss_star s;
-	valarray<int> f1(5), f2(5);
-	fits_set_streamer cat(runs, s, f1, f2);
+	valarray<int> f1(5), f2(5);	// photometry flags (FLAGS and FLAGS2 FITS fields)
+	Streamer cat(runs, s, f1, f2);
 
 	// open arrays for catalog and index
 	DMMArray<star> sel;	// catalog of selected stars
-	DMMArray<int> selidx;	// fitsID -> selIndex map
+	DMMArray<int> selidx;	// fitsID -> selIndex map. May be sparse, because not all FITS records will be accepted
 	DMMArray<starid> runidx;// sloanID -> uniqID map - just creating a placeholder array here
 
 	sel.create(select);
@@ -408,13 +411,17 @@ void reprocess_driver()
 }
 
 
-void make_run_index_offset_map()
+/*
+	Find the ID of the first observation for each run, and 
+	store them to a simple text file. This is mainly to help
+	debugging and mapping observation IDs to catalog entries.
+*/
+void make_run_index_offset_map(std::ostream &out, const std::string &runidxfn)
 {
 	DMMArray<starid> runidx;
-	runidx.open("dm_run_index.dmm", "r");
+	runidx.open(runidxfn, "r");
 
-	typedef map<int, int> romap;
-	romap runoffs;
+	map<int, int> runoffs;
 
 	int oldrun = -1;
 	FOR(0, runidx.size())
@@ -428,8 +435,7 @@ void make_run_index_offset_map()
 			oldrun = run;
 		}
 	}
-	
-	ofstream out("dm_run_index.map");
+
 	FOREACH(runoffs) { out << (*i).first << "\t" << (*i).second << "\n"; }
 }
 

@@ -19,6 +19,7 @@
 
 #include "textstream.h"
 #include "analysis.h"
+#include "dm.h"
 
 #include "vrml.h"
 #include "gslcc.h"
@@ -58,12 +59,10 @@ public:
 	struct object
 	{
 		Radians ra, dec;
-		union {
-			int parent;		// the object this object is linked to, if positive (that is, parent > 0)
-			int minusN;		// number of observations, if this object is the primary
-		};
-		int next;			// next object equivalent to this object, -1 if this is the last such object
-						// - while matching: the next object in this bucket
+		int nextObs;	// next observation of this object, -1 if this is the last observation
+		int nextObj;	// while matching: the next object in this matcher::bucket, or -1 if this is the last object
+						// if equal to -2, this matcher::object is a linked observation, and not a primary
+		#define LINKED_OBSERVATION 2
 	};
 
 	struct index
@@ -91,8 +90,8 @@ public:
 
 	struct bucket
 	{
-		int first, last;
-		bucket() : first(-1), last(-1) {}
+		int nextObj;
+		bucket() : nextObj(-1) {}
 	};
 
 public:
@@ -104,13 +103,18 @@ public:
 //	MemoryMapVector<object> objects;
 	DMMArray<object> objects;
 
+	// dmax -> maximum distance of an observation to adjacent observation to be
+	//			considered as an observation of the same object
+	// dphi -> resolution of subdivision of the celestial sphere to bitmap lookup 
+	//			table
 	matcher(Radians dmax_, Radians dphi_) : dmax(dmax_), dphi(dphi_), r(1./dphi_) {}
 
 public:
 	void addtobucket(bucket &b, int oid)
 	{
-		if(b.last != -1) { objects[b.last].next = oid; b.last = oid; }
-		else { b.first = b.last = oid; }
+		// insert to the front of the bucket
+		objects[oid].nextObj = b.nextObj;
+		b.nextObj = oid;
 //		cout << "Bucket: " << &b << " " << b.first << " " << b.last << " " << k << "\n";
 	}
 
@@ -128,7 +132,10 @@ public:
 
 			if(d < dmax)
 			{
-				o.parent = curid;
+				// insert this observation at the start of the observation chain
+				o.nextObs = cur.nextObs;
+				cur.nextObs = oid;
+				o.nextObj = LINKED_OBSERVATION;
 				return true;
 			}
 			curid = cur.next;
@@ -150,8 +157,8 @@ public:
 		{
 			object &o = objects[oid];
 			p.celestial(r, o.ra, o.dec);
-			o.parent = -1;
-			o.next = -1;
+			o.nextObs = -1;
+			o.nextObj = -1;
 //			cout << n << " : " << deg(o.ra) << " " << deg(o.dec) << " :: ";
 
 			index idx0((int)p.x, (int)p.y, (int)p.z);
@@ -236,30 +243,39 @@ public:
 		objects.open(lookupfn, "rw");
 	}
 
-	void makelookup(const std::string &catalog, const std::string &lookupfn)
+	template<typename Streamer>
+	void makelookup(const std::string &runsfn, const std::string &lookupfn)
 	{
-		sdss_star_cat cat(catalog);
-		
+		std::set<int> runs;
+		loadRuns(runs, runsfn);
+
+		sdss_star s;
+		valarray<int> f1(5), f2(5);	// photometry flags (FLAGS and FLAGS2 FITS fields)
+		Streamer cat(runs, s, f1, f2);
+
 		objects.create(lookupfn);
 
 		cout << "Pagesize:       " << MemoryMap::pagesize << "\n";
 		cout << "sizeof(object): " << sizeof(object) << "\n";
-		cout << "Catalog size:   " << cat.size() << " objects\n";
-		cout << "LUT file size:  " << cat.size() * sizeof(object) / (1024*1024) << "MB\n";
 
 		ticker tick(10000);
-		FOREACH(cat)
+		int ncat = 0;
+		while(cat.next())
 		{
-			sdss_star &s = *i;
 			object o = { s.ra, s.dec, -1, -1 };
 			objects[s.id] = o;
 			tick.tick();
+			++ncat;
 		}
+
+		cout << "Catalog size:   " << ncat << " objects\n";
+		cout << "LUT file size:  " << ncat * sizeof(object) / (1024*1024) << "MB\n";
 		cout << "\n";
 
 		objects.close();
 	}
-	
+
+#if 0
 	void makerings()
 	{
 		FOR(0, objects.size())
@@ -280,7 +296,8 @@ public:
 			}
 		}
 	}
-	
+#endif
+
 	void makelinear()
 	{
 		binary_output_or_die(out, "match_groups.lut");
@@ -292,22 +309,26 @@ public:
 		int uniq = 0;
 		ticker tick(10000);
 		out << uniq;
+		vector<int> obsv;
 		FOR(0, objects.size())
 		{
 			object &o = objects[i];
-			if(o.parent >= 0) continue;
+			if(o.nextObj == LINKED_OBSERVATION) continue;
 
-			int n = 0, N = -o.minusN;
+			obsv.clear();
 			int grouploc = out.f.tellp();
-			out << N << o.ra << o.dec;
-			for(int k = i; k != -1; k = objects[k].next, n++)
+			for(int k = i; k != -1; k = objects[k].nextObs)
 			{
-				out << k;
-				idx[k] = grouploc;
+				obsv.push_back(k);
+			}
+			out << (int)obsv.size() << o.ra << o.dec;
+			FOREACH(obsv)
+			{
+				out << *i;
+				idx[*i] = grouploc;
 			}
 			uniq++;
 			tick.tick();
-			ASSERT(n == N);
 		}
 		out.f.seekp(0);
 		out << uniq;
@@ -889,15 +910,16 @@ try
 {
 	matcher m(rad(1/3600.), rad(1./60.));
 #if 1
-//	m.makelookup("catalogs", "catlookup");
+	m.makelookup<fits_set_streamer>("/home/mjuric/projects/galaxy/workspace/catalogs/runs.txt", "catlookup");
 
 	m.init("catlookup");
 
-//	int nlinked = m.match();
-//	cout << "nlinked = " << nlinked << "\n";
+	int nlinked = m.match();
+	cout << "nlinked = " << nlinked << "\n";
 
-//	cout << "Making rings...\n";
-//	m.makerings();
+	cout << "Making rings...\n";
+	m.makerings();
+
 	m.makelinear();
 
 #if 0

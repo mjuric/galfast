@@ -581,4 +581,6 @@ public:
 
 OSTREAM(const binned_runset &brs);
 
+void loadRuns(std::set<int> &runs, const std::string &runfile = "");
+
 #endif

@@ -31,9 +31,10 @@ try
 	loadRuns(runs, "/home/mjuric/projects/galaxy/workspace/catalogs/runs.txt");
 
 	gsl_set_error_handler_off ();
-#if 0
-	//makelookup(runs, "dm_tmpcat.dmm", "dm_tmpcat_index.dmm", "dm_run_index.dmm");
-	make_run_index_offset_map();
+#if 1
+	makelookup<fits_set_streamer>(runs, "dm_tmpcat.dmm", "dm_tmpcat_index.dmm", "dm_run_index.dmm");
+	ofstream out("dm_run_index.map");
+	make_run_index_offset_map(out, "dm_run_index.dmm");
 #endif
 
 #if 0

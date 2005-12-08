@@ -98,9 +98,11 @@ bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags
 	return true;
 }
 
-template<typename Streamer>
+// 	Streamer cat(runs, s, f1, f2);
+// 	std::set<int> &runs, 		// list of runs to import
+
 void makelookup(
-	std::set<int> &runs, 		// list of runs to import
+	catalog_streamer &cat,		// input catalog of observations (FITS files, text files, etc.)
 	const std::string &select, 	// name of the object catalog (indexed by uniq ID) (DMM file)
 	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file)
 	const std::string &runindex // name of the sloanID -> uniqID (DMM file)
@@ -108,9 +110,10 @@ void makelookup(
 {
 #ifdef HAVE_LIBCCFITS
 	// setup SDSS FITS file catalog streamer
-	sdss_star s;
-	valarray<int> f1(5), f2(5);	// photometry flags (FLAGS and FLAGS2 FITS fields)
-	Streamer cat(runs, s, f1, f2);
+	sdss_star &s = cat.record();
+	valarray<int> 
+		&f1 = cat.flags1(),
+		&f2 = cat.flags2();	// photometry flags (FLAGS and FLAGS2 FITS fields)
 
 	// open arrays for catalog and index
 	DMMArray<star> sel;	// catalog of selected stars
@@ -129,14 +132,14 @@ void makelookup(
 	{
 
 		tick.tick();
-		if(cat.fitsId() % 1000000 == 0) { sel.sync(); selidx.sync(); runidx.sync(); }
+		if(s.id % 1000000 == 0) { sel.sync(); selidx.sync(); runidx.sync(); }
 
 		bool accept = filter(s, f1, f2);
 
-		if(!accept) { selidx[cat.fitsId()] = -1; continue; }
+		if(!accept) { selidx[s.id] = -1; continue; }
 
 		// record indices
-		ss.fitsId = sid.fitsId = cat.fitsId();
+		ss.fitsId = sid.fitsId = s.id;
 		sid.sloanId = packed_id(s.run, s.col, s.field, s.objid);
 
 		// store the info we're interested in
@@ -153,7 +156,7 @@ void makelookup(
 		sel.push_back(ss);
 		runidx.push_back(sid);
 	}
-	cout << "Total stars in FITS files: " << cat.fitsId()+1 << "\n";
+	cout << "Total stars in FITS files: " << s.id+1 << "\n";
 	cout << "Total stars accepted     : " << sel.size() << "\n";
 	cout << "\n";
 	cout.flush();

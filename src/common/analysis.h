@@ -100,6 +100,7 @@ public:
 	adapt_c(A &a_) : a(a_) {}
 
 	void push_back(const typename A::value_type &s) { a.push_back(s); }
+	void clear() { a.clear(); }
 };
 
 //

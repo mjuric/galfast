@@ -62,14 +62,12 @@ public:
 	bool next();
 };
 
-class fits_set_streamer
+class fits_set_streamer : public catalog_streamer
 {
 protected:
 	std::auto_ptr<fits_loader> cur;
 	std::set<int> runs;
 	std::set<int>::iterator at;
-	std::valarray<int> &f1, &f2;
-	sdss_star &s;
 
 	std::auto_ptr<peyton::system::dir> inputfiles;
 	peyton::system::dir::iterator curfile;
@@ -79,9 +77,9 @@ protected:
 
 	void nextfile();
 public:
-	fits_set_streamer(const std::set<int> &runs_, sdss_star &s_, std::valarray<int> &f1_, std::valarray<int> &f2_);
+	fits_set_streamer(const std::set<int> &runs_);
 	bool next();
-	int fitsId() const { return fitsid; }	/// fits ID of the last record loaded
+	//int catalogId() const { return fitsid; }	/// fits ID of the last record loaded
 };
 
 #endif // HAVE_LIBCCFITS

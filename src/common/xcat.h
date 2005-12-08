@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <valarray>
 
 // abstract class for encapsulating different paralax relations
 class sdss_star;
@@ -232,6 +233,24 @@ struct sdss_star_less
 	}
 };
 
+//
+// this class is overriden by various catalog streamers (e.g. fits_set_streamer)
+//
+class catalog_streamer
+{
+protected:
+	std::valarray<int> f1, f2;
+	sdss_star s;
+public:
+	catalog_streamer() : f1(5), f2(5) {}
+
+	//virtual int catalogId() const = 0;
+	virtual bool next() = 0;
+
+	std::valarray<int> &flags1() { return f1; }
+	std::valarray<int> &flags2() { return f2; }
+	sdss_star &record() { return s; }
+};
 
 #ifndef NO_SDSS_STAR_CAT
 

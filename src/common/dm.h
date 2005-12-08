@@ -372,6 +372,14 @@ void sdss_color::set(const std::string &color)
 mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<starmag> &obsv);
 void loadRuns(std::set<int> &runs, const std::string &runfile = "");
 void print_mobject(std::ostream &out, const mobject &m);
+class catalog_streamer;
+void makelookup(
+	catalog_streamer &cat,		// input catalog of observations (FITS files, text files, etc.)
+	const std::string &select, 	// name of the object catalog (indexed by uniq ID) (DMM file)
+	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file)
+	const std::string &runindex // name of the sloanID -> uniqID (DMM file)
+	);
+void make_run_index_offset_map(std::ostream &out, const std::string &runidxfn);
 
 //////////////////////
 
@@ -580,7 +588,5 @@ public:
 };
 
 OSTREAM(const binned_runset &brs);
-
-void loadRuns(std::set<int> &runs, const std::string &runfile = "");
 
 #endif

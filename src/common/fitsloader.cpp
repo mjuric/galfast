@@ -84,24 +84,25 @@ bool fits_loader::next()
 {
 	if(at >= rows) return false;
 
-if(!justSniff)
-{
-	s.run = run[at]; s.col = camcol[at]; s.field = field[at]; s.objid = objid[at];
-	s.ra = ra[at]; s.dec = dec[at];
-	s.colc = colc[5*at+2];
-	s.Ar = extinction[5*at+2];
-
-	FOR(0, 5)
+	if(!justSniff)
 	{
-		float f = psfflux[5*at+i];
-		float fErr = 1./sqrt(psfflux_ivar[5*at+i]);
-
-		phot::luptitude(f, fErr, i, s.mag[i], s.magErr[i], 1e+9);
-
-		f1[i] = flags[5*at+i];
-		f2[i] = flags2[5*at+i];
+		s.run = run[at]; s.col = camcol[at]; s.field = field[at]; s.objid = objid[at];
+		s.ra = ra[at]; s.dec = dec[at];
+		s.colc = colc[5*at+2];
+		s.Ar = extinction[5*at+2];
+	
+		FOR(0, 5)
+		{
+			float f = psfflux[5*at+i];
+			float fErr = 1./sqrt(psfflux_ivar[5*at+i]);
+	
+			phot::luptitude(f, fErr, i, s.mag[i], s.magErr[i], 1e+9);
+	
+			f1[i] = flags[5*at+i];
+			f2[i] = flags2[5*at+i];
+		}
 	}
-}
+
 	++at;
 	return true;
 }
@@ -109,8 +110,8 @@ if(!justSniff)
 
 ///////////
 
-fits_set_streamer::fits_set_streamer(const std::set<int> &runs_, sdss_star &s_, std::valarray<int> &f1_, std::valarray<int> &f2_)
-	: runs(runs_), s(s_), f1(f1_), f2(f2_), at(NULL), first(true), fitsid(-1)
+fits_set_streamer::fits_set_streamer(const std::set<int> &runs_)
+	: runs(runs_), at(NULL), first(true), fitsid(-1)
 {
 	FITS::setVerboseMode(true);
 }
@@ -123,9 +124,6 @@ void fits_set_streamer::nextfile()
 	curfile = inputfiles->begin();
 	ASSERT(curfile != inputfiles->end());
 
-//if(fitsid < 178000000)
-//cur.reset(new fits_loader(*curfile, s, f1, f2, true));
-//else
 	cur.reset(new fits_loader(*curfile, s, f1, f2));
 }
 
@@ -136,7 +134,7 @@ bool fits_set_streamer::next()
 	if(first) { first = false; at = runs.begin(); nextfile(); }
 
 	bool ret = cur->next();
-	if(ret) { ++fitsid; return true; }
+	if(ret) { ++fitsid; s.id = fitsid; return true; }
 
 	curfile++;
 	if(curfile == inputfiles->end())

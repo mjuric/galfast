@@ -18,8 +18,15 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+/*
+ 
+	THIS CODE IS ABANDONWARE !!!
+
+*/
+ 
 #include "config.h"
-#ifdef HAVE_LIBCCFITS
+#if 0
+//defined(HAVE_LIBCCFITS)
 
 #define NO_SDSS_STAR_CAT
  
@@ -1151,7 +1158,8 @@ try
 
 int main(int argc, char **argv)
 {
-	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
+	std::cerr << "This exe is abandonware and should not be used.\n";
+	//std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
 	return -1;
 }
 #endif // HAVE_LIBCCFITS

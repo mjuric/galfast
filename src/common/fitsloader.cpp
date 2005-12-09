@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 
 #include "fitsloader.h"
 #include <astro/sdss/photometry.h>

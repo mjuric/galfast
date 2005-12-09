@@ -19,7 +19,7 @@
  ***************************************************************************/
 
 #include "config.h"
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 
 #define NO_SDSS_STAR_CAT
 

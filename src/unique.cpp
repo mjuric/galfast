@@ -8,7 +8,6 @@
 #include <astro/system/options.h>
 #include <astro/io/gzstream/fstream.h>
 #include <astro/io/compress.h>
-#include <astro/io/magick.h>
 #include <astro/system/config.h>
 #include <astro/util/varexpand.h>
 #include <astro/image/indexers.h>
@@ -45,9 +44,9 @@ using namespace std;
 
 /////////////
 
-#define TRACE_TIME 1
-#define RUN_CHECK 1
-#define FILTER 1
+#define FOLLOW_OBJECTS 1
+//obsoleted by --one-per-run cmdline option #define RUN_CHECK 1
+//obsoleted by --filter cmdline option #define FILTER 1
 
 #include "xcat.h"
 
@@ -56,7 +55,6 @@ using namespace std;
 
 /////
 
-static int npass = 0;
 struct matcher
 {
 public:
@@ -122,13 +120,14 @@ public:
 	map_type buckets;
 	Radians dmax, dphi;
 	double r;
+	bool filter, one_per_run;
 	DMMArray<object> objects;
 
 	// dmax -> maximum distance of an observation to adjacent observation to be
 	//			considered as an observation of the same object
 	// dphi -> resolution of subdivision of the celestial sphere to bitmap lookup 
 	//			table. Has to be greater than dmax.
-	matcher(Radians dmax_, Radians dphi_) : dmax(dmax_), dphi(dphi_), r(1./dphi_) {}
+	matcher(Radians dmax_, Radians dphi_) : dmax(dmax_), dphi(dphi_), r(1./dphi_), filter(false), one_per_run(true) {}
 
 public:
 	void init(const std::string &lookupfn, const char *access = "rw")
@@ -142,14 +141,6 @@ public:
 		// insert to the front of the bucket
 		objects[oid].nextObj = b.nextObj;
 		b.nextObj = oid;
-		if(oid == 192581 || oid == 62) {
-			cerr << "**bucketadd** oid = " << oid << "\n";
-			cerr << "62(j,s) = " << objects[62].nextObj << " " << objects[62].nextObs << "\n";
-		}
-		if(oid == 62) {
-			sbucket = &b;
-			cerr << "Xbucket: " << printbucket(&b) << "\n";
-		}
 //		cout << "Bucket: " << &b << " " << b.first << " " << b.last << " " << k << "\n";
 	}
 
@@ -158,11 +149,6 @@ public:
 		if(&b == sbucket) { cerr << "oid = " << oid << " bucket: " << printbucket(&b) << "\n"; }
 		object o = objects[oid];
 //		cout << "nearest Bucket: " << &b << " " << b.first << " " << b.last << "\n";
-
-		if(oid == 192581 || oid == 62) {
-			cerr << "**** oid = " << oid << "\n";
-			cerr << "62(j,s) = " << objects[62].nextObj << " " << objects[62].nextObs << "\n";
-		}
 
 		int closest_id_ptr = -1;
 		Radians closest_dist = dmax;
@@ -179,34 +165,21 @@ public:
 				break;
 			}
 
-			#if RUN_CHECK
+			if(one_per_run)
+			{
 				if(cur.run == o.run) { continue; }
-				#if !TRACE_TIME
+				#if !FOLLOW_OBJECTS
 				if(cur.nextObs != -1 && objects[cur.nextObs].run == o.run) { continue; }
 				#endif
-			#endif
-
-			if(oid == 192581 || oid == 62) {
-				cerr << "curid = " << curid << "\n";
-				cerr << "cur = " << cur.run << " " << deg(cur.ra) << " " << deg(cur.dec) << "\n";
-				cerr << "o   = " <<   o.run << " " << deg(  o.ra) << " " << deg(  o.dec) << "\n";
-				cerr << "62(j,s) = " << objects[62].nextObj << " " << objects[62].nextObs << "\n";
 			}
 
 //			cout << "nearest cur: " << cur << " " << cur.parent << " " << cur.next << "\n";
-			npass++;
 			Radians d = distance(o.ra, o.dec, cur.ra, cur.dec);
-			if(oid == 192581 || oid == 62) {
-				cerr << " d = " << arcsec(d) << "  >?  dmax = " << arcsec(dmax) << "\n";
-			}
 
 			if(d < closest_dist)
 			{
 				closest_dist = d;
 				closest_id_ptr = id_ptr;
-				if(oid == 192581 || oid == 62) {
-					cerr << " LINKED!\n";
-				}
 			}
 		}
 
@@ -217,14 +190,7 @@ public:
 			// the start of the observation chain
 			int *root = closest_id_ptr == -2 ? &b.nextObj : &objects[closest_id_ptr].nextObj;
 
-			if(oid == 192567) {
-				cerr << "curid = " << *root << "\n";
-				//cerr << "cur = " << cur.run << " " << deg(cur.ra) << " " << deg(cur.dec) << "\n";
-				//cerr << "o   = " <<   o.run << " " << deg(  o.ra) << " " << deg(  o.dec) << "\n";
-				cerr << "oid = " << oid << " bucket: " << printbucket(&b) << "\n";
-			}
-	
-			#if TRACE_TIME
+			#if FOLLOW_OBJECTS
 				int *curid = root;
 				if(*curid != -1)
 				{
@@ -238,10 +204,6 @@ public:
 
 			o.nextObs = *curid;
 			*curid = oid;
-
-			if(oid == 192567) {
-				cerr << "oid = " << oid << " bucket: " << printbucket(&b) << "\n";
-			}
 
 			if(o.ra >= 0) {
 			#if 0
@@ -371,10 +333,15 @@ public:
 		int ncat = 0;
 		while(cat.next())
 		{
-			#if FILTER
-			if(s.r >= 22) { s.ra = -1; s.dec = 0; }
-			#endif
-
+			if(filter)
+			{
+				if(s.r >= 22) { s.ra = -1; s.dec = 0; }
+			}
+#if 0
+			char buf[1000];
+			sprintf(buf, "%10d %4d %.18f %.18f\n", s.id, s.run, s.ra, s.dec);
+			cout << buf;
+#endif
 			object o = { rad(s.ra), rad(s.dec), -1, -1, s.run}; //, s.col, s.colc };
 //			if(s.r >= 22) { cout << deg(o.ra) <<" " << deg(o.dec) << "\n"; }
 			objects[s.id] = o;
@@ -443,7 +410,7 @@ public:
 						cerr << "o   = " <<   o.run << " " << deg(  o.ra) << " " << deg(  o.dec) << "\n";
 						cerr << " d = " << arcsec(d) << "  >  dmax = " << arcsec(dmax) << "\n";
 					}
-					ASSERT(!RUN_CHECK || oruns.count(cur.run) == 0) {
+					ASSERT(!one_per_run || oruns.count(cur.run) == 0) {
 						//FOREACH(obsv) { cerr << objects[*i].run << " "; }
 						cerr << ", " << obsv.size() << " observations \n";
 						cerr << "obj = " << cur.run << " " << deg(obj.ra) << " " << deg(obj.dec) << "\n";
@@ -453,7 +420,7 @@ public:
 					}
 					oruns[cur.run] = cur;
 
-					#if TRACE_TIME
+					#if FOLLOW_OBJECTS
 						o = cur;
 					#endif
 				}
@@ -553,6 +520,36 @@ public:
 
 			tick.tick();
 		}
+	}
+
+	void asciidump(const string &matchgroupsfn)
+	{
+		binary_input_or_die(in, matchgroupsfn);
+
+		ticker tick(10000);
+		int n = 0, N, size, id, nobs=0;
+		double ra, dec;
+		char buf[100];
+		in >> size;
+		cerr << "Number of unique stars to dump: " << size << "\n";
+		FORj(k, 0, size)
+		{
+			in >> N >> ra >> dec;
+			FOR(0, N)
+			{
+				in >> id;
+				nobs++;
+				sprintf(buf, "%10d %10d %12.8f %12.8f\n", n, id, ra, dec);
+				cout << buf;
+			}
+
+			n++;
+			tick.tick();
+		}
+		tick.close();
+		cerr << "Number of unique stars dumped: " << n << "\n";
+		cerr << "Number of observations dumped: " << nobs << "\n";
+		ASSERT(n == size);
 	}
 };
 matcher::bucket *matcher::sbucket = NULL;
@@ -1112,6 +1109,34 @@ std::string join(const std::string &separator, const C& c)
 	return ss.str();
 }
 
+class text_file_streamer : public catalog_streamer
+{
+protected:
+	itextstream in;
+	int id;
+public:
+	text_file_streamer(istream &datafile, int rac, int decc, int runc);
+	bool next()
+	{
+		s.id = id;
+		if(in.next()) {
+//			cerr << "R: " << s.id << " " << s.run << " " << s.ra << " " << s.dec << "\n";
+			++id; return true;
+		}
+		return false;
+	}
+};
+
+text_file_streamer::text_file_streamer(istream &datafile, int rac, int decc, int runc)
+	: in(datafile), id(0)
+{
+	s.r = 0.;
+
+	bind(in, s.ra, rac-1);
+	bind(in, s.dec, decc-1);
+	bind(in, s.run, runc-1);
+}
+
 int main(int argc, char **argv)
 {
 try
@@ -1135,22 +1160,30 @@ try
 		tmp_dir("."),
 		tmp_fn("catlookup.dmm");
 	bool filter = false;
+	bool one_per_run = true;
 
 	std::vector<std::string> stages;
-	container(stages) = "mklookup" , "match" , "mkgroups" , "stats";
+	container(stages) = "mklookup", "match", "mkgroups", "stats", "asciidump";
 	std::string allstages = join(", ", stages);
 	stages.push_back("all");
+	stages.push_back("none");
+	std::set<std::string> cattypes;
+	container(cattypes) = "fits", "text";
 
 	{ // setup arguments and options
 		using namespace peyton::system::opt;
 
 		opts.argument("inputCatalog", "Input catalog file", Option::optional);
+		opts.argument("run_col", "Column where run is stored, for cattype=text (1-based index, default = 1)", Option::optional);
+		opts.argument("ra_col", "Column where R.A. is stored, for cattype=text (1-based index, default = 2)", Option::optional);
+		opts.argument("dec_col", "Column where delta is stored, for cattype=text (1-based index, default = 3)", Option::optional);
 
-		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all of the stages to be executed in sequence."));
+		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters."));
 		opts.option("radius", binding(match_radius), shortname('r'), desc("Match radius (arcsec)"));
 		opts.option("map-resolution", binding(map_resolution), shortname('m'), desc("Size of bins into which the sky is divided while matching (arcsec). Has to be greater than 2*radius."));
 		opts.option("type", binding(cattype), desc("Type of the input catalog (valid choices are 'fits' and 'text'"));
 		opts.option('f', binding(filter), name("filter"), desc("Turn on filtering of input catalog to reduce the number of input stars"));
+		opts.option("one-per-run", binding(one_per_run), desc("If set to true, only one object observation per run will be allowed while matching. Usually the right thing to do, except in really weird situations."));
 		opts.option("output-dir", binding(output_dir), desc("Directory where the group table and index will be stored"));
 		opts.option("group-table-file", binding(lutfn), desc("Name of the group table file"));
 		opts.option("group-index-file", binding(indexfn), desc("Name of the group index file"));
@@ -1164,7 +1197,9 @@ try
 
 		if(find(stages.begin(), stages.end(), stage) == stages.end())
 			{ THROW(EOptions, "Argument to option --stage must be one of " + join(", ", stages) + "."); }
-		if(!Filename(inputCatalog).exists())
+		if(!cattypes.count(cattype))
+			{ THROW(EOptions, "Argument to option --cattype must be one of " + join(", ", cattypes) + "."); }
+		if(inputCatalog != "-" && !Filename(inputCatalog).exists())
 			{ THROW(EOptions, "Input catalog file '" + inputCatalog + "' does not exist or is inaccessible"); }
 		if(2*match_radius > map_resolution)
 			{ THROW(EOptions, "2*match-radius must be less than map-resolution"); }
@@ -1190,6 +1225,8 @@ try
 
 	/////// Start your application code here
 	matcher m(rad(match_radius/3600.), rad(map_resolution/3600.));
+	m.filter = filter;
+	m.one_per_run = one_per_run;
 #if 1
 	std::string tmp_fookup = tmp_dir + '/' + tmp_fn;
 	std::string match_lut_path = output_dir + '/' + lutfn;
@@ -1199,39 +1236,44 @@ try
 	{
 		if(cattype == "fits")
 		{
-			#if 1
+		#ifdef HAVE_PKG_CCfits
 			cerr << "\n[1/3] Creating matching lookup table\n";
 			std::set<int> runs;
 			loadRuns(runs, inputCatalog);
 			fits_set_streamer fitscat(runs);
 			m.makelookup(fitscat, tmp_fookup);
-			#endif
+		#else
+			cerr << "FITS support not compiled in!\n";
+			abort();
+		#endif
 		} else {
-			ASSERT(cattype == "fits");
+			int rac = 2, decc = 3, runc = 1;
+			if(opts.found("ra_col")) { rac = opts["ra_col"]; }
+			if(opts.found("dec_col")) { decc = opts["dec_col"]; }
+			if(opts.found("run_col")) { runc = opts["run_col"]; }
+
+			ifstream inf(inputCatalog.c_str());
+			text_file_streamer cat(inputCatalog == "-" ? cin : inf, rac, decc, runc);
+			m.makelookup(cat, tmp_fookup);
 		}
 	}
 
 	if(stage == "match" || stage == "all")
 	{
-		#if 1
 		cerr << "\n[2/3] Matching observations\n";
 		int nlinked = m.match(tmp_fookup);
 		cerr << "nlinked = " << nlinked << "\n";
 		cerr << "nbuckets = " << m.buckets.size() << "\n";
-		#endif
 	}
 
 	if(stage == "mkgroups" || stage == "all")
 	{
-		#if 1
 		cerr << "\n[3/3] Creating list of groups and match index\n";
 		m.makelinear(tmp_fookup, match_lut_path, match_idx_path);
-		#endif
 	}
 
 	if(stage == "stats" || stage == "all")
 	{
-		#if 1
 		cerr << "\nCalculating statistics:\n";
 		map<int, int> hist;
 		m.stats(hist, match_lut_path);
@@ -1249,11 +1291,18 @@ try
 		}
 		cerr << "total observations (counting rejected obsv.): " << total << "\n";
 		cerr << "total stars (not counting rejected obsv.):    " << stars << "\n";
-		#endif
 	}
 
-	cerr << "TRACE_TIME = " << TRACE_TIME << "\n";
-	cerr << "npass = " << npass << "\n";
+	if(stage == "asciidump")
+	{
+		cerr << "\nDumping ASCII file of matches:\n";
+		map<int, int> hist;
+		m.asciidump(match_lut_path);
+	}
+
+	cerr << "FOLLOW_OBJECTS = " << FOLLOW_OBJECTS << "\n";
+	cerr << "filter = " << m.filter << "\n";
+	cerr << "one-per-run = " << m.one_per_run << "\n";
 #else
 	avgmag am;
 	//am.go("catalogs", "catlookup");

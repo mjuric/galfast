@@ -1,7 +1,7 @@
 AC_INIT(configure.in)
 
 AM_CONFIG_HEADER(config.h)
-AM_INIT_AUTOMAKE(galaxy, 0.3)
+AM_INIT_AUTOMAKE(galaxy, 0.4)
 
 AC_LANG_CPLUSPLUS
 AC_PROG_CXX
@@ -10,8 +10,13 @@ AM_PROG_LIBTOOL
 AC_CHECK_LIB(m,main)
 AC_CHECK_LIB(z,main)
 
-AC_CHECK_LIB(gslcblas,main)
-AC_CHECK_LIB(gsl,main)
+AC_CHECK_LIB(pthread,main)
+
+#AC_CHECK_LIB(gslcblas,main)
+LIBS="$LIBS -lgslcblas"
+AC_caolan_CHECK_PACKAGE(gsl, main, gsl, gsl/gsl_fit.h,
+   AC_MSG_RESULT([GNU Scientific Library found.]),
+   AC_MSG_ERROR([GNU Scientific Library NOT found. Cannot continue - please compile and install GSL first.]) )
 
 AC_caolan_CHECK_PACKAGE(libpeyton, main, peyton, astro/constants.h,
    AC_MSG_RESULT([libpeyton found.]),
@@ -25,5 +30,43 @@ AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits/CCfits,
    AC_MSG_RESULT([CCfits found.]),
    AC_MSG_RESULT([CCfits 2.4 or later NOT found. Not compiling FITS support.]) )
 
+AC_caolan_CHECK_PACKAGE(nagc, main, nagc, nag.h,
+   AC_MSG_RESULT([NAG C library found.]),
+   AC_MSG_RESULT([NAG C library NOT found. Not compiling code which depends on nagc.]) )
+
+RS_BOOST([1.33.0],
+	[
+	  CXXFLAGS="$CXXFLAGS $BOOST_CPPFLAGS"
+	  AC_DEFINE(HAVE_BOOST, 1, Define if you have the package)
+	],[
+	  AC_MSG_RESULT([Boost C++ libraries NOT found. Omitting Boost dependent code.])
+	])
+
+RS_BOOST_IOSTREAMS(
+	[
+	  AC_MSG_RESULT([    - Boost.Iostreams found.])
+          AC_DEFINE(HAVE_BOOST_IOSTREAMS, 1, Define if you have the package)
+	],[
+	  AC_MSG_RESULT([    - Boost.Iostreams NOT found. Omitting Boost.Iostreams dependent code.])
+	])
+
+
+AC_ARG_ENABLE(simulate,
+ [  --enable-simulate  Enable compilation of simulate.x ],
+ [
+	simulate_x=yes
+	AC_MSG_RESULT([Compiling full simulate.x])
+ ])
+
+if test "${simulate_x}" == yes; then
+	AC_DEFINE(COMPILE_SIMULATE_X, 1, Define to compile simulate.x)
+else
+	AC_MSG_RESULT([NOT compiling simulate.x (leaving a stub)])
+fi
+
+
+
+
 AC_OUTPUT(Makefile src/Makefile src/common/Makefile src/gpc/Makefile)
 
+# -L/usr/local/nag/cllux07ddl -lnurbsf -lmatrix -lmatrixN -lmatrixI -lGL -lGLU -llapack -lg2c -lnagc

@@ -165,6 +165,11 @@ void model_fitter::print(ostream &out, int format)
 
 model_factory::model_factory(const std::string &modelsfile)
 {
+	if(modelsfile.size()) { load(modelsfile); }
+}
+
+void model_factory::load(const std::string &modelsfile)
+{
 	text_input_or_die(in, modelsfile);
 
 	float ri0, ri1;	
@@ -180,7 +185,7 @@ model_factory::model_factory(const std::string &modelsfile)
 	// luminosity function
 	text_input_or_die(lfin, "lumfun.txt")
 	vector<double> ri, phi;
-	load(lfin, ri, 0, phi, 1);
+	::load(lfin, ri, 0, phi, 1);
 	lf.construct(ri, phi);
 }
 
@@ -199,7 +204,7 @@ disk_model *model_factory::get(float ri, double dri)
 	}
 #else
 	std::auto_ptr<disk_model> dm(new disk_model(models[0].second));
-	dm->rho0 = lf(ri)*dri;
+	dm->rho0 = lf(ri);
 	//dm->f = 0;
 #endif
 	return dm.release();

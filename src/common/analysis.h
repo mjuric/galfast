@@ -115,6 +115,7 @@ public:
 	adapt_c(std::set<A> &a_) : a(a_) {}
 
 	void push_back(const value_type &s) { a.insert(s); }
+	void clear() { a.clear(); }
 };
 
 //
@@ -131,6 +132,7 @@ public:
 	adapt_c(std::valarray<A> &a_) : a(a_), at(0) {}
 
 	void push_back(const value_type &s) { a[at]=s; at++; }
+	void clear() { at = 0; }
 };
 
 #undef TB

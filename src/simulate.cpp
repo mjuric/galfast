@@ -576,8 +576,10 @@ int main()
 #include "analysis.h"
 #include "binarystream.h"
 
-#include <nag.h>
-#include <nage02.h>
+#if HAVE_PKG_nagc
+	#include <nag.h>
+	#include <nage02.h>
+#endif
 
 using namespace std;
 
@@ -877,6 +879,8 @@ inline double drho_dd(const direction &d)
 #if 1
 typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
 
+// integrate the function f from xv[0] to xv[xv.size()-1], storing the integral
+// values at points xv in yv
 bool
 sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param)
 {
@@ -913,6 +917,7 @@ sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_
 	return true;
 }
 
+// integrate the function f from a to b, returning the result
 double
 integrate(double a, double b, int_function f, void *param)
 {
@@ -1098,6 +1103,7 @@ void hdr(ostream &out, float ri, float Mr, float rmin, float rmax, double dmin, 
 	out << "# Ntot = " << N << "\n";
 }
 
+#if HAVE_PKG_nagc
 Nag_Spline fit_nag_spline(std::valarray<double> &x, std::valarray<double> &y, std::valarray<double> &w)
 {
 	int m = y.size();
@@ -1120,6 +1126,7 @@ Nag_Spline fit_nag_spline(std::valarray<double> &x, std::valarray<double> &y, st
 
 	return spline;
 }
+#endif
 
 void histogram(std::valarray<double> &h, 
 	const std::valarray<double> &b, 
@@ -1186,6 +1193,7 @@ void print_hist(std::ostream &out,
 
 void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 {
+#if HAVE_PKG_nagc
 	plx_gri_locus plx;
 	double dmin, dmax;
 	plx.distance_limits(dmin, dmax, ri, ri, rmin, rmax);
@@ -1305,6 +1313,10 @@ void simulate(int n, Radians l, Radians b, float ri, float rmin, float rmax)
 		nag_1d_spline_evaluate(bh[i], &y, &spl, NAGERR_DEFAULT);
 		cout << bh[i] << " " << y << " " << hc[i] << " " << h0[i] << "\n";
 	}
+#else
+	std::cerr << "NAG C library support not compiled in.";
+	abort();
+#endif
 }
 
 namespace stlops
@@ -1460,6 +1472,7 @@ bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl)
 	return (cn&1);    // 0 if even (out), and 1 if odd (in)	
 }
 
+// test if a given gpc_vertex in inside of a given gpc_polygon
 bool in_polygon(const gpc_vertex &t, const gpc_polygon &p)
 {
 	bool in = false;
@@ -1643,6 +1656,7 @@ gpc_polygon make_circle(double x0, double y0, double r, double dx)
 	return p;
 }
 
+// calculate and return the area of a gpc_polygon
 double polygon_area(const gpc_polygon &p)
 {
 	double A = 0;
@@ -1746,6 +1760,7 @@ namespace sim
 	void montecarlo(const std::string &prefix, unsigned int K);
 }
 
+#ifdef COMPILE_SIMULATE_X
 int main(int argc, char **argv)
 {
 //	simulate();
@@ -1757,9 +1772,16 @@ int main(int argc, char **argv)
 
  	sim::calculate_pdf("north");
 	sim::montecarlo("north", 100);
-
 	return 0;
 }
+#else
+int main(int argc, char **argv)
+{
+	cerr << "simulate.x not compiled. Do ./configure with --enable-simulate first\n";
+	return -1;
+}
+#endif
+
 #if 0
 
 void binBitImage(Radians ndx, XImage &img, const BitImage &b)

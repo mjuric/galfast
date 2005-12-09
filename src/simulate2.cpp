@@ -25,7 +25,7 @@
 
 	Integrations:
 	  * split (x, y) lambert space into 1deg^2 grid
-	  * For each nonempty (x,y) pixel (== a conical beam in 3D space):
+	  * For each nonempty (x,y) pixel (== a beam in 3D space):
 	     * split r-i into 0.01mag bins
 	     * For each r-i bin, calculate:
 	        * N(x, y, ri) = Integrate[rho(m; x,y,ri) dm, m_min, m_max]
@@ -38,7 +38,7 @@
 	     * N(ri|x,y), N(y|x), N(x)
 	  * Calculate spline approximations to integrals of marginalized
 	    distributions for use when transforming uniform variates
-	    
+
 	Sampling:
 	  * Generating the sample of N stars, step 1
 	     * 1: Sample p(x) to get x
@@ -54,6 +54,10 @@
 	       * Draw a random variate from p(m | x, y, ri) - that is the
 	         magnitude.
 */
+
+#include "config.h"
+
+#ifdef COMPILE_SIMULATE_X
 
 #include "gsl/gsl_randist.h"
 
@@ -96,23 +100,13 @@ extern "C"
 
 BLESS_POD(gpc_vertex);
 
+// binary serialization routines for gpc_polygons and aux. data structures
 BOSTREAM2(const gpc_vertex_list& p)
 {
 	out << p.num_vertices;
 	FOR(0, p.num_vertices)
 	{
 		out << p.vertex[i];
-	}
-	return out;
-}
-
-BOSTREAM2(const gpc_polygon& p)
-{
-	out << p.num_contours;
-	FOR(0, p.num_contours)
-	{
-		out << p.hole[i];
-		out << p.contour[i];
 	}
 	return out;
 }
@@ -126,6 +120,17 @@ BISTREAM2(gpc_vertex_list& p)
 		in >> p.vertex[i];
 	}
 	return in;
+}
+
+BOSTREAM2(const gpc_polygon& p)
+{
+	out << p.num_contours;
+	FOR(0, p.num_contours)
+	{
+		out << p.hole[i];
+		out << p.contour[i];
+	}
+	return out;
 }
 
 BISTREAM2(gpc_polygon& p)
@@ -143,6 +148,7 @@ BISTREAM2(gpc_polygon& p)
 
 void poly_bounding_box(double &x0, double &x1, double &y0, double &y1, const gpc_polygon &p);
 
+// create a gpc_polygon rectangle
 gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 {
 	static gpc_vertex v[4];
@@ -157,21 +163,89 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 	return rect;
 }
 
-namespace sim
+// 	lambert proj(rad(90), rad(90));
+// 	double dx = rad(1); // model grid angular resolution
+// 	double dri = 0.01; // model CMD resolution
+// 	double ri0 = 0.0, ri1 = 1.5;	// color limits
+// 	double m0 = 14, m1 = 22;	// magnitude limits
+// 	double dm = 0.1;	// model CMD magnitude resolution
+// 	double x0, x1, y0, y1;	// lambert survey footprint bounding box
+class sim
 {
-	lambert proj(rad(90), rad(90));
-	double dx = rad(1); // model grid angular resolution
-	double dri = 0.01; // model CMD resolution
-	double ri0 = 0.0, ri1 = 1.5;	// color limits
-	double m0 = 14, m1 = 22;	// magnitude limits
-	double dm = 0.1;	// model CMD magnitude resolution
+public:
+	std::string prefix;	// prefix for input/output datafiles
+	model_factory factory;	// models for this simulation
+
+	double dx; 		// model grid angular resolution
+	double dri;		// model CMD resolution
+	double ri0, ri1;	// color limits
+	double m0, m1;		// magnitude limits
+	double dm;		// model CMD magnitude resolution
+
+public: // internal variables - usually you don't need to touch these (for northern sky)
+	lambert proj;		// lambert projector object (by default, centered at north pole)
 	double x0, x1, y0, y1;	// lambert survey footprint bounding box
 
-	void calculate_pdf(const std::string &prefix);
-	void calculate_r_pdf(spline &mspl, const disk_model &model, double x, double y, double ri);
-	void montecarlo(const std::string &prefix, unsigned int K);
+public:
+	sim(const std::string &pfx);
+
+	struct star // storage structure for Monte Carlo generated stars
+	{
+		static sim *gsim;
+
+		double x, y, ri, m;
+		int X() const { return (int)((x - gsim->x0)/gsim->dx); }
+		int Y() const { return (int)((y - gsim->y0)/gsim->dx); }
+		int RI() const { return (int)((ri - gsim->ri0)/gsim->dx); }
+	};
+
+	void precalculate_mpdf();
+	void magnitude_mpdf(spline &mspl, const disk_model &model, double x, double y, double ri);
+	void montecarlo(unsigned int K);
+
+protected:
+	double ri_mpdf(std::vector<double> &pdf, const double x, const double y);
+};
+
+#define CONFIG_VAR(var, name, dflt) if(cfg.count(name)) { var = cfg[name]; } else { var = (dflt); }
+sim::sim(const std::string &pfx)
+: prefix(pfx), proj(rad(90), rad(90))
+{
+	// defaults
+	dx = rad(1);
+	dri = 0.01;
+	ri0 = 0.0;
+	ri1 = 1.5;
+	m0 = 14; 
+	m1 = 22;
+	dm = 0.1;
+
+	Config cfg(pfx + ".conf");
+	CONFIG_VAR(dx, "dx", rad(1));
+	CONFIG_VAR(dri, "dri", 0.01);
+	CONFIG_VAR(ri0, "ri0", 0.0);
+	CONFIG_VAR(ri1, "ri1", 1.5);
+	CONFIG_VAR(m0, "m0", 14); 
+	CONFIG_VAR(m1, "m1", 22);
+	CONFIG_VAR(dm, "dm", 0.1);
+
+	// initialize the Galactic model
+	factory.load("sim_models.txt");
 }
 
+bool operator <(const sim::star &a, const sim::star &b)
+{
+	int aX = a.X();
+	int bX = b.X();
+	int aY = a.Y();
+	int bY = b.Y();
+	return aX < bX || (aX == bX && (
+		aY < bY || (aY == bY && 
+		a.ri < b.ri)
+		));
+}
+
+// precalculated sines and cosines of beam coordinates
 struct pencil_beam
 {
 	Radians l, b;
@@ -183,6 +257,7 @@ struct pencil_beam
 	{ }
 };
 
+// precalculated coordinates of a point in various coordinate systems
 struct coord_pack
 {
 	const static double Rg = 8000.;
@@ -202,60 +277,81 @@ struct coord_pack
 };
 
 #define VARRAY(type, ptr, i) *((type*)(((void **)(ptr))[i]))
+// this function returns the integrand rho(m) for integration
+// of (rho(m) dm), where rho(m) is the distribution of stars
+// in a given direction with a given magnitude m and color r-i
+// in interval dm and solid angle dOmega
 extern "C"
 double model_fun_1(double m, void *param)
 {
+	// unpack the model and parameters
 	pencil_beam &p = VARRAY(pencil_beam, param, 0);
 	disk_model &model = VARRAY(disk_model, param, 1);
 	double Mr = VARRAY(double, param, 2);
 
+	// calculate the 3D real space point corresponding to this
+	// (l,b,m) triplet (given the Mr of the star)
 	double d = stardist::D(m, Mr);
 	coord_pack c(p, d);
+
+	// rho is the number of stars at a point c, per pc^3, per dri
 	double rho = model.rho(c.rcyl, c.z);
-	rho *= pow(d, 3.);
+	static double ln10_over_5 = log(10.)/5.;
+	// convert to the number of stars at point c, per dm, dOmega
+	rho *= pow(d, 3.) * ln10_over_5;
 	return rho;
 }
 
-int model_fun(double m, double const* y, double *dydx, void *param)
-{
-	*dydx = model_fun_1(m, param);
-	return GSL_SUCCESS;
-}
+// int model_fun(double m, double const* y, double *dydx, void *param)
+// {
+// 	*dydx = model_fun_1(m, param);
+// 	return GSL_SUCCESS;
+// }
 
+// these are defined in simulate.cpp
 typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
-bool
-sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param);
-double
-integrate(double a, double b, int_function f, void *param);
+bool sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param);
+double integrate(double a, double b, int_function f, void *param);
 
 #include "gsl/gsl_integration.h"
 
-double do_cmd_integrals(std::vector<double> &pdf, model_factory &factory, const double x, const double y)
+//
+// Populates the pdf vector with cumulative marginal PDFs of stars within a given
+// field (x,y).
+//
+double sim::ri_mpdf(std::vector<double> &pdf, const double x, const double y)
 {
-	using namespace sim;
-	
 	// deproject to (l,b)
 	Radians l, b;
 	proj.inverse(x, y, l, b);
 	pencil_beam pb(l, b);
-	plx_gri_locus plx;
 
 	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
 	pdf.reserve((size_t)((ri1-ri0)/dx)+2);
 	double sum = 0;
+	// loop through spectral types (r-i slices), and calculate the expected
+	// total number of stars with a given SpT (assuming the model returned by
+	// model_factory), in a direction x, y
 	for(double ri = ri0; ri <= ri1; ri += dri)
 	{
+		// get a model which will return the number of stars n in
+		// direction (l,b) in the SpT interval [ri, ri+dri) (approximate
+		// this by assuming a constant f=dN/dri in the short interval dri
+		// and taking n = f*dri
 		std::auto_ptr<disk_model> m(factory.get(ri + 0.5*dri, dri));
-		double Mr = plx.Mr(ri);
+		double Mr = factory.plx.Mr(ri); // absolute magnitude for the stars with this SpT
 
 		void *params[3] = { &pb, &*m, &Mr };
 
 		double n, error;
 		gsl_function F = { &model_fun_1, params };
 		gsl_integration_qag (&F, m0, m1, 0, 1e-7, 1000, GSL_INTEG_GAUSS21, w, &n, &error);
-		n *= sqr(dx) * log(10.)/5.;
+		n *= sqr(dx)*dri; // multiply by solid angle. n is now the total number of stars in direction (l,b)
+		                  // with colors in [ri, ri+dri)
 
-		// store cumulative distribution (note: sum += n line _must_ come after push_back)
+		// store cumulative distribution (note: sum += n line _must_ come after push_back,
+		// to have the cumulative pdf value for index I be the number of stars *less* (and
+		// not .LE.) than I)
 		pdf.push_back(sum);
 		sum += n;
 	}
@@ -266,10 +362,11 @@ double do_cmd_integrals(std::vector<double> &pdf, model_factory &factory, const 
 
 	return sum;
 }
-double polygon_area(const gpc_polygon &p);
 
 #define ITER(x) typeof((x).begin())
 
+// serialize the object contained in boost::shared_ptr.
+// useful for serializing of shared_ptr vectors or lists.
 template <typename T>
 	inline BOSTREAM2(const boost::shared_ptr<T> &p)
 {
@@ -294,6 +391,10 @@ template <typename T>
 	}
 }
 
+// cumulative marginal pdf in lambert y coodinate, for a given lambert x coordinate
+// (Sy::pcum == probability that a star 
+// within the observation footprint and given the model and x coordinate,
+// will have the value of the lambert coordinate y *less* than Sx::Y)
 struct Sy
 {
 	double pcum;
@@ -308,6 +409,9 @@ bool operator<(const Sy& a, const Sy& b) { return a.pcum < b.pcum; }
 inline BOSTREAM2(const Sy &p) { return out << p.pcum << p.Y << p.ripdf; }
 inline BISTREAM2(Sy &p) { return in >> p.pcum >> p.Y >> p.ripdf; }
 
+// cumulative marginal pdf in lambert x coodinate (Sx::pcum == probability that a star 
+// within the observation footprint and given the model will have a 
+// the value of the lambert coordinate x *less* than Sx::X)
 struct Sx
 {
 	double pcum;
@@ -322,23 +426,26 @@ bool operator<(const Sx& a, const Sx& b) { return a.pcum < b.pcum; }
 inline BOSTREAM2(const Sx &p) { return out << p.pcum << p.X << p.ypdf; }
 inline BISTREAM2(Sx &p) { return in >> p.pcum >> p.X >> p.ypdf; }
 
+// set of marginal pdfs in lambert x. It's the trunk of a tree
+// of marginal PDFs, starting with mpdf in X, then Y, and
+// finaly r-i. First branches of the tree are Sx structures,
+// followed by Sy structures (stored in Sx::ypdf), followed by
+// doubles of r-i mpdfs (in Sy::ripdf vector).
 typedef std::vector<boost::shared_ptr<Sx> > XPDF;
-
-template<typename S>
-	struct less_S
-	{
-		bool operator()(const double& a, const boost::shared_ptr<S>& b)
-			{ return a < b->pcum; }
-	};
 
 gpc_polygon make_circle(double x0, double y0, double r, double dx);
 
-void sim::calculate_pdf(const std::string &prefix)
+// calculate marginal PDFs (``mpfds'') for stars within a given sky footprint,
+// and with a given Galactic model. Store the mPDFs into an XPDF tree
+// and serialize it to a file. These mpdfs are later used in generating
+// Monte Carlo realisations of the sky
+//
+// This routine also calculates the 'skymap', for fast point-in-polygon
+// lookups of the observed sky footprint.
+void sim::precalculate_mpdf()
 {
 	using boost::shared_ptr;
 	using std::cout;
-	
-	model_factory factory("sim_models.txt");
 
  	gpc_polygon sky;
 #if 0
@@ -346,119 +453,121 @@ void sim::calculate_pdf(const std::string &prefix)
  	gpc_read_polygon(fp, 1, &sky);
  	fclose(fp);
 #else
-	//sky = make_circle(0., 0., 0.1, dx);
-	sky = make_circle(-0.123308, 0.406791, 0.1, dx);
+	sky = make_circle(0., 0., 0.1, dx);
+	//sky = make_circle(-0.123308, 0.406791, 0.1, dx);
 #endif
 
 	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
  	poly_bounding_box(x0, x1, y0, y1, sky);
 
-// 	do_cmd_integrals(pdf[std::make_pair(X, Y)], factory, 0, 0);
+// 	ri_mpdf(pdf[std::make_pair(X, Y)], factory, 0, 0);
 // 	return;
 
 	XPDF xpdf;
 	int N = 0; // number of dx^2 cells processed
 	double xsum = 0; // Grand total - number of stars in the whole field
 	int X = 0;
-	for(double x = x0; x < x1; x += dx, X++)
+	for(double x = x0; x < x1; x += dx, X++) // loop over all x values in the bounding rectangle
 	{
 		shared_ptr<Sx> sx(new Sx(xsum, X));
 
 		double xa = x, xb = x+dx;
 		int Y = 0;
-		double ysum = 0.;
-		for(double y = y0; y < y1; y += dx, Y++)
+		double xysum = 0.;
+		for(double y = y0; y < y1; y += dx, Y++) // loop over all y values for a given x
 		{
 			double ya = y, yb = y+dx;
 			gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
 			gpc_polygon poly;
 			gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
-			if(poly.num_contours == 0) continue;
+			if(poly.num_contours == 0) continue; // if there are no observations in this direction
 
-			skymap[std::make_pair(X, Y)] = poly;
+			skymap[std::make_pair(X, Y)] = poly; // store the polygon into a fast lookup map
 
-			shared_ptr<Sy> sy(new Sy(ysum, Y));
+			shared_ptr<Sy> sy(new Sy(xysum, Y));
 
 			// calculate CMD integrals & marginal distributions
-			double risum = do_cmd_integrals(sy->ripdf, factory, (xa + xb)/2., (ya + yb)/2.);
+			double risum = ri_mpdf(sy->ripdf, (xa + xb)/2., (ya + yb)/2.);
 
 			// store cumulative distribution
 			sx->ypdf.push_back(sy);
-			ysum += risum;
+			xysum += risum;
 
 			++N;
 //			cout << N << " " << X << " " << Y << ", " << risum << " stars\n";
 		}
-//		cout << "--- ysum = " << ysum << "\n";
+//		cout << "--- xysum = " << xysum << "\n";
 
-		// convert starcounts to probabilities
-		if(ysum)
+		// convert starcounts in ypdf to marginal probabilities (prob. of finding a star w. y less then Y given x)
+		if(xysum != 0.)
 		{
-			FOREACH(sx->ypdf) { (*i)->pcum /= ysum; }
+			FOREACH(sx->ypdf) { (*i)->pcum /= xysum; }
+			#if 1
 			cout << "# N = " << N << "\n";
 			FOREACH(sx->ypdf) { cout << X << " " << (*i)->Y << " " << (*i)->pcum << "\n"; }
 			cout.flush();
+			#endif
 			xpdf.push_back(sx);
-			xsum += ysum;
+			xsum += xysum;
 		}
-		
+
 //		static int kk = 0; if(++kk == 5) break;
 	}
 	cout << "# Total stars = " << xsum << " stars\n";
 
-	// convert starcounts to probabilities
+	// convert starcounts to cumulative probabilities
 	FOREACH(xpdf) { (*i)->pcum /= xsum; }
 	FOREACH(xpdf) { cout << (*i)->X << " -1 " << (*i)->pcum << "\n"; }
 
-	// store all probability density maps to a binary file
+	// store all cumulative probability density maps to a binary file
 	std::ofstream outf((prefix + ".pdf.dat").c_str());
 	io::obstream out(outf);
-	out << xsum;
-	out << xpdf;
 
-	out << x0 << x1 << y0 << y1;
-	out << skymap;
+	out << xsum;	// total number of stars (normalization) (see [1] below)
+	out << xpdf;	// cumulative probability maps
 
+	out << x0 << x1 << y0 << y1;	// sky footprint bounding rectangle
+	out << skymap;			// skymap lookup table
+
+	// TODO: we should also store the values of variables
+	// from the sim:: namespace (dx, dy, dri, etc..).
+	
 	cout << io::binary::manifest << "\n";
+	
+	/* [1] The xsum number (and this whole mpdf tree) _is not_ the total number 
+	of stars within the exact footprint. It's the total number of stars within 
+	the "pixelized footprint" defined as the minimum set of pixels which completely 
+	cover the whole polygonal sky footprint as given by skymap. This is intentional, 
+	to make the monte-carlo drawings easier later, where a star can be drawn from
+	a given pixel, it's coordinates within the pixels calculated, and then
+	rejected if it's not within the footprint.
+	If I calculated the mpdf for the exact footprint, we'd be in trouble when Monte
+	Carlo drawing the exact coordinates of a star in a pixel containing an extremely
+	small (and possibly very irregular!) survey polygon. It'd be unecesserily hard to randomly
+	generate coordinates of a star within such a polygon.
+	*/
 }
 
-namespace sim
-{
-	struct star
-	{
-		double x, y, ri, m;
-		int X() const { return (int)((x - x0)/dx); }
-		int Y() const { return (int)((y - y0)/dx); }
-		int RI() const { return (int)((ri - ri0)/dx); }
-	};
-	bool operator <(const star &a, const star &b)
-	{
-		int aX = a.X();
-		int bX = b.X();
-		int aY = a.Y();
-		int bY = b.Y();
-		return aX < bX || (aX == bX && (
-			aY < bY || (aY == bY && 
-			a.ri < b.ri)
-			));
-	}
-}
-
-bool in_polygon(const gpc_vertex &t, const gpc_polygon &p);
-void sim::calculate_r_pdf(spline &mspl, const disk_model &model, double x, double y, double ri)
+//
+// Calculate a cumulative marginal pdf for a probability that a star has r-band magnitude
+// less than r, for a given direction (x,y) and color r-i. Return the mpdf as a spline
+// function in mspl object. Called from montecarlo().
+//
+void sim::magnitude_mpdf(spline &mspl, const disk_model &model, double x, double y, double ri)
 {
 	// deproject to (l,b)
 	Radians l, b;
 	proj.inverse(x, y, l, b);
 	pencil_beam pb(l, b);
-	plx_gri_locus plx;
 
-	double Mr = plx.Mr(ri);
+	// absolute magnitude for this spectral type
+	double Mr = factory.plx.Mr(ri);
 
 //	std::cout << x << " " << y << " " << l << " " << b << " " << Mr << "\n";
 
-	// calculate p(m) spline
+	// calculate the number of magnitude bins, taking roundoff errors at the
+	// edges of the interval into account
 	int nm = (int)((m1 - m0) / dm);
 	if(gsl_fcmp(dm*nm, m1 - m0, 2*GSL_DBL_EPSILON) < 0)
 	{
@@ -476,10 +585,12 @@ void sim::calculate_r_pdf(spline &mspl, const disk_model &model, double x, doubl
 
 		const void *params[3] = { &pb, &model, &Mr };
 
+		// integrate the piece from m[i-1] to m[i], store to f[i]
 		double error;
 		gsl_function F = { &model_fun_1, params };
 		gsl_integration_qag(&F, m[i-1], m[i], 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &f[i], &error);
 
+		// make f[i] the distribution cumulative
 		f[i] += f[i-1];
 	}
 	gsl_integration_workspace_free(w);
@@ -494,10 +605,23 @@ void sim::calculate_r_pdf(spline &mspl, const disk_model &model, double x, doubl
 	mspl.construct(&f[0], &m[0], f.size());
 }
 
-void sim::montecarlo(const std::string &prefix, unsigned int K)
+// ordering of Sx and Sy structures, by their cumulative marginal
+// pdf values
+template<typename S>
+	struct less_S
+	{
+		bool operator()(const double& a, const boost::shared_ptr<S>& b)
+			{ return a < b->pcum; }
+	};
+
+bool in_polygon(const gpc_vertex &t, const gpc_polygon &p);
+
+// generate K stars in model-sky given in $prefix.pdf.dat
+// file, precalculated with preprecalculate_mpdf
+void sim::montecarlo(unsigned int K)
 {
 	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
-	XPDF xpdf; // sky probability distribution function
+	XPDF xpdf; // marginal cumulative probability distribution function
 	double N = 0; // Grand total - number of stars in the whole field
 
 	// read the probability density maps and auxilliary data
@@ -515,8 +639,8 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 	// from the distribution for all K stars. Then, sort the resulting array
 	// by (x,y), and then for all stars in given (x,y) pixel draw ri and m.
 	// This two-step process is necessary in order to avoid recalculating 
-	// P(m|x,y,ri) distribution at each step (because it's time-consuming,
-	// and there's not enough space to cache it).
+	// P(m|x,y,ri) distribution at each step (it's time-consuming to compute,
+	// and there's not enough space to cache it for all pixels at once).
 	int seed = 42;
 	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
 	gsl_rng_set(rng, seed);
@@ -527,18 +651,18 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 		double ux = gsl_rng_uniform(rng);
 		ITER(xpdf) ix = upper_bound(xpdf.begin(), xpdf.end(), ux, less_S<Sx>()); --ix;
 		const Sx &X = **ix;
-		
-		// pick y
+
+		// pick y, given an x
 		double uy = gsl_rng_uniform(rng);
 		ITER(X.ypdf) iy = upper_bound(X.ypdf.begin(), X.ypdf.end(), uy, less_S<Sy>()); --iy;
 		const Sy &Y = **iy;
 
-		// calculate position
+		// draw the exact location within the [x,x+dx], [y,y+dy] rectangle
 		star &s = stars[i];
 		s.x = x0 + dx*(X.X + gsl_rng_uniform(rng));
 		s.y = y0 + dx*(Y.Y + gsl_rng_uniform(rng));
 
-		// check that the star is inside survey footprint
+		// check that the star is inside survey footprint, reject if it's not
 		gpc_polygon &poly = skymap[std::make_pair(X.X, Y.Y)];
 		if(!in_polygon((gpc_vertex const&)std::make_pair(s.x, s.y), poly))
 		{
@@ -546,10 +670,11 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 			continue;
 		}
 
-		// pick ri
+		// pick ri bin
 		double uri = gsl_rng_uniform(rng);
 		ITER(Y.ripdf) iri = upper_bound(Y.ripdf.begin(), Y.ripdf.end(), uri); --iri;
 		int riidx = iri - Y.ripdf.begin();
+		// pick ri within [ri, ri+dri)
 		double ri = ri0 + dri*(riidx + gsl_rng_uniform(rng));
 		s.ri = ri;
 	}
@@ -559,7 +684,6 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 
 	// create ri->model lookup cache
 	std::vector<boost::shared_ptr<disk_model> > models;
-	model_factory factory("sim_models.txt");
 	for(double ri = ri0; ri <= ri1; ri += dri)
 	{
 		boost::shared_ptr<disk_model> model(factory.get(ri + 0.5*dri, dri));
@@ -567,9 +691,9 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 	}
 
 	std::cerr << "# Assigning magnitudes \n";
-	
+
 	ticker tick(1000);
-	// pick magnitudes for each cell X,Y
+	// draw magnitudes for stars in each cell X,Y
 	boost::tuple<int, int, int> cell;
 	spline mspl;
 	ITER(stars) it = stars.begin();
@@ -577,11 +701,14 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 	{
 		star &s = *it++;
 		boost::tuple<int, int, int> cell2(s.X(), s.Y(), s.RI());
+		// if we moved to a different (x, y, ri) bin, calculate
+		// the cumulative marginal pdf in magnitude for that bin
 		if(cell != cell2)
 		{
-			calculate_r_pdf(mspl, *models[s.RI()], x0 + (s.X() + 0.5)*dx, y0 + (s.Y() + 0.5)*dx, ri0 + (s.RI() + 0.5)*dri);
+			magnitude_mpdf(mspl, *models[s.RI()], x0 + (s.X() + 0.5)*dx, y0 + (s.Y() + 0.5)*dx, ri0 + (s.RI() + 0.5)*dri);
 			cell = cell2;
 		}
+		// draw the magnitude
 		double um = gsl_rng_uniform(rng);
 		s.m = mspl(um);
 //		std::cout << um << " " << s.m << "\n";
@@ -589,7 +716,8 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 	}
 
 	// output
-#if 0
+#if 1
+	// simple ascii-text dump
 	std::ofstream out((prefix + ".sim.txt").c_str());
 	FOR(0, K)
 	{
@@ -597,8 +725,7 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 		out << s.x << " " << s.y << " " << s.ri << " " << s.m << "\n";
 	}
 #else
-	plx_gri_locus plx;
-
+	// NOTE: recheck this code!!
 	unsigned int t = time(NULL), tstart = t;
 	DMMArray<mobject> out;
 	DMMArray<starmag> starmags;
@@ -621,7 +748,7 @@ void sim::montecarlo(const std::string &prefix, unsigned int K)
 		u = z = 21.0;
 		r = s.m;
 		i = r - s.ri;
-		double gr = plx.gr(s.ri);
+		double gr = factory.plx.gr(s.ri);
 		g = r + gr;
 		uErr = gErr = rErr = iErr = zErr = 0.02;
 		// add extinction
@@ -1107,3 +1234,5 @@ void fit_int_spline()
 void test_lapack()
 {
 }
+
+#endif // COMPILE_SIMULATE_X

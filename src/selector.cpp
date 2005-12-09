@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#ifdef HAVE_BOOST
+
 #include <sstream>
 #include <astro/system/options.h>
 #include <astro/system/shell.h>
@@ -1557,3 +1559,13 @@ catch(EAny &e)
 	e.print();
 }
 }
+
+#else HAVE_BOOST
+#include <iostream>
+int main()
+{
+	std::cerr << "Compiled without Boost support. selector.x inoperable.\n";
+	return -1;
+}
+
+#endif

@@ -445,7 +445,7 @@ void make_run_index_offset_map(std::ostream &out, const std::string &runidxfn)
 void loadRuns(set<int> &runs, const std::string &runfile)
 {
 	string fn(runfile.size() ? runfile : "catalogs/runs.txt");
-	cout << "Loading runs from: " << runfile << "\n";
+	cerr << "Loading runs from: " << runfile << "\n";
 	text_input_or_die (in, runfile);
 	load(in, runs, 0);
 	in_stream.close();

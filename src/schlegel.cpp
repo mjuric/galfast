@@ -4,7 +4,7 @@
 
 #include "config.h"
 
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 
 #include "xcat.h"
 #include "paralax.h"

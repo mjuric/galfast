@@ -21,7 +21,7 @@
 #include <fstream>
 #include <valarray>
 
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 #include <CCfits>
 using namespace CCfits;
 #endif
@@ -191,7 +191,7 @@ catch(EAny &e)
 {
 	e.print();
 }
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 catch(FitsException &e)
 {
 	cerr << "FITS exception!" << "\n";

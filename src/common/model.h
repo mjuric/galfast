@@ -36,6 +36,8 @@
 #include <astro/types.h>
 #include <astro/system/log.h>
 
+#include "paralax.h"
+
 struct rzpixel
 {
 	double r, z, N, V;
@@ -168,9 +170,11 @@ class model_factory
 {
 public:
 	std::vector<std::pair<std::pair<float, float>, disk_model> > models;
-	spline lf;
+	spline lf;		// luminosity function
+	plx_gri_locus plx;	// paralax relation
 public:
-	model_factory(const std::string &models);
+	model_factory(const std::string &models = "");
+	void load(const std::string &models);
 	disk_model *get(float ri, double dri);
 };
 

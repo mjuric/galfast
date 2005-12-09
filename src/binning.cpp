@@ -1,6 +1,6 @@
 #include "config.h"
 
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 
 #include <astro/constants.h>
 #include <astro/coordinates.h>
@@ -11,7 +11,7 @@
 #include <astro/system/options.h>
 #include <astro/io/gzstream/fstream.h>
 #include <astro/io/compress.h>
-#include <astro/io/magick.h>
+//#include <astro/io/magick.h>
 #include <astro/system/config.h>
 #include <astro/util/varexpand.h>
 #include <astro/image/indexers.h>
@@ -199,7 +199,7 @@ void resample(XImage &img, double b)
 	img = tmp;
 }
 
-io::magick::IdentityFilter io::magick::IdentityFilter::I;
+//io::magick::IdentityFilter io::magick::IdentityFilter::I;
 
 #include "paralax.h"
 

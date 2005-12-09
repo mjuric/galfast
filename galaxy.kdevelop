@@ -3,7 +3,7 @@
   <general>
     <author>Mario Juric</author>
     <email>mjuric@astro.Princeton.EDU</email>
-    <version>0.2</version>
+    <version>0.4</version>
     <projectmanagement>KDevAutoProject</projectmanagement>
     <primarylanguage>C++</primarylanguage>
     <keywords>
@@ -19,15 +19,15 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/simulate.x</activetarget>
+      <activetarget>src/unique.x</activetarget>
       <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/unique.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
-      <programargs>--prior 1 2 3 4 5 6 7</programargs>
+      <programargs></programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -58,32 +58,32 @@
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O2 -g0</cxxflags>
-        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton/workspace --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --prefix=/home/mjuric/projects/galaxy/workspace</configargs>
-        <topsourcedir/>
-        <cppflags>-DDEBUGMODE=0 -I/usr/local/include/nag</cppflags>
-        <ldflags>-lnurbsf -lmatrix -lmatrixN -lmatrixI -lGL -lGLU -llapack -lg2c</ldflags>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
-        <cflags/>
-        <f77flags/>
+        <configargs>--enable-debug=full --with-nagc=/usr/local/nag/cllux07ddl --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --with-libpeyton-libdir=/home/mjuric/projects/libpeyton/lib-optimized</configargs>
+        <topsourcedir></topsourcedir>
+        <cppflags>-DDEBUGMODE=0</cppflags>
+        <ldflags></ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
+        <cflags></cflags>
+        <f77flags></f77flags>
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-libpeyton=/home/mjuric/projects/libpeyton --without-CCfits</configargs>
+        <configargs>--enable-debug=full --with-nagc=/usr/local/nag/cllux07ddl --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated -pg</cxxflags>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags>-lparser -lplotsub -ldevices -lutils -L/usr/X11R6/lib -lX11</ldflags>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ldflags></ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-Wno-deprecated</cflags>
-        <f77flags/>
+        <f77flags></f77flags>
         <envvars/>
       </debug>
     </configurations>
@@ -150,7 +150,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -160,12 +160,12 @@
   </kdevcppsupport>
   <kdevdebugger>
     <general>
-      <programargs>fitbins.txt</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <programargs></programargs>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>
@@ -183,4 +183,15 @@
     <recursivewhencommitremove>true</recursivewhencommitremove>
     <revertoptions>-C</revertoptions>
   </kdevcvsservice>
+  <ctagspart>
+    <customArguments></customArguments>
+    <customTagfilePath></customTagfilePath>
+  </ctagspart>
+  <kdevdocumentation>
+    <projectdoc>
+      <docsystem></docsystem>
+      <docurl></docurl>
+      <usermanualurl></usermanualurl>
+    </projectdoc>
+  </kdevdocumentation>
 </kdevelop>

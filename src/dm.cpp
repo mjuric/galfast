@@ -32,8 +32,10 @@ try
 
 	gsl_set_error_handler_off ();
 #if 1
+#if HAVE_PKG_CCfits
 	fits_set_streamer fitscat(runs);
 	makelookup(fitscat, "dm_tmpcat.dmm", "dm_tmpcat_index.dmm", "dm_run_index.dmm");
+#endif
 
 	std::ofstream out("dm_run_index.map");
 	make_run_index_offset_map(out, "dm_run_index.dmm");

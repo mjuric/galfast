@@ -1777,7 +1777,7 @@ void rhoray(int argc, char **argv)
 #endif
 	}
 
-#ifdef HAVE_LIBCCFITS
+#ifdef HAVE_PKG_CCfits
 	io::fits::write(img, outputFile);
 #else
 	ASSERT(0) { cerr << "libCCfits support not compiled in.\n"; }

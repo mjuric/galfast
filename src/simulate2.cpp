@@ -82,6 +82,7 @@ extern "C"
 #include <boost/shared_ptr.hpp>
 #include <fstream>
 
+#include "simulate.h"
 #include "projections.h"
 #include "model.h"
 #include "paralax.h"
@@ -163,6 +164,8 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 	return rect;
 }
 
+sim *sim::star::gsim = NULL;
+
 // 	lambert proj(rad(90), rad(90));
 // 	double dx = rad(1); // model grid angular resolution
 // 	double dri = 0.01; // model CMD resolution
@@ -170,67 +173,28 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 // 	double m0 = 14, m1 = 22;	// magnitude limits
 // 	double dm = 0.1;	// model CMD magnitude resolution
 // 	double x0, x1, y0, y1;	// lambert survey footprint bounding box
-class sim
+sim::sim(const std::string &pfx, galactic_model *model_)
+: prefix(pfx), proj(rad(90), rad(90)), model(model_)
 {
-public:
-	std::string prefix;	// prefix for input/output datafiles
-	model_factory factory;	// models for this simulation
-
-	double dx; 		// model grid angular resolution
-	double dri;		// model CMD resolution
-	double ri0, ri1;	// color limits
-	double m0, m1;		// magnitude limits
-	double dm;		// model CMD magnitude resolution
-
-public: // internal variables - usually you don't need to touch these (for northern sky)
-	lambert proj;		// lambert projector object (by default, centered at north pole)
-	double x0, x1, y0, y1;	// lambert survey footprint bounding box
-
-public:
-	sim(const std::string &pfx);
-
-	struct star // storage structure for Monte Carlo generated stars
-	{
-		static sim *gsim;
-
-		double x, y, ri, m;
-		int X() const { return (int)((x - gsim->x0)/gsim->dx); }
-		int Y() const { return (int)((y - gsim->y0)/gsim->dx); }
-		int RI() const { return (int)((ri - gsim->ri0)/gsim->dx); }
-	};
-
-	void precalculate_mpdf();
-	void magnitude_mpdf(spline &mspl, const disk_model &model, double x, double y, double ri);
-	void montecarlo(unsigned int K);
-
-protected:
-	double ri_mpdf(std::vector<double> &pdf, const double x, const double y);
-};
-
-#define CONFIG_VAR(var, name, dflt) if(cfg.count(name)) { var = cfg[name]; } else { var = (dflt); }
-sim::sim(const std::string &pfx)
-: prefix(pfx), proj(rad(90), rad(90))
-{
-	// defaults
-	dx = rad(1);
-	dri = 0.01;
-	ri0 = 0.0;
-	ri1 = 1.5;
-	m0 = 14; 
-	m1 = 22;
-	dm = 0.1;
+	sim::star::gsim = this;
 
 	Config cfg(pfx + ".conf");
-	CONFIG_VAR(dx, "dx", rad(1));
-	CONFIG_VAR(dri, "dri", 0.01);
-	CONFIG_VAR(ri0, "ri0", 0.0);
-	CONFIG_VAR(ri1, "ri1", 1.5);
-	CONFIG_VAR(m0, "m0", 14); 
-	CONFIG_VAR(m1, "m1", 22);
-	CONFIG_VAR(dm, "dm", 0.1);
 
-	// initialize the Galactic model
-	factory.load("sim_models.txt");
+	cfg.get(dx,	"dx", 	rad(1));
+	cfg.get(dri,	"dri",	0.01);
+	cfg.get(ri0,	"ri0",	0.0);
+	cfg.get(ri1,	"ri1",	1.5);
+	cfg.get(m0,	"m0",	14.); 
+	cfg.get(m1,	"m1",	22.);
+	cfg.get(dm,	"dm",	0.1);
+	
+	LOG(app, verb1) << "dx  = " << deg(dx);
+	LOG(app, verb1) << "dri = " << dri;
+	LOG(app, verb1) << "ri0 = " << ri0;
+	LOG(app, verb1) << "ri1 = " << ri1;
+	LOG(app, verb1) << "m0  = " << m0;
+	LOG(app, verb1) << "m1  = " << m1;
+	LOG(app, verb1) << "dm  = " << dm;
 }
 
 bool operator <(const sim::star &a, const sim::star &b)
@@ -286,8 +250,9 @@ double model_fun_1(double m, void *param)
 {
 	// unpack the model and parameters
 	pencil_beam &p = VARRAY(pencil_beam, param, 0);
-	disk_model &model = VARRAY(disk_model, param, 1);
+	galactic_model &model = VARRAY(galactic_model, param, 1);
 	double Mr = VARRAY(double, param, 2);
+	double ri = VARRAY(double, param, 3);
 
 	// calculate the 3D real space point corresponding to this
 	// (l,b,m) triplet (given the Mr of the star)
@@ -295,25 +260,117 @@ double model_fun_1(double m, void *param)
 	coord_pack c(p, d);
 
 	// rho is the number of stars at a point c, per pc^3, per dri
-	double rho = model.rho(c.rcyl, c.z);
+	double rho = model.rho(c.x, c.y, c.z, ri);
 	static double ln10_over_5 = log(10.)/5.;
 	// convert to the number of stars at point c, per dm, dOmega
 	rho *= pow(d, 3.) * ln10_over_5;
 	return rho;
 }
 
-// int model_fun(double m, double const* y, double *dydx, void *param)
-// {
-// 	*dydx = model_fun_1(m, param);
-// 	return GSL_SUCCESS;
-// }
+int model_fun(double m, double const* y, double *dydx, void *param)
+{
+	double norm = VARRAY(double, param, 4);
+	*dydx = model_fun_1(m, param) / norm;
+	//std::cerr << "m = " << m << ", r = " << *dydx << "\n";
+	return GSL_SUCCESS;
+}
 
 // these are defined in simulate.cpp
 typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
 bool sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_function f, void *param);
-double integrate(double a, double b, int_function f, void *param);
 
-#include "gsl/gsl_integration.h"
+#include <gsl/gsl_integration.h>
+#include <gsl/gsl_odeiv.h>
+
+#if 0
+double
+integrate(double a, double b, int_function f, void *param, double abserr, double relerr)
+{
+	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rk2, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(abserr, relerr);
+	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
+
+	double h0 = (b - a) / 1000;	// initial step size
+	double y = 0;			// initial integration value
+	double x = a;			// initial integration point
+
+	gsl_odeiv_system sys = {f, NULL, 1, param};
+
+	// integration from 0 to dmax, but in ninterp steps
+	// when integrating between dmin and dmax
+	double h = h0;
+	while (x < b)
+	{
+		gsl_odeiv_evolve_apply (e, c, s,
+					&sys,
+					&x, b, &h,
+					&y);
+		std::cerr << "# " << x << " " << y << " " << h << "\n";
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	exit(-1);
+	return y;
+}
+#else
+/*bool
+sample_integral2(const double a, const double b, double dx,
+	std::vector<double> &xv, std::vector<double> &yv, int_function f, void *param,
+	double abserr = 1e-6, double relerr = 0)*/
+double
+integrate(double a, double b, double dx, int_function f, void *param, double abserr, double relerr)
+{
+// 	abserr = 0;
+// 	relerr = 1;
+
+	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rk2, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(abserr, relerr);
+	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
+
+	double h = dx/2.;	// initial step size
+	double y = 0;		// initial integration value
+	double x = a;		// initial integration point
+
+	ASSERT(VARRAY(double, param, 4) != 0);
+
+	gsl_odeiv_system sys = {f, NULL, 1, param};
+
+	double xto = x+dx;
+	bool last = false;
+	while(!last)
+	{
+		if(xto > b) { xto = b; last = true; }
+
+		while (x < xto)
+		{
+			int status = gsl_odeiv_evolve_apply (e, c, s,
+						&sys,
+						&x, xto, &h,
+						&y);
+			if(status != GSL_SUCCESS)
+			{
+				std::cerr << "Error while integrating: " << gsl_strerror(status) << "\n";
+				exit(-1);
+			}
+			double rho;
+			GSL_ODEIV_FN_EVAL(&sys, x+h, &y, &rho);
+			std::cout << "[" << VARRAY(double, param, 4) << "]: " << x << " " << y << " " << dx << " " << h << " " << rho << "\n";
+/*			if(fabs(VARRAY(double, param, 3) - 1.27) < 0.01)
+				std::cout << "[" << VARRAY(double, param, 3) << "]: " << x << " " << y << " " << dx << " " << h << "\n";*/
+		}
+		//std::cout << "[" << VARRAY(double, param, 4) << "]: " << x << " " << y << " " << dx << " " << h << "\n";
+
+		xto += dx;
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	return y;
+}
+#endif
 
 //
 // Populates the pdf vector with cumulative marginal PDFs of stars within a given
@@ -326,28 +383,52 @@ double sim::ri_mpdf(std::vector<double> &pdf, const double x, const double y)
 	proj.inverse(x, y, l, b);
 	pencil_beam pb(l, b);
 
-	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-	pdf.reserve((size_t)((ri1-ri0)/dx)+2);
+	const int Npts = 1000;
+	gsl_integration_workspace * w = gsl_integration_workspace_alloc (Npts);
+	pdf.clear();
+	pdf.reserve((size_t)((ri1-ri0)/dri)+2);
 	double sum = 0;
+
+	bool act = false;
 	// loop through spectral types (r-i slices), and calculate the expected
 	// total number of stars with a given SpT (assuming the model returned by
-	// model_factory), in a direction x, y
+	// model class), in a direction x, y
 	for(double ri = ri0; ri <= ri1; ri += dri)
 	{
 		// get a model which will return the number of stars n in
 		// direction (l,b) in the SpT interval [ri, ri+dri) (approximate
 		// this by assuming a constant f=dN/dri in the short interval dri
 		// and taking n = f*dri
-		std::auto_ptr<disk_model> m(factory.get(ri + 0.5*dri, dri));
-		double Mr = factory.plx.Mr(ri); // absolute magnitude for the stars with this SpT
+		double ri_mid = ri + 0.5*dri;
+		double Mr = model->absmag(ri_mid); // absolute magnitude for the stars with this SpT
 
-		void *params[3] = { &pb, &*m, &Mr };
+		double norm = 1.;
+		void *params[5] = { &pb, model, &Mr, &ri_mid, &norm };
 
 		double n, error;
 		gsl_function F = { &model_fun_1, params };
-		gsl_integration_qag (&F, m0, m1, 0, 1e-7, 1000, GSL_INTEG_GAUSS21, w, &n, &error);
+		#if 0
+		ASSERT(gsl_integration_qag (&F, m0, m1, 0, 1e-7, Npts, GSL_INTEG_GAUSS61, w, &n, &error) == GSL_SUCCESS);
+		#else
+		n = integrate(m0, m1, dm, model_fun, params, 1e-10, 1e-5);
+		#endif
+		//ASSERT(n != 0) { std::cerr << "BU! " << x << " " << y << " " << ri_mid << " " << n << "\n"; }
 		n *= sqr(dx)*dri; // multiply by solid angle. n is now the total number of stars in direction (l,b)
 		                  // with colors in [ri, ri+dri)
+		#if 0
+		if(n != 0) { std::cerr << "BU!" << x << " " << y << " " << ri_mid << " " << n << "\n"; }
+		if(std::abs(x + 0.0912734) < 0.0001 &&
+		   std::abs(y + 0.0563668) < 0.0001 &&
+		   std::abs(ri_mid - .215) < 0.0001)
+		   {
+ 			std::cerr << "BU!" << x << " " << y << " " << ri_mid << "\n";
+			std::cerr << "sum = " << sum << ", n = " << n << "\n";
+			std::cerr << "size = " << pdf.size() << "\n";
+			std::cerr << "err = " << error << "\n";
+			act = true;
+//			exit(-1);
+ 		   }
+		#endif
 
 		// store cumulative distribution (note: sum += n line _must_ come after push_back,
 		// to have the cumulative pdf value for index I be the number of stars *less* (and
@@ -358,8 +439,13 @@ double sim::ri_mpdf(std::vector<double> &pdf, const double x, const double y)
 	gsl_integration_workspace_free(w);
 
 	// convert to probability
-	FOREACH(pdf) { *i /= sum; }
+	FOREACH(pdf) { 
+		//if(act && i - pdf.begin() == 22) { std::cerr << "XXX: " << *i << "\n"; }
+		*i /= sum;
+		//if(act && i - pdf.begin() == 22) { std::cerr << "XXX: " << *i << "\n"; }
+	}
 
+	//std::cerr << "Exit\n";
 	return sum;
 }
 
@@ -433,6 +519,24 @@ inline BISTREAM2(Sx &p) { return in >> p.pcum >> p.X >> p.ypdf; }
 // doubles of r-i mpdfs (in Sy::ripdf vector).
 typedef std::vector<boost::shared_ptr<Sx> > XPDF;
 
+OSTREAM(const XPDF &xpdf)
+{
+	// TODO: unfinished
+	FOREACHj(xi, xpdf)
+	{
+		double x = (*xi)->X;
+		FOREACHj(yi, (*xi)->ypdf)
+		{
+			double y = (*yi)->Y;
+			FOREACHj(rii, (*yi)->ripdf)
+			{
+				//double ri = 
+				out << x << " " << y << " " << *rii << "\n";
+			}
+		}
+	}
+}
+
 gpc_polygon make_circle(double x0, double y0, double r, double dx);
 
 // calculate marginal PDFs (``mpfds'') for stars within a given sky footprint,
@@ -447,11 +551,11 @@ void sim::precalculate_mpdf()
 	using boost::shared_ptr;
 	using std::cout;
 
- 	gpc_polygon sky;
+	gpc_polygon sky;
 #if 0
  	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
  	gpc_read_polygon(fp, 1, &sky);
- 	fclose(fp);
+	fclose(fp);
 #else
 	sky = make_circle(0., 0., 0.1, dx);
 	//sky = make_circle(-0.123308, 0.406791, 0.1, dx);
@@ -530,11 +634,8 @@ void sim::precalculate_mpdf()
 	out << x0 << x1 << y0 << y1;	// sky footprint bounding rectangle
 	out << skymap;			// skymap lookup table
 
-	// TODO: we should also store the values of variables
-	// from the sim:: namespace (dx, dy, dri, etc..).
-	
 	cout << io::binary::manifest << "\n";
-	
+
 	/* [1] The xsum number (and this whole mpdf tree) _is not_ the total number 
 	of stars within the exact footprint. It's the total number of stars within 
 	the "pixelized footprint" defined as the minimum set of pixels which completely 
@@ -549,12 +650,114 @@ void sim::precalculate_mpdf()
 	*/
 }
 
+void cumulative_dist::construct(const std::vector<double> &x, const std::vector<double> &y)
+{
+	ASSERT(y[0] == 0. && y[y.size()-1] == 1.)
+	{
+		std::cerr << y.size() << " " << y[0] << " " << y[y.size()-1] << "\n";
+	}
+	ASSERT(y.size() == x.size());
+	hist.reserve(y.size());
+	hist.clear();
+	FOR(0, x.size())
+	{
+		hist.push_back(std::make_pair(x[i], y[i]));
+	}
+}
+
+bool less_cdh(const double a, const cumulative_dist::value_type &b)
+{
+	return a < b.second;
+}
+
+double cumulative_dist::operator()(double prob)
+{
+	ASSERT(0 <= prob && prob <= 1);
+	ITER(hist) i = upper_bound(hist.begin(), hist.end(), prob, less_cdh);
+	
+	if(i == hist.end()) { --i; }
+	value_type b = *i; --i;
+	value_type a = *i;
+	
+	double ret;
+	if(b.second == a.second) { ret = (a.first + b.first) / 2.; }
+	else { ret = a.first + (b.first - a.first)/(b.second - a.second) * (prob - a.second); }
+
+	ASSERT(a.second <= prob && prob <= b.second) { std::cerr << a.second << " " << prob << " " << b.second << "\n"; }
+	ASSERT(a.first <= ret && ret <= b.first) { std::cerr << prob << " " << a.first << " " << ret << " " << b.first << "\n"; }
+	return ret;
+}
+
+
+
+typedef int (*int_function)(double dd, double const* y, double *dydd, void *param);
+
+// integrate the function f from xv[0] to xv[xv.size()-1], storing the integral
+// values at points xv in yv
+bool
+sample_integral2(const double a, const double b, double dx,
+	std::vector<double> &xv, std::vector<double> &yv, int_function f, void *param,
+	double abserr = 1e-6, double relerr = 0)
+{
+	using std::cout;
+
+	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rk2, 1);
+	gsl_odeiv_control* c = gsl_odeiv_control_y_new(abserr, relerr);
+	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
+
+	double h = dx/2.;	// initial step size
+	double y = 0;		// initial integration value
+	double x = a;		// initial integration point
+
+	xv.push_back(x);
+	yv.push_back(y);
+
+	ASSERT(VARRAY(double, param, 4) != 0);
+
+	gsl_odeiv_system sys = {f, NULL, 1, param};
+
+	// integration from 0 to dmax, but in ninterp steps
+	// when integrating between dmin and dmax
+	double xto = x+dx;
+	bool last = false;
+	while(!last)
+	{
+		if(xto > b) { xto = b; last = true; }
+
+		while (x < xto)
+		{
+			//std::cout << "[" << VARRAY(double, param, 3) << "]: " << x << " " << y << " " << dx << " " << h << "\n";
+			int status = gsl_odeiv_evolve_apply (e, c, s,
+						&sys,
+						&x, xto, &h,
+						&y);
+			if(status != GSL_SUCCESS)
+			{
+				std::cerr << "Error while integrating: " << gsl_strerror(status) << "\n";
+				exit(-1);
+			}
+
+			xv.push_back(x);
+			yv.push_back(y);
+		}
+
+		xto += dx;
+	}
+	gsl_odeiv_evolve_free(e);
+	gsl_odeiv_control_free(c);
+	gsl_odeiv_step_free(s);
+
+	return true;
+}
+
+
 //
 // Calculate a cumulative marginal pdf for a probability that a star has r-band magnitude
 // less than r, for a given direction (x,y) and color r-i. Return the mpdf as a spline
 // function in mspl object. Called from montecarlo().
 //
-void sim::magnitude_mpdf(spline &mspl, const disk_model &model, double x, double y, double ri)
+#if 1
+void sim::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri)
 {
 	// deproject to (l,b)
 	Radians l, b;
@@ -562,48 +765,146 @@ void sim::magnitude_mpdf(spline &mspl, const disk_model &model, double x, double
 	pencil_beam pb(l, b);
 
 	// absolute magnitude for this spectral type
-	double Mr = factory.plx.Mr(ri);
+	double Mr = model->absmag(ri);
+
+	double norm = 1.;
+#if 0
+	// calculate the total for normalization
+	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
+	const void *params[4] = { &pb, model, &Mr, &ri };
+	gsl_function F = { &model_fun_1, params };
+	double error;
+	gsl_integration_qag(&F, m0, m1, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &norm, &error);
+	gsl_integration_workspace_free(w);
+
+	if(norm == 0) {
+		std::cerr << "Norm = 0!: " << x << " " << y << " " << ri << "\n";
+		exit(-1);
+	}
+#endif
+
+	// estimate the number of magnitude bins
+	int nm = (int)((m1 - m0) / dm) + 20;
+
+	std::vector<double> m, f;
+	m.reserve(nm); f.reserve(nm);
+	m.push_back(m0); f.push_back(0);
+	double dfmax = 0.01;
+
+	const void *params2[5] = { &pb, model, &Mr, &ri, &norm };
+	sample_integral2(m0, m1, dm, m, f, &model_fun, params2, 1e-10, 1e-5);
+
+	// normalization - convert the integrated density to probability
+	double fmax = f[f.size()-1];
+	ASSERT(fmax > 0.);
+#if 0
+	ASSERT(fabs(fmax - 1) < 1e-1)
+	{
+		std::cerr << "norm = " << norm << " fmax=" << fmax << "\n";
+		std::cerr << x << " " << y << " " << ri << "\n";
+        	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
+		std::cout.flush();
+	}
+#endif
+	FOREACH(f) { *i /= fmax; }
+	//std::cerr << "total = " << total << " fmax=" << fmax << "\n";
+
+// 	if(ri > 1.49)
+// 	{
+// 	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
+// 	exit(-1);
+// 	}
+
+	// construct spline approximation
+//	std::cout << ri << " " << Mr << " " << m.size() << " " << f.size() << "\n";
+	mspl.construct(m, f);
+
+/*	FOR(0, f.size()) { std::cout << mspl(f[i]+0.001) << " " << f[i] << "\n"; }
+	exit(-1);*/
+/*	for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
+	exit(-1);*/
+}
+#else
+void sim::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri)
+{
+	// deproject to (l,b)
+	Radians l, b;
+	proj.inverse(x, y, l, b);
+	pencil_beam pb(l, b);
+
+	// absolute magnitude for this spectral type
+	double Mr = model->absmag(ri);
+	double dm = this->dm;
 
 //	std::cout << x << " " << y << " " << l << " " << b << " " << Mr << "\n";
 
-	// calculate the number of magnitude bins, taking roundoff errors at the
-	// edges of the interval into account
-	int nm = (int)((m1 - m0) / dm);
-	if(gsl_fcmp(dm*nm, m1 - m0, 2*GSL_DBL_EPSILON) < 0)
-	{
-		++nm;
-	}
-	++nm;
-
+	// calculate the total for normalization
 	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-	std::valarray<double> m(nm), f(nm);
-	m[0] = m0; f[0] = 0.;
-	FOR(1, m.size())
+	const void *params[4] = { &pb, model, &Mr, &ri };
+	gsl_function F = { &model_fun_1, params };
+	double total, error;
+	gsl_integration_qag(&F, m0, m1, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &total, &error);
+	//std::cout << "total = " << total << "\n";
+
+	// estimate the number of magnitude bins
+	int nm = (int)((m1 - m0) / dm) + 20;
+
+	std::vector<double> m, f;
+	m.reserve(nm); f.reserve(nm);
+	m.push_back(m0); f.push_back(0);
+	double dfmax = 0.01;
+	double mcur = m0+dm;
+	int k = 0;
+	while(mcur < m1+dm)
 	{
-		m[i] = m0 + dm*i;
-		if(i+1 == m.size()) m[i] = m1;
+		if(mcur > m1) mcur = m1;
 
-		const void *params[3] = { &pb, &model, &Mr };
-
-		// integrate the piece from m[i-1] to m[i], store to f[i]
-		double error;
+		const void *params[4] = { &pb, model, &Mr, &ri };
 		gsl_function F = { &model_fun_1, params };
-		gsl_integration_qag(&F, m[i-1], m[i], 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &f[i], &error);
 
-		// make f[i] the distribution cumulative
-		f[i] += f[i-1];
+		// integrate the piece from mcur-dm to mcur, store to fcur
+		double fcur;
+		while(true)
+		{
+			gsl_integration_qag(&F, m.back(), mcur, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &fcur, &error);
+			//std::cout << mcur-dm << " " << mcur << " " << fcur/total << "\n";
+			if(fcur/total <= dfmax) break;
+			dm /= 2;
+			mcur -= dm;
+			k = -3;
+		}
+		//std::cout << "OUT!\n";
+
+		// store and cumulate
+		m.push_back(mcur);
+		f.push_back(f.back() + fcur);
+
+		if(++k > 0) { dm *= 2; }
+		mcur += dm;
 	}
 	gsl_integration_workspace_free(w);
 
 	// normalization - convert the integrated density to probability
 	double fmax = f[f.size()-1];
-	f /= fmax;
+	FOREACH(f) { *i /= fmax; }
+	ASSERT(abs(total - fmax)/total < 1e-5)
+	{
+		std::cerr << "total = " << total << " fmax=" << fmax << "\n";
+	}
+	//std::cerr << "total = " << total << " fmax=" << fmax << "\n";
 
-//	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
+//      	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
+//      	exit(-1);
 
 	// construct spline approximation
-	mspl.construct(&f[0], &m[0], f.size());
+	mspl.construct(m, f);
+	
+/*	FOR(0, f.size()) { std::cout << mspl(f[i]+0.001) << " " << f[i] << "\n"; }
+	exit(-1);*/
+/*	for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
+	exit(-1);*/
 }
+#endif
 
 // ordering of Sx and Sy structures, by their cumulative marginal
 // pdf values
@@ -676,37 +977,50 @@ void sim::montecarlo(unsigned int K)
 		int riidx = iri - Y.ripdf.begin();
 		// pick ri within [ri, ri+dri)
 		double ri = ri0 + dri*(riidx + gsl_rng_uniform(rng));
+		ASSERT(ri0+riidx*dri <= ri && ri <= ri0+dri+riidx*dri);
 		s.ri = ri;
+
+//		ASSERT(Y.ripdf[riidx] != 0) { std::cerr << x0+dx*(s.X() + .5) << " " << y0+dx*(s.Y() + .5) << " " << ri0+dri*(s.RI()+.5) << "\n"; }
+		if(std::abs(x0+dx*(s.X() + .5) + 0.0912734) < 0.0001 &&
+		   std::abs(y0+dx*(s.Y() + .5) + 0.0563668) < 0.0001 &&
+		   std::abs(ri0+dri*(s.RI() + .5) - .215) < 0.0001)
+		   {
+		    { std::cerr << x0+dx*(s.X() + .5) << " " << y0+dx*(s.Y() + .5) << " " << ri0+dri*(s.RI()+.5) << "\n"; }
+		    std::cerr << riidx << " " << Y.ripdf[riidx] << " " << Y.ripdf[riidx+1] << "\n";
+//		    exit(-1);
+		   }
 	}
 
 	// sort stars by X, Y, ri
 	std::sort(stars.begin(), stars.end());
 
-	// create ri->model lookup cache
-	std::vector<boost::shared_ptr<disk_model> > models;
-	for(double ri = ri0; ri <= ri1; ri += dri)
-	{
-		boost::shared_ptr<disk_model> model(factory.get(ri + 0.5*dri, dri));
-		models.push_back(model);
-	}
-
 	std::cerr << "# Assigning magnitudes \n";
 
 	ticker tick(1000);
 	// draw magnitudes for stars in each cell X,Y
-	boost::tuple<int, int, int> cell;
-	spline mspl;
+	boost::tuple<int, int, int> cell = boost::make_tuple(-1000,-1000,-1000);
+	cumulative_dist mspl;
 	ITER(stars) it = stars.begin();
 	while(it != stars.end())
 	{
+		//std::cerr << "+" << "\n";
 		star &s = *it++;
 		boost::tuple<int, int, int> cell2(s.X(), s.Y(), s.RI());
 		// if we moved to a different (x, y, ri) bin, calculate
 		// the cumulative marginal pdf in magnitude for that bin
 		if(cell != cell2)
 		{
-			magnitude_mpdf(mspl, *models[s.RI()], x0 + (s.X() + 0.5)*dx, y0 + (s.Y() + 0.5)*dx, ri0 + (s.RI() + 0.5)*dri);
+			magnitude_mpdf(mspl, x0 + (s.X() + 0.5)*dx, y0 + (s.Y() + 0.5)*dx, ri0 + (s.RI() + 0.5)*dri);
 			cell = cell2;
+/*			double rix = ri0 + (s.RI() + 0.5)*dri;
+			if(rix == 0.935) {
+				static int cnt = 10;
+				std::cerr << rix << "\t" << mspl(0) << "\t" << mspl(0.999) << "\n";
+				if(--cnt == 0) {
+					for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
+					exit(-1);
+				}
+			}*/
 		}
 		// draw the magnitude
 		double um = gsl_rng_uniform(rng);

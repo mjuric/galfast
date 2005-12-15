@@ -33,6 +33,8 @@
 #include <astro/io/format.h>
 #include <astro/useall.h>
 
+#include <gsl/gsl_poly.h>
+
 using namespace std;
 
 /////////////
@@ -234,7 +236,8 @@ void spline::construct(const double *x, const double *y, int n)
 	copy(y, y+n, &yv[0]);
 
 	// construct spline
-	f = gsl_interp_alloc(gsl_interp_cspline, n);
+	f = gsl_interp_alloc(gsl_interp_linear, n);
+	//f = gsl_interp_alloc(gsl_interp_cspline, n);
 	gsl_interp_init(f, &xv[0], &yv[0], n);
 	acc = gsl_interp_accel_alloc();
 }
@@ -245,3 +248,88 @@ spline::~spline()
 	gsl_interp_free(f);
 }
 
+////////////////////////////////////////////////////
+
+double toy_homogenious_model::rho(double x, double y, double z, double ri)
+{
+	return rho0;
+}
+
+double toy_homogenious_model::absmag(double ri)
+{
+	//return plx.Mr(ri);
+	return 4;
+}
+
+////////////////////////////////////////////////////
+
+double toy_geocentric_powerlaw_model::rho(double x, double y, double z, double ri)
+{
+	x -= Rg;
+	double d2 = sqr(x) + sqr(y) + sqr(z);
+	return rho0 * pow(d2, alpha/2.);
+}
+
+double toy_geocentric_powerlaw_model::absmag(double ri)
+{
+	return 4+2*ri;
+}
+
+////////////////////////////////////////////////////
+
+toy_geo_plaw_abspoly_model::toy_geo_plaw_abspoly_model(const std::string &prefix)
+{
+	Config conf(prefix + ".conf");
+
+	// Get model parameters
+	conf.get(alpha, "alpha", 0.);
+	conf.get(rho0, "rho0", 1.);
+
+	// Get absolute magnitude relation coefficients
+	std::string key; ostringstream poly;
+	double c;
+	for(int i = 0; conf.get(c, key = std::string("Mr_") + str(i), 0.); i++)
+	{
+		Mr_coef.push_back(c);
+		if(i == 0) { poly << c; }
+		else { poly << " + " << c << "*x^" << i; }
+	}
+
+	for(double ri=0; ri < 1.5; ri += 0.1)
+	{
+		std::cerr << absmag(ri) << "\n";
+	}
+
+	LOG(app, verb1) << "rho(d) = " << rho0 << "*d^" << alpha;
+	LOG(app, verb1) << "Mr(r-i) = " << poly.str();
+}
+
+double toy_geo_plaw_abspoly_model::rho(double x, double y, double z, double ri)
+{
+	// geocentric powerlaw distribution
+#if 0
+ 	x -= Rg;
+ 	double d2 = sqr(x) + sqr(y) + sqr(z);
+ 	return rho0 * pow(d2, alpha/2.);
+#else
+	// geocentric shell distribution
+	x -= Rg;
+	double d2 = sqr(x) + sqr(y) + sqr(z);
+	if(sqr(3000) < d2 && d2 < sqr(4000))
+	{
+		return rho0 * pow(d2, alpha/2.);
+		//return pow(d2, -3./2.);
+	}
+	return 0;
+	return 0.01*rho0 * pow(d2, alpha/2.);
+#endif
+}
+
+double toy_geo_plaw_abspoly_model::absmag(double ri)
+{
+	// evaluate the polynomial
+	ASSERT(0 <= ri && ri <= 1.5) { std::cerr << ri << "\n"; }
+//	return 4;
+//	return 4+2*ri-3;
+	return gsl_poly_eval(&Mr_coef[0], Mr_coef.size(), ri);
+}

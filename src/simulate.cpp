@@ -917,36 +917,6 @@ sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv, int_
 	return true;
 }
 
-// integrate the function f from a to b, returning the result
-double
-integrate(double a, double b, int_function f, void *param)
-{
-	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rkf45, 1);
-	gsl_odeiv_control* c = gsl_odeiv_control_y_new(1e-6, 0.0);
-	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
-
-	double h = (b - a) / 1000;	// initial step size
-	double y = 0;			// initial integration value
-	double x = a;			// initial integration point
-
-	gsl_odeiv_system sys = {f, NULL, 1, param};
-
-	// integration from 0 to dmax, but in ninterp steps
-	// when integrating between dmin and dmax
-	while (x < b)
-	{
-		gsl_odeiv_evolve_apply (e, c, s,
-					&sys,
-					&x, b, &h,
-					&y);
-	}
-	gsl_odeiv_evolve_free(e);
-	gsl_odeiv_control_free(c);
-	gsl_odeiv_step_free(s);
-
-	return y;
-}
-
 #endif
 
 ///////////////////////////////////
@@ -1754,14 +1724,12 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 
 void test_nurbs();
 void test_lapack();
-namespace sim
-{
-	void calculate_pdf(const std::string &prefix);
-	void montecarlo(const std::string &prefix, unsigned int K);
-}
 
 #ifdef COMPILE_SIMULATE_X
+#include "simulate.h"
 int main(int argc, char **argv)
+{
+try
 {
 //	simulate();
 /*	makeSkyMap("north", lambert(rad(90), rad(90)));
@@ -1770,9 +1738,19 @@ int main(int argc, char **argv)
 //	test_nurbs();
 //	test_lapack();
 
- 	sim::calculate_pdf("north");
-	sim::montecarlo("north", 100);
+	//toy_homogenious_model model(1.);
+	//toy_geocentric_powerlaw_model model(1., 0.);
+	toy_geo_plaw_abspoly_model model("north");
+	sim north("north", &model);
+
+ 	north.precalculate_mpdf();
+	north.montecarlo(100000);
 	return 0;
+}
+catch(EAny &e)
+{
+	e.print();
+}
 }
 #else
 int main(int argc, char **argv)

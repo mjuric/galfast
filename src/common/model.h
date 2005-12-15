@@ -178,4 +178,46 @@ public:
 	disk_model *get(float ri, double dri);
 };
 
+class galactic_model
+{
+public:
+	virtual double absmag(double ri) = 0;
+	virtual double rho(double x, double y, double z, double ri) = 0;
+};
+
+class toy_homogenious_model : public galactic_model
+{
+public:
+	double rho0;
+public:
+	toy_homogenious_model(double rho0_) : rho0(rho0_) {}
+	double absmag(double ri);
+	double rho(double x, double y, double z, double ri);
+};
+
+// geocentric powerlaw model with a constant paralax relation
+class toy_geocentric_powerlaw_model : public galactic_model
+{
+public:
+	double rho0, alpha;
+public:
+	toy_geocentric_powerlaw_model(double rho0_, double alpha_) : rho0(rho0_), alpha(alpha_) {}
+	double absmag(double ri);
+	double rho(double x, double y, double z, double ri);
+};
+
+// geocentric powerlaw model with a polynomial Mr(ri) paralax relation
+// reads its parameters from a config file, as keywords with prefix 'Mr_'
+// for Mr_coef, and keywords rho0 and alpha for the powerlaw params.
+class toy_geo_plaw_abspoly_model : public galactic_model
+{
+public:
+	double rho0, alpha;
+	std::vector<double> Mr_coef;
+public:
+	toy_geo_plaw_abspoly_model(const std::string &prefix);
+	double rho(double x, double y, double z, double ri);
+	double absmag(double ri);
+};
+
 #endif

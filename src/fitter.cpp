@@ -41,8 +41,6 @@
 
 using namespace std;
 
-static const double Rg = 8000.;
-
 extern "C"
 int model_fdf (const gsl_vector * v, void *params, gsl_vector * f, gsl_matrix * J)
 {

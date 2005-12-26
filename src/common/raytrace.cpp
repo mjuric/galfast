@@ -1784,7 +1784,7 @@ void rhoray(int argc, char **argv)
 #endif
 }
 
-int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri)
+int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri, bool justinfo)
 {
 	double Dmin, Dmax;
 	plx_gri_locus paralax;
@@ -1806,11 +1806,19 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
 
 //		string fn = io::format("volumes/vol.%05d.%5.3f-%5.3f.%5.3f-%5.3f.bin")
 //			<< run << r.first << r.second << ri.first << ri.second;
-		string fn = io::format("volumes/vol.%05d.14.000-21.800.0.100-0.150.bin")
+		EnvVar vol_dir("VOLUMES");
+		std::string pfx = (bool)vol_dir ? (string)vol_dir : "volumes";
+		string fn = io::format(pfx + "/vol.%05d.14.000-21.800.0.100-0.150.bin")
 			<< run;
 //fn = "merged.bin";
-		gz_binary_input_or_die(in, fn);
+		cerr << fn << "\n";
+		binary_input_or_die(in, fn);
 		in >> vm;
+
+		if(i == runs.begin())
+		{
+			cout << "[Initial volume map: " << vm.dx << " " << vm.Dmin << " " << vm.Dmax << "]\n"; cout.flush();
+		}
 
 		// adjust the dx and D in volume
 		double fact = dx / vm.dx;
@@ -1829,6 +1837,8 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
 		{
 			cout << "[Available volume: " << vm.Dmin << " " << vm.Dmax << "] "; cout.flush();
 		}
+
+		if(justinfo) { cout << "\n"; break; }
 
 		// pixelize volume
 		double vbr = pixelate_volume(br, vm, ndx);
@@ -1849,8 +1859,8 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
  		binary_output_or_die(out, fn);
  		out << br;
 
-output_or_die(tout, "vol.txt");
-tout << br;
+/*output_or_die(tout, "vol.txt");
+tout << br;*/
 	}
 	return 0;
 }

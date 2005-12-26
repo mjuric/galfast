@@ -19,15 +19,15 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/simulate.x</activetarget>
+      <activetarget>src/bin_volume.x</activetarget>
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
-      <programargs></programargs>
+      <programargs>--just-info 14 22 .1 .15 4100 1 50</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -59,14 +59,14 @@
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O2 -g0</cxxflags>
         <configargs>--enable-debug=full --with-nagc=/usr/local/nag/cllux07ddl --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --with-libpeyton-libdir=/home/mjuric/projects/libpeyton/lib-optimized</configargs>
-        <topsourcedir></topsourcedir>
+        <topsourcedir/>
         <cppflags>-DDEBUGMODE=0</cppflags>
-        <ldflags></ldflags>
-        <ccompilerbinary></ccompilerbinary>
-        <cxxcompilerbinary></cxxcompilerbinary>
-        <f77compilerbinary></f77compilerbinary>
-        <cflags></cflags>
-        <f77flags></f77flags>
+        <ldflags/>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
+        <cflags/>
+        <f77flags/>
         <envvars/>
       </optimized>
       <debug>
@@ -76,14 +76,14 @@
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated -pg</cxxflags>
-        <topsourcedir></topsourcedir>
+        <topsourcedir/>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags></ldflags>
-        <ccompilerbinary></ccompilerbinary>
-        <cxxcompilerbinary></cxxcompilerbinary>
-        <f77compilerbinary></f77compilerbinary>
+        <ldflags/>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
         <cflags>-Wno-deprecated</cflags>
-        <f77flags></f77flags>
+        <f77flags/>
         <envvars/>
       </debug>
     </configurations>
@@ -150,7 +150,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet></prefixGet>
+      <prefixGet/>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -160,12 +160,12 @@
   </kdevcppsupport>
   <kdevdebugger>
     <general>
-      <programargs></programargs>
-      <gdbpath></gdbpath>
-      <dbgshell></dbgshell>
-      <configGdbScript></configGdbScript>
-      <runShellScript></runShellScript>
-      <runGdbScript></runGdbScript>
+      <programargs>--just-info 14 22 .1 .15 4100 1 50</programargs>
+      <gdbpath/>
+      <dbgshell/>
+      <configGdbScript/>
+      <runShellScript/>
+      <runGdbScript/>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>
@@ -184,14 +184,14 @@
     <revertoptions>-C</revertoptions>
   </kdevcvsservice>
   <ctagspart>
-    <customArguments></customArguments>
-    <customTagfilePath></customTagfilePath>
+    <customArguments/>
+    <customTagfilePath/>
   </ctagspart>
   <kdevdocumentation>
     <projectdoc>
-      <docsystem></docsystem>
-      <docurl></docurl>
-      <usermanualurl></usermanualurl>
+      <docsystem/>
+      <docurl/>
+      <usermanualurl/>
     </projectdoc>
   </kdevdocumentation>
 </kdevelop>

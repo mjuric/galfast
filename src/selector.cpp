@@ -1560,7 +1560,7 @@ catch(EAny &e)
 }
 }
 
-#else HAVE_BOOST
+#else // HAVE_BOOST
 #include <iostream>
 int main()
 {

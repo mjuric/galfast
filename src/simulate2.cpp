@@ -61,6 +61,7 @@
 
 #include "gsl/gsl_randist.h"
 
+#if 0
 namespace lapack
 {
 	extern "C"
@@ -69,6 +70,7 @@ namespace lapack
 		#include "common/clapack.h"
 	}
 }
+#endif
 
 extern "C"
 {

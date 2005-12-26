@@ -32,7 +32,7 @@
 using namespace std;
 
 // in raytrace.cpp
-int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri);
+int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri, bool justinfo);
 int bin_volumes2(const std::string &outfile, const std::string &volfn, double dx, int ndx, pair<float, float> r, pair<float, float> ri);
 int bin_gc_cut(
 	const std::string &outfile, const std::string &volfn, 
@@ -80,6 +80,13 @@ try
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
+	bool justinfo = false;
+	{ // setup arguments and options
+		using namespace peyton::system::opt;
+
+		opts.option("just-info", binding(justinfo), arg_none, desc("Just print the information about what will be done, do no actual work. Works only for some subcommands."));
+	}
+
 	opts.option_arg("type", "Type of binning to perform ('gc', 'plane' and 'cyl' are defined)");
 	opts.option_arg("coordsys", "Coordinate system used for x0...xn ('equ' is the default, 'gal' and 'galcart' are available)");
 
@@ -154,7 +161,8 @@ try
 
 		bin_volumes(runs, opts["dx"], opts["ndx"],
 			make_pair((float)opts["r0"], (float)opts["r1"]), 
-			make_pair((float)opts["ri0"], (float)opts["ri1"])
+			make_pair((float)opts["ri0"], (float)opts["ri1"]),
+			justinfo
 		);
 	}
 	else

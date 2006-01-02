@@ -19,8 +19,8 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/bin_volume.x</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <activetarget>src/raytrace.x</activetarget>
+      <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>
@@ -75,7 +75,7 @@
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
-        <cxxflags>-O0 -g3 -Wno-deprecated -pg</cxxflags>
+        <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
         <topsourcedir/>
         <cppflags>-DDEBUGMODE=1</cppflags>
         <ldflags/>

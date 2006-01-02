@@ -165,8 +165,8 @@ try
 	);
 
 	//# add any arguments your program needs. eg:
-	opts.argument("input", "Input mdwarf.dat file");
-	opts.argument("output", "Output directory");
+	opts.argument("input", "Input text file");
+	opts.argument("output", "Output prefix");
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");

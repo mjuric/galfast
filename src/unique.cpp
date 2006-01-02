@@ -1074,68 +1074,8 @@ public:
 
 #include <sys/types.h>
 #include <sys/stat.h>
-
-template<typename C>
-class container_aux
-{
-	C &c;
-	typedef typename C::value_type value_type;
-
-	class aux
-	{
-		adapt_c<C> c;
-	public:
-		aux(C &c_) : c(c_) { c.clear(); }
-		aux insert(const value_type &v) { c.push_back(v); return *this; }
-		aux operator ,(const value_type &v) { return insert(v); }
-	};
-
-public:
-	container_aux(C &c_) : c(c_) {}
-	aux operator=(const value_type &v) { return aux(c).insert(v); }
-};
-template<typename C>
-container_aux<C> container(C &c) { return container_aux<C>(c); }
-
-template<typename C>
-std::string join(const std::string &separator, const C& c)
-{
-	ostringstream ss;
-	FOREACH(c)
-	{
-		if(i != c.begin()) { ss << separator; }
-		ss << *i;
-	}
-	return ss.str();
-}
-
-class text_file_streamer : public catalog_streamer
-{
-protected:
-	itextstream in;
-	int id;
-public:
-	text_file_streamer(istream &datafile, int rac, int decc, int runc);
-	bool next()
-	{
-		s.id = id;
-		if(in.next()) {
-//			cerr << "R: " << s.id << " " << s.run << " " << s.ra << " " << s.dec << "\n";
-			++id; return true;
-		}
-		return false;
-	}
-};
-
-text_file_streamer::text_file_streamer(istream &datafile, int rac, int decc, int runc)
-	: in(datafile), id(0)
-{
-	s.r = 0.;
-
-	bind(in, s.ra, rac-1);
-	bind(in, s.dec, decc-1);
-	bind(in, s.run, runc-1);
-}
+#include "container.h"
+#include "textloader.h"
 
 int main(int argc, char **argv)
 {
@@ -1174,9 +1114,11 @@ try
 		using namespace peyton::system::opt;
 
 		opts.argument("inputCatalog", "Input catalog file", Option::optional);
+#if 0
 		opts.argument("run_col", "Column where run is stored, for cattype=text (1-based index, default = 1)", Option::optional);
 		opts.argument("ra_col", "Column where R.A. is stored, for cattype=text (1-based index, default = 2)", Option::optional);
 		opts.argument("dec_col", "Column where delta is stored, for cattype=text (1-based index, default = 3)", Option::optional);
+#endif
 
 		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters."));
 		opts.option("radius", binding(match_radius), shortname('r'), desc("Match radius (arcsec)"));
@@ -1184,7 +1126,7 @@ try
 		opts.option("type", binding(cattype), desc("Type of the input catalog (valid choices are 'fits' and 'text'"));
 		opts.option('f', binding(filter), name("filter"), desc("Turn on filtering of input catalog to reduce the number of input stars"));
 		opts.option("one-per-run", binding(one_per_run), desc("If set to true, only one object observation per run will be allowed while matching. Usually the right thing to do, except in really weird situations."));
-		opts.option("output-dir", binding(output_dir), desc("Directory where the group table and index will be stored"));
+		opts.option("group-dir", binding(output_dir), desc("Directory where the group table and index will be stored"));
 		opts.option("group-table-file", binding(lutfn), desc("Name of the group table file"));
 		opts.option("group-index-file", binding(indexfn), desc("Name of the group index file"));
 		opts.option("tmp-dir", binding(tmp_dir), desc("Directory where the temporary lookup file, used while matchin, will be stored."));
@@ -1247,13 +1189,14 @@ try
 			abort();
 		#endif
 		} else {
+#if 0
 			int rac = 2, decc = 3, runc = 1;
 			if(opts.found("ra_col")) { rac = opts["ra_col"]; }
 			if(opts.found("dec_col")) { decc = opts["dec_col"]; }
 			if(opts.found("run_col")) { runc = opts["run_col"]; }
-
+#endif
 			ifstream inf(inputCatalog.c_str());
-			text_file_streamer cat(inputCatalog == "-" ? cin : inf, rac, decc, runc);
+			text_file_streamer cat(inputCatalog == "-" ? cin : inf, true);
 			m.makelookup(cat, tmp_fookup);
 		}
 	}

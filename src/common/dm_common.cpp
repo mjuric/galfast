@@ -71,6 +71,10 @@ using namespace std;
 
 plx_gri_locus paralax;
 
+//
+// The first filter, applied when importing observations from source catalog
+// to DMM arrays.
+//
 bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags2)
 {
 	//
@@ -98,17 +102,24 @@ bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags
 	return true;
 }
 
-// 	Streamer cat(runs, s, f1, f2);
-// 	std::set<int> &runs, 		// list of runs to import
-
+//
+// Converts the source observation catalog to easily searchable DMM arrays.
+// Also filters the source catalog, according to the given filter.
+//
+// Three arrays are created: select, selindex, runindex
+//    select is the DMM array of selected obsv. from the source catalog
+//    selindex is the DMM array which maps the indices of objects in orig. catalog. to indices in selected catalog
+//    runindex is the DMM array which maps the indices of selected obsv. catalog, to all other indices (source cat, unique object, etc.)
+//
 void makelookup(
 	catalog_streamer &cat,		// input catalog of observations (FITS files, text files, etc.)
+
 	const std::string &select, 	// name of the object catalog (indexed by uniq ID) (DMM file)
 	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file)
 	const std::string &runindex // name of the sloanID -> uniqID (DMM file)
 	)
 {
-#ifdef HAVE_LIBCCFITS
+//#ifdef HAVE_LIBCCFITS
 	// setup SDSS FITS file catalog streamer
 	sdss_star &s = cat.record();
 	valarray<int> 
@@ -116,16 +127,16 @@ void makelookup(
 		&f2 = cat.flags2();	// photometry flags (FLAGS and FLAGS2 FITS fields)
 
 	// open arrays for catalog and index
-	DMMArray<star> sel;	// catalog of selected stars
+	DMMArray<observation> sel;	// catalog of selected observations (name of the index: selIndex)
 	DMMArray<int> selidx;	// fitsID -> selIndex map. May be sparse, because not all FITS records will be accepted
-	DMMArray<starid> runidx;// sloanID -> uniqID map - just creating a placeholder array here
+	DMMArray<obsv_id> runidx;// selIndex -> uniqID map - just creating a placeholder array here
 
 	sel.create(select);
 	selidx.create(selindex);
 	runidx.create(runindex);
 
 	ticker tick(10000);
-	star ss; starid sid;
+	observation ss; obsv_id sid;
 	sid.uniqId = -1;
 
 	while(cat.next())
@@ -156,17 +167,17 @@ void makelookup(
 		sel.push_back(ss);
 		runidx.push_back(sid);
 	}
-	cout << "Total stars in FITS files: " << s.id+1 << "\n";
-	cout << "Total stars accepted     : " << sel.size() << "\n";
+	cout << "Total observations in FITS files: " << s.id+1 << "\n";
+	cout << "Total observations accepted     : " << sel.size() << "\n";
 	cout << "\n";
 	cout.flush();
-#else
-	cerr << "CCfits support not compiled\n";
-	abort();
-#endif
+//#else
+//	cerr << "CCfits support not compiled\n";
+//	abort();
+//#endif
 }
 
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<starmag> &obsv)
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv)
 {
 	int N = obsv.size();
 
@@ -189,7 +200,7 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 		int n = 0;
 		FORj(k, 0, N)
 		{
-			starmag &s = obsv[k];
+			obsv_mag &s = obsv[k];
 
 			// throw out bad measurements
 			if(!finite(s.mag[i]) || !finite(s.magErr[i]))
@@ -253,77 +264,88 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 // defined in binner_tng.cpp
 bool calculate_cartesian(V3 &earth, const mobject &m);
 
-//#define NOMOD
-void average_magnitudes()
+//#define NOMOD 1
+#define NOMOD 0
+void make_object_catalog(
+	const std::string &uniqObjectCat, // "dm_unique_stars.dmm" [output]
+	const std::string &uniqObsvCat, // "dm_starmags.dmm" [output]
+
+	const std::string &matchGroups, // "match_groups.lut" (produced by unique.x)
+
+	const std::string &select,  // name of the temporary object catalog (indexed by uniq ID) (DMM file) [in]
+	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file) [in]
+	const std::string &runindex // name of the sloanID -> uniqID (DMM file) [in]
+)
 {
-	binary_input_or_die(in, "match_groups.lut");
+	binary_input_or_die(in, matchGroups);
 
-	// open catalogs
-	DMMArray<star> sel; sel.setmaxwindows(40); sel.setwindowsize(1024*1024 / 5);
+	// open lookup catalogs (input)
+	DMMArray<observation> sel; sel.setmaxwindows(40); sel.setwindowsize(1024*1024 / 5);
 	DMMArray<int> selidx; selidx.setmaxwindows(40); selidx.setwindowsize(1024*1024 / 5);
-	DMMArray<starid> runidx; runidx.setmaxwindows(40); runidx.setwindowsize(1024*1024 / 5);
+	DMMArray<obsv_id> runidx; runidx.setmaxwindows(40); runidx.setwindowsize(1024*1024 / 5);
 
-	sel.open("dm_tmpcat.dmm", "r");
-	selidx.open("dm_tmpcat_index.dmm", "r");
-#ifndef NOMOD
-	runidx.open("dm_run_index.dmm", "rw");
-#else
-	runidx.open("dm_run_index.dmm", "r");
-#endif
+	sel.open(select, "r");
+	selidx.open(selindex, "r");
+	runidx.open(runindex, NOMOD ? "r" : "rw");
+
 	int N, id, size;
-	vector<starmag> obsv;
+	vector<obsv_mag> obsv;
 
-	in >> size;
+	// open object/observation catalogs (output)
 	DMMArray<mobject> out;
-	DMMArray<starmag> starmags;
-#ifndef NOMOD
-	out.create("dm_unique_stars.dmm");
-	starmags.create("dm_starmags.dmm");
+	DMMArray<obsv_mag> obsv_mags;
+#if !NOMOD
+	out.create(uniqObjectCat);
+	obsv_mags.create(uniqObsvCat);
 #else
-	out.open("dm_unique_stars.dmm", "r");
-	starmags.open("dm_starmags.dmm", "r");
+	out.open(uniqObjectCat, "r");
+	obsv_mags.open(uniqObsvCat, "r");
 #endif
 	ticker tick(10000);
 	unsigned int t = time(NULL), tstart = t;
+	in >> size;
+	// stream through all observations, grouped by unique objects
 	FORj(k, 0, size)
 	{
 		int uniqId = out.size();
 
-		// load the whole group
+		// load the whole group of observations belonging to an object
 		in >> N;
 		obsv.clear();
 		double ra, dec; float Ar;
 		for(int i = 0; i != N; i++)
 		{
-			in >> id;
+			in >> id; // source catalog id of the observation
 
 			// check if this observation was selected as valid
 			int sid = selidx[id];
 			if(sid == -1) continue;
-#ifndef NOMOD
+#if !NOMOD
 			// load this observation
-			star &s = sel[sid];
-			obsv.push_back(s);
-			
-			if(obsv.size() == 1) { ra = s.ra; dec = s.dec; Ar = s.Ar; }
+			observation &o = sel[sid];
+			obsv.push_back(o);
+
+			if(obsv.size() == 1) { ra = o.ra; dec = o.dec; Ar = o.Ar; }
 #endif
-			
+
 			// store ID of the unique object together with this observation
-#ifndef NOMOD
-			starid &stid = runidx[sid];
-			stid.uniqId = uniqId;
-			
-			ASSERT(stid.fitsId == s.fitsId);
+#if !NOMOD
+			obsv_id &oid = runidx[sid];
+			oid.uniqId = uniqId;
+
+			ASSERT(oid.fitsId == o.fitsId);
 #endif
 		}
 
-#ifndef NOMOD
+#if !NOMOD
+		// process the object - e.g., average magnitudes, calculate proper motions, etc.,
+		// and then store it to the object catalog
 		if(obsv.size() != 0)		// ignore groups with zero selected observations
 		{
 			// process and store
-			mobject m = process_observations(starmags.size(), ra, dec, Ar, obsv);
+			mobject m = process_observations(obsv_mags.size(), ra, dec, Ar, obsv);
 
-			FOREACH(obsv) { starmags.push_back((starmag&)*i); }
+			FOREACH(obsv) { obsv_mags.push_back((obsv_mag&)*i); }
 
 			out.push_back(m);
 		}
@@ -388,10 +410,10 @@ void recalculate_absolute_magnitude(mobject &m)
 void reprocess_driver()
 {
 	DMMArray<mobject> uniq("dm_unique_stars.dmm", "rw");
-	DMMArray<starmag> starmags("dm_starmags.dmm");
+	DMMArray<obsv_mag> obsv_mags("dm_starmags.dmm");
 
 	ticker tick(10000);
-	vector<starmag> obsv;
+	vector<obsv_mag> obsv;
 	FOR(0, uniq.size())
 	{
 		mobject &m = uniq[i];
@@ -402,7 +424,7 @@ void reprocess_driver()
 
 		FORj(m.obs_offset, m.obs_offset + m.n)
 		{
-			obsv.push_back(starmags[j]);
+			obsv.push_back(obsv_mags[j]);
 		}
 #endif
 		// do stuff
@@ -421,7 +443,7 @@ void reprocess_driver()
 */
 void make_run_index_offset_map(std::ostream &out, const std::string &runidxfn)
 {
-	DMMArray<starid> runidx;
+	DMMArray<obsv_id> runidx;
 	runidx.open(runidxfn, "r");
 
 	map<int, int> runoffs;
@@ -454,9 +476,9 @@ void loadRuns(set<int> &runs, const std::string &runfile)
 void starinfo(int fitsID)
 {
 	// open catalogs
-	DMMArray<star> sel("dm_tmpcat.dmm");
+	DMMArray<observation> sel("dm_tmpcat.dmm");
 	DMMArray<int> selidx("dm_tmpcat_index.dmm");
-	DMMArray<starid> runidx("dm_run_index.dmm");
+	DMMArray<obsv_id> runidx("dm_run_index.dmm");
 	DMMArray<mobject> unique("dm_unique_stars.dmm");
 	
 	if(fitsID < 0 || fitsID > selidx.size())
@@ -472,7 +494,7 @@ void starinfo(int fitsID)
 		return;
 	}
 
-	starid sid = runidx[selid];
+	obsv_id sid = runidx[selid];
 	ASSERT(sid.fitsId == fitsID);
 	cout << "uniqId = " << sid.uniqId << "\n";
 	cout << "sloanID = " << sid.sloanId << "\n";

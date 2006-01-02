@@ -74,7 +74,7 @@ OSTREAM(const mobject &m)
 	return out;
 }
 
-OSTREAM(const starmag &sm)
+OSTREAM(const obsv_mag &sm)
 {
 	char buf[1000];
 	sprintf(buf, "%12d %8.4f %6.4f  %8.4f %6.4f  %8.4f %6.4f  %8.4f %6.4f  %8.4f %6.4f",
@@ -257,7 +257,7 @@ binned_run::pixel &find_bin(binned_run &br, const mobject &m, double dx)
 
 int bin_run(binned_run &br, int run, double dx, ribin colorbin, double Dmin, double Dmax,
 	DMMArray<mobject> &unique,
-	DMMArray<starid> &runindex,
+	DMMArray<obsv_id> &runindex,
 	map<int, int> &runoffsets,
 	int *boundsrejected_ = NULL,
 	int *novolumerejected_ = NULL)
@@ -273,7 +273,7 @@ int bin_run(binned_run &br, int run, double dx, ribin colorbin, double Dmin, dou
 	br.Dmax = Dmax;
 
 	// find offset from which to start loading observations in a run
-	int at = 0; starid sid = runindex[0];
+	int at = 0; obsv_id sid = runindex[0];
 	if(run > 0)
 	{
 		at = runoffsets[run];
@@ -322,7 +322,7 @@ int bin_run(binned_run &br, int run, double dx, ribin colorbin, double Dmin, dou
 		{
 			novolumerejected++;
 		}
-		
+
 		// add this observation to pixel
 		p.stars.insert(sid.uniqId);
 		n++;
@@ -422,7 +422,7 @@ int bin(const set<int> &runs, pair<float, float> r, pair<float, float> ri)
 {
 	gsl_set_error_handler_off ();
 
-	DMMArray<starid> runidx("dm_run_index.dmm");
+	DMMArray<obsv_id> runidx("dm_run_index.dmm");
 	DMMArray<mobject> unique("dm_unique_stars.dmm");
 	map<int, int> runoffs;
 
@@ -488,7 +488,7 @@ int make_run_plots(const set<int> &runs)
 {
 	gsl_set_error_handler_off ();
 
-	DMMArray<starid> runindex("dm_run_index.dmm");
+	DMMArray<obsv_id> runindex("dm_run_index.dmm");
 	DMMArray<mobject> unique("dm_unique_stars.dmm");
 	map<int, int> runoffs;
 
@@ -510,7 +510,7 @@ int make_run_plots(const set<int> &runs)
 			for(;;)
 			{
 				if(++at == runindex.size()) break;
-				starid sid = runindex[at];
+				obsv_id sid = runindex[at];
 				if(sid.sloanId.run() != run) break;
 	
 				mobject &m = unique[sid.uniqId];
@@ -599,7 +599,7 @@ int make_z_slice_fits(const std::string &prefix, const binned_runset &brs, float
 
 int bin()
 {
-	DMMArray<starid> runidx("dm_run_index.dmm");
+	DMMArray<obsv_id> runidx("dm_run_index.dmm");
 	DMMArray<mobject> unique("dm_unique_stars.dmm");
 	typedef map<int, int> romap;
 	romap runoffs;

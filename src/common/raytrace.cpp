@@ -1465,7 +1465,7 @@ int zrayng(const set<int> &runs, float dx, pair<float, float> r, pair<float, flo
 
 		ExtendedRunInfo egeom(run, d0, d1);
 
-		cout << "# run " << run << "\n";
+		cout << "# run " << run << ", length = " << deg(egeom.geom.length()) << "\n";
 		cout << "# col mapped predicted difference\n";
 		double vtotexp = 0, vtot = 0;
 		FORj(col, 0, 6)
@@ -1483,9 +1483,13 @@ int zrayng(const set<int> &runs, float dx, pair<float, float> r, pair<float, flo
 		double pctdiff = 100 * (vtot / vtotexp - 1);
 		cout << "\t" << "=" << " " << vtot << " " << vtotexp << " " << pctdiff << "%\n";
 
-		string fn = io::format("volumes/vol.%05d.%5.3f-%5.3f.%5.3f-%5.3f.bin")
-			<< run << r.first << r.second << ri.first << ri.second;
-		binary_output_or_die(out, fn);
+/*		string fn = io::format("volumes/vol.%05d.%5.3f-%5.3f.%5.3f-%5.3f.bin")
+			<< run << r.first << r.second << ri.first << ri.second;*/
+		EnvVar vol_dir("VOLFILES");
+		std::string pfx = (bool)vol_dir ? (string)vol_dir : "volumes/vol.%05d.bin";
+		string fn = io::format(pfx) << run;
+
+		gz_binary_output_or_die(out, fn);
 		out << vm;
 	}
 }
@@ -1806,13 +1810,12 @@ int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float
 
 //		string fn = io::format("volumes/vol.%05d.%5.3f-%5.3f.%5.3f-%5.3f.bin")
 //			<< run << r.first << r.second << ri.first << ri.second;
-		EnvVar vol_dir("VOLUMES");
-		std::string pfx = (bool)vol_dir ? (string)vol_dir : "volumes";
-		string fn = io::format(pfx + "/vol.%05d.14.000-21.800.0.100-0.150.bin")
-			<< run;
+		EnvVar vol_dir("VOLFILES");
+		std::string pfx = (bool)vol_dir ? (string)vol_dir : "volumes/vol.%05d.bin";
+		string fn = io::format(pfx) << run;
 //fn = "merged.bin";
 		cerr << fn << "\n";
-		binary_input_or_die(in, fn);
+		gz_binary_input_or_die(in, fn);
 		in >> vm;
 
 		if(i == runs.begin())
@@ -1949,7 +1952,7 @@ int merge_volumes(const std::string &outfn, const std::set<int> &runs)
 {
 	volume_map merged;
 	unistream ss;
-	binary_output_or_die(out, outfn);
+	gz_binary_output_or_die(out, outfn);
 
 	int n = 1;
 	FOREACH(runs)
@@ -1957,8 +1960,11 @@ int merge_volumes(const std::string &outfn, const std::set<int> &runs)
 		int run = *i;
 		cout << setw(4) << n << " : " << run << "\n"; cout.flush();
 
-		string fn = io::format("volumes/vol.%05d.14.000-21.800.0.100-0.150.bin")
-			<< run;
+		EnvVar vol_dir("VOLFILES");
+		std::string pfx = (bool)vol_dir ? (string)vol_dir : "volumes/vol.%05d.bin";
+		string fn = io::format(pfx) << run;
+// 		string fn = io::format("volumes/vol.%05d.14.000-21.800.0.100-0.150.bin")
+// 			<< run;
 
 		ss.add(fn);
 		n++;

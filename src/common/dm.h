@@ -70,7 +70,10 @@ public:
 			(((long long)run_) << 29);
 
 		ASSERT(run() == run_);
-		ASSERT(col() == col_);	
+		ASSERT(col() == col_) {
+			std::cerr << " .. " << run_ << " " << col_ << " " << field_ << " " << objid_ << "\n";
+			std::cerr << " .. " << "[" << run() << " " << col() << " " << field() << " " << objid() << "]" << "\n";
+		}
 		ASSERT(field() == field_);
 		ASSERT(objid() == objid_);
 	}
@@ -202,22 +205,25 @@ inline ISTREAM(sdss_color &c)
 
 /////////////////
 
-struct starid
+// various identifiers an observation can have.
+struct obsv_id
 {
-	int		fitsId;
-	packed_id	sloanId;
-	int		uniqId;
+	int		fitsId;		// source catalog index
+	packed_id	sloanId;	// SDSS identification
+	int		uniqId;		// unique object to which this observation belongs (mobject DMM file index)
 };
 
-struct starmag
+// observation photometry
+struct obsv_mag
 {
-	int fitsId;
+	int fitsId;			// source catalog index
 	float mag[5];			// measured magnitudes (uncorrected for extinction)
 	float magErr[5];		// note: magnitude ordering is grizu
 };
-OSTREAM(const starmag &sm);
+OSTREAM(const obsv_mag &sm);
 
-struct star : public starmag
+// observation with photometry, astrometry and extinction information
+struct observation : public obsv_mag
 {
 	double ra, dec;
 	float Ar;			// extinction
@@ -229,7 +235,7 @@ struct star : public starmag
 
 struct mobject
 {
-	int obs_offset;			// offset in starmags array to where the obsv. of this object begin
+	int obs_offset;			// offset in obsv_mags array to where the obsv. of this object begin
 	int n;				// total number of observations available
 
 	float Ar;
@@ -242,7 +248,7 @@ struct mobject
 	float ml_mag[3];		// magnitudes deduced by max.likelihood fitting to locus
 	float D;			// geocentric distance
 
-	double ra, dec;
+	double ra, dec;			// object coordinates
 
 public:
 	// accessors
@@ -369,7 +375,7 @@ void sdss_color::set(const std::string &color)
 	}
 }
 
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<starmag> &obsv);
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv);
 void loadRuns(std::set<int> &runs, const std::string &runfile = "");
 void print_mobject(std::ostream &out, const mobject &m);
 class catalog_streamer;

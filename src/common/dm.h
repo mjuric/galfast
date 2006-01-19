@@ -225,7 +225,7 @@ OSTREAM(const obsv_mag &sm);
 // observation with photometry, astrometry and extinction information
 struct observation : public obsv_mag
 {
-	double ra, dec;
+	double ra, dec;			// ra & dec (degrees)
 	float Ar;			// extinction
 };
 
@@ -245,10 +245,10 @@ struct mobject
 	float N[5];			// number of observations of this object, which were used to calculate mag[]
 	short flags;			// how exactly we calculated mag[] and magErr[]
 
-	float ml_mag[3];		// magnitudes deduced by max.likelihood fitting to locus
-	float D;			// geocentric distance
+	float ml_mag[3];		// magnitudes deduced by max.likelihood fitting to locus (g, r, i)
+	float D;			// geocentric distance, calculated through phot. paralax
 
-	double ra, dec;			// object coordinates
+	double ra, dec;			// object coordinates (degrees)
 
 public:
 	// accessors
@@ -261,6 +261,12 @@ public:
 	inline float i() const { return mag[2]; }
 	inline float z() const { return mag[3]; }
 
+	inline float uErr() const { return magErr[4]; }
+	inline float gErr() const { return magErr[0]; }
+	inline float rErr() const { return magErr[1]; }
+	inline float iErr() const { return magErr[2]; }
+	inline float zErr() const { return magErr[3]; }
+	
 	inline float ml_gr() const { return ml_mag[0] - ml_mag[1]; }
 	inline float ml_ri() const { return ml_mag[1] - ml_mag[2]; }
 	
@@ -268,6 +274,24 @@ public:
 	inline float ml_r() const { return ml_mag[1]; }
 	inline float ml_i() const { return ml_mag[2]; }
 
+	// non-const accessors
+	inline float& u() { return mag[4]; }
+	inline float& g() { return mag[0]; }
+	inline float& r() { return mag[1]; }
+	inline float& i() { return mag[2]; }
+	inline float& z() { return mag[3]; }
+
+	inline float& uErr() { return magErr[4]; }
+	inline float& gErr() { return magErr[0]; }
+	inline float& rErr() { return magErr[1]; }
+	inline float& iErr() { return magErr[2]; }
+	inline float& zErr() { return magErr[3]; }
+	
+	inline float& ml_g() { return ml_mag[0]; }
+	inline float& ml_r() { return ml_mag[1]; }
+	inline float& ml_i() { return ml_mag[2]; }
+
+		
 	inline float sigma(const sdss_color &c) const
 	{
 		if(c.first == c.second) { return magErr[c.second]; }
@@ -375,7 +399,8 @@ void sdss_color::set(const std::string &color)
 	}
 }
 
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv);
+struct proc_obs_info;
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv, proc_obs_info &inf);
 void loadRuns(std::set<int> &runs, const std::string &runfile = "");
 void print_mobject(std::ostream &out, const mobject &m);
 class catalog_streamer;

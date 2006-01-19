@@ -1113,7 +1113,7 @@ try
 	{ // setup arguments and options
 		using namespace peyton::system::opt;
 
-		opts.argument("inputCatalog", "Input catalog file", Option::optional);
+		opts.argument("inputCatalog", "Input catalog file"); //, Option::optional);
 #if 0
 		opts.argument("run_col", "Column where run is stored, for cattype=text (1-based index, default = 1)", Option::optional);
 		opts.argument("ra_col", "Column where R.A. is stored, for cattype=text (1-based index, default = 2)", Option::optional);
@@ -1176,10 +1176,10 @@ try
 
 	if(stage == "mklookup" || stage == "all")
 	{
+		cerr << "\n[1/3] Creating matching lookup table\n";
 		if(cattype == "fits")
 		{
 		#ifdef HAVE_PKG_CCfits
-			cerr << "\n[1/3] Creating matching lookup table\n";
 			std::set<int> runs;
 			loadRuns(runs, inputCatalog);
 			fits_set_streamer fitscat(runs);

@@ -20,14 +20,14 @@
   <kdevautoproject>
     <general>
       <activetarget>src/raytrace.x</activetarget>
-      <useconfiguration>optimized</useconfiguration>
+      <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/selector.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
-      <programargs>--just-info 14 22 .1 .15 4100 1 50</programargs>
+      <customdirectory>/home/mjuric/projects/galaxy/workspace/dr5more/</customdirectory>
+      <programargs>gnomonic.sel</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -96,6 +96,7 @@
       <numberofjobs>1</numberofjobs>
       <dontact>false</dontact>
       <makebin/>
+      <prio>0</prio>
     </make>
   </kdevautoproject>
   <kdevfilecreate>
@@ -150,7 +151,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -160,12 +161,12 @@
   </kdevcppsupport>
   <kdevdebugger>
     <general>
-      <programargs>--just-info 14 22 .1 .15 4100 1 50</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <programargs>gnomonic.sel</programargs>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

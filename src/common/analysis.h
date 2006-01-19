@@ -359,4 +359,18 @@ inline bool die(const std::string &s)
 	return false;
 }
 
+// initialize a scalar value to zero upon creation
+// useful in arrays and hashtables
+template <typename T>
+struct zero_init
+{
+	T val;
+	zero_init() { val = T(0); }
+	operator T& () { return val; }
+	operator T () const { return val; }
+	T& operator =(const T& a) { val = a.val; return *this; }
+/*	T& operator ++(int) { return val++; }
+	T& operator ++() { return ++val; }*/
+};
+
 #endif

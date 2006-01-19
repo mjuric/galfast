@@ -60,6 +60,35 @@ namespace math {
 		}
 	};
 
+
+
+	class gnomonic
+	{
+		double l0, phi1, cosphi1, sinphi1;
+	
+	public:
+		gnomonic(Radians l0_ = 0., Radians phi1_ = 0.)
+			: phi1(phi1_), cosphi1(cos(phi1_)), sinphi1(sin(phi1_)), l0(l0_)
+		{ }
+
+		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
+		void convert(const T l, const T phi, T &x, T &y) const
+		{
+			const T cosc = sinphi1*sin(phi)+cosphi1*cos(phi)*cos(l-l0);
+			x = cos(phi)*sin(l - l0) / cosc;
+			y = (cosphi1*sin(phi)-sinphi1*cos(phi)*cos(l-l0)) / cosc;
+		}
+
+		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
+		void inverse(const T x, const T y, T &l, T &phi) const
+		{
+			T r = sqrt(x*x + y*y);
+			T c = atan(r);
+
+			phi =     r != 0. ? asin(cos(c)*sinphi1 + y*sin(c)*cosphi1/r) : phi1;
+			l = l0 + (r != 0. ? atan2(x*sin(c), r*cosphi1*cos(c) - y*sinphi1*sin(c)) : 0.);
+		}
+	};
 } // math
 } // peyton
 	

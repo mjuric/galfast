@@ -48,7 +48,7 @@ double paralax_with_prior(float ri, float gr, float sg, float sr, float si)
 {
 	static plx_gri_locus plx;
 	if(plx.mlri.prior == NULL) { plx.mlri.setprior("ri_prior.txt"); }
-	
+
 	double RIp;
 	try {
 		RIp = plx.mlri(ri, gr, sg, sr, si);

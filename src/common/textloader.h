@@ -33,10 +33,10 @@ public:
 	text_file_streamer(std::istream &datafile, bool astrometry_only = false);
 	bool next()
 	{
-		s.id = id;
 		if(in.next()) {
 //			cerr << "R: " << s.id << " " << s.run << " " << s.ra << " " << s.dec << "\n";
-			s.print(std::cerr); exit(-1);
+//			s.print(std::cerr); exit(-1);
+			s.id = id;
 			++id; return true;
 		}
 		return false;

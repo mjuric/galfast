@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+ 
 #ifdef HAVE_BOOST
 
 #include <sstream>
@@ -39,26 +41,33 @@ protected:
 	std::map<int, int> rm;
 	std::map<int, int> colmap;
 public:
-	RunMap()
+	RunMap(const std::string &runmap = "schlegel.cat.txt")
 	{
-		text_input_or_die(in, "schlegel.cat.txt");
-		in.skip(1); // skip over the header line
-
-		int run, end_id, c[7];
-		bind(in, run, 0, c[0], 1, c[1], 2, c[2], 3, c[3], 4, c[4], 5, c[5], 6, c[6], 7);
-
-		while(in.next())
+		if(Filename(runmap).exists())
 		{
-			rm[c[6]] = run;
-			FOR(1, 7)
+			text_input_or_die(in, runmap);
+			in.skip(1); // skip over the header line
+
+			int run, end_id, c[7];
+			bind(in, run, 0, c[0], 1, c[1], 2, c[2], 3, c[3], 4, c[4], 5, c[5], 6, c[6], 7);
+	
+			while(in.next())
 			{
-				colmap[c[i]] = i-1;
+				rm[c[6]] = run;
+				FOR(1, 7)
+				{
+					colmap[c[i]] = i-1;
+				}
 			}
+		} else {
+			std::cerr << "WARNING: RunMap file [" << runmap << "] was not found.\n";
 		}
 	}
 
 	int operator[](int fitsId)
 	{
+		if(rm.size() == 0) return -1; // runmap not loaded
+
 		ASSERT(fitsId >= 0);
 		std::map<int, int>::iterator k = rm.upper_bound(fitsId);
 		ASSERT(k != rm.end());
@@ -67,6 +76,12 @@ public:
 	
 	int column(int fitsId, int *reloffs = NULL)
 	{
+		if(rm.size() == 0) // runmap not loaded
+		{
+			if(reloffs == NULL) { *reloffs = -1; }
+			return -1;
+		}
+
 		ASSERT(fitsId >= 0);
 		std::map<int, int>::iterator k = colmap.upper_bound(fitsId);
 		ASSERT(k != rm.end());
@@ -90,7 +105,7 @@ class driver
 {
 public:
 	DMMArray<mobject> arr;
-	DMMArray<starmag> starmags;
+	DMMArray<obsv_mag> obsv_mags;
 
 protected:
 	struct selector_d
@@ -107,10 +122,12 @@ protected:
 	
 	int att;
 public:
-	driver() : tick(10000)
+	driver(const std::string &objectCat, const std::string &obsvCat) : tick(10000)
 	{
-		arr.open("dm_unique_stars.dmm", "r");
-		starmags.open("dm_starmags.dmm", "r");
+/*		arr.open("dm_unique_stars.dmm", "r");
+		obsv_mags.open("dm_starmags.dmm", "r");*/
+		arr.open(objectCat, "r");
+		obsv_mags.open(obsvCat, "r");
 	}
 
 	void run();
@@ -136,6 +153,8 @@ void increment(std::map<int, int> &h, int b)
 	if(h.count(b)) { h[b]++; }
 	else { h[b] = 1; }
 }
+
+double pixel_area(int i, int j, int npix, int side, const gnomonic &proj);
 
 class selector
 {
@@ -208,18 +227,108 @@ public:
 	#define OM_CATSTATS	8
 	#define OM_HISTOGRAM	9
 	#define OM_CATSTATS2	10
+	#define OM_PROJECTION	11
 	
 	int outputMode;
-	
+
+	struct om_gnomonic_t
+	{
+		// gnomonic projectors for the sides, top and bottom
+		std::auto_ptr<peyton::math::gnomonic> proj[6];
+
+		int npix;
+		// key == (x coordinate, y coordinate, side). side == 1,2,3,4,5,6 (5 and 6 are top/bottom)
+		std::map<S3, zero_init<int>, less_S3> maps;
+		om_gnomonic_t()
+			: npix(256)
+			{
+				proj[0].reset(new gnomonic(0, 0)); // front
+				proj[1].reset(new gnomonic(rad(90), 0)); // left
+				proj[2].reset(new gnomonic(rad(180), 0)); // back
+				proj[3].reset(new gnomonic(rad(270), 0)); // right
+				proj[4].reset(new gnomonic(0, rad(90))); // top
+				proj[5].reset(new gnomonic(0, rad(-90))); // bottom
+
+				int side = 0;
+				//double f = pixel_area(128, 128, npix, side, *proj[side]);
+				double f = pixel_area(64, 64, npix, side, *proj[side]);
+			}
+
+		void bin_side(double &x, double &y, Radians l, Radians b, int side)
+		{
+			ASSERT(side >= 0 && side <= 3);
+			proj[side]->convert(l, b, x, y);
+		}
+
+		bool bin_top_bottom(double &x, double &y, Radians l, Radians b, int &side)
+		{
+			int xside = b > 0 ? 4 : 5;
+			proj[xside]->convert(l, b, x, y);
+			if(std::abs(x) <= 1 && std::abs(y) <= 1) {
+				side = xside;
+				return true;
+			}
+			return false;
+		}
+
+		void bin(Radians l, Radians b)
+		{
+			// this is planetarium view from the inside, so switch
+			// the direction of l
+			l = 2*ctn::pi - l;
+
+			int side = (int)(modulo(l + rad(45), 2*ctn::pi) / (ctn::pi/2.));
+			double x, y;
+			if(abs(b) < rad(35) || !bin_top_bottom(x, y, l, b, side))
+			{
+				bin_side(x, y, l, b, side);
+			}
+
+			ASSERT(std::abs(x) <= 1 && std::abs(y) <= 1)
+			{
+				cerr << setw(15) << setprecision(10);
+				cerr << "side = " << side << "\n";
+				cerr << x << " " << y << "\n";
+				cerr << deg(l) << " " << deg(b) << "\n";
+				
+				proj[4]->convert(l, b, x, y);
+				cerr << x << " " << y << "\n";
+				cerr << deg(l) << " " << deg(b) << "\n";
+			}
+
+			// bin
+			short i = (short)(((x + 1.) / 2.) * npix);
+			short j = (short)(((y + 1.) / 2.) * npix);
+			if(i == npix) { i--; }
+			if(j == npix) { j--; }
+			if(i == -1) { i++; }
+			if(j == -1) { j++; }
+			ASSERT(i >= 0 && i < npix);
+			ASSERT(j >= 0 && j < npix) {
+				cerr << setw(15) << setprecision(10);
+				cerr << "side = " << side << "\n";
+				cerr << x << " " << y << "\n";
+				cerr << deg(l) << " " << deg(b) << "\n";
+				
+				proj[4]->convert(l, b, x, y);
+				cerr << x << " " << y << "\n";
+				cerr << deg(l) << " " << deg(b) << "\n";
+			}
+			
+			// store
+			maps[S3(i, j, side)]++;
+		}
+	} om_gnomonic;
+
 	struct om_lambert_t
 	{
 		double dx;
 		double x0, y0, x1, y1;
 		double l0, phi1;
-		
+
 		double w() { return x1 - x0; }
 		double h() { return y1 - y0; }
-		
+
 		om_lambert_t()
 			: dx(.0333333),
 			  x0(-2), y0(-2), x1(2), y1(2),
@@ -392,9 +501,16 @@ driver::~driver()
 	}
 }
 
+OSTREAM(const selector::om_gnomonic_t &g)
+{
+	out << "# npix = " << g.npix << "\n";
+	out << "#";
+	return out;
+}
+
 OSTREAM(const selector::om_lambert_t &l)
 {
-	out << "# dx = " << l.dx << "\n";
+	out << "# dx = " << deg(l.dx) << " deg [" << l.dx << " rad]\n";
 	out << "# (lambda0, phi1) = (" << l.l0 << ", " << l.phi1 << ")\n";
 	out << "# x = [" << l.x0 << ", " << l.x1 << ")\n";
 	out << "# y = [" << l.y0 << ", " << l.y1 << ")";
@@ -541,8 +657,9 @@ void selector::start()
 		om_planecut_t &o = om_planecut;
 		Radians phi, theta, psi;
 		eulerAngles(phi, theta, psi, o.pt.M);
-		std::string fn = io::format("cache/plane.r=%6.3f-%6.3f,ri=%5.3f-%5.3f,dx=%6.3f,euler_rot=%.5f,%.5f,%.5f.bin")
+		std::string fn = io::format("cache/plane.r=%6.3f-%6.3f,ri=%5.3f-%5.3f,dx=%6.3f,origin=%.5f,%.5f,%.5f,euler_rot=%.5f,%.5f,%.5f.bin")
 			<< o.r.first << o.r.second << o.ri.first << o.ri.second << o.dx*o.ndx
+			<< o.pt.t0[0] << o.pt.t0[1] << o.pt.t0[2] // earthcentric origin
 			<< deg(phi) << deg(theta) << deg(psi);
 
 		if(!Filename(fn).exists())
@@ -572,6 +689,14 @@ void selector::start()
 		binned_run br;
 		binary_input_or_die(in, fn);
 		in >> br;
+		ASSERT(std::abs(br.dx/(o.dx*o.ndx) - 1) < 1e-5)
+		{
+			std::cerr << "br.dx = " << br.dx << "\n";
+			std::cerr << "o.dx = " << o.dx << "\n";
+			std::cerr << "o.ndx = " << o.ndx << "\n";
+		}
+
+		// copy binned_run structure to binned_runset structure (a backwards compat. quirk)
 		brs.dx = br.dx;
 		FOREACH(br.pixels)
 		{
@@ -734,7 +859,7 @@ bool selector::select(mobject m)
 		selected = false;
 		FOR(m.obs_offset, m.obs_offset + m.n)
 		{
-			starmag &sm = db.starmags[i];
+			obsv_mag &sm = db.obsv_mags[i];
 			if(rm[sm.fitsId] == run) { selected = true; break; }
 		}
 	}
@@ -773,7 +898,7 @@ void selector::action(mobject m)
 	case OM_OBSV:
 		FOR(m.obs_offset, m.obs_offset + m.n)
 		{
-			starmag &sm = db.starmags[i];
+			obsv_mag &sm = db.obsv_mags[i];
 			char buf[30]; sprintf(buf, "%6.3f", m.Ar);
 			int reloffs;
 			int col = rm.column(sm.fitsId, &reloffs);
@@ -787,6 +912,9 @@ void selector::action(mobject m)
 				<< " " << sm << "\n";
 		}
 		break;
+	case OM_PROJECTION: {
+		om_gnomonic.bin(l, b);
+		} break;
 	case OM_MAP: {
 		double x, y;
 		lambert_map.convert(l, b, x, y);
@@ -804,7 +932,7 @@ void selector::action(mobject m)
 		} break;
 	case OM_VOLMAP: {
 		V3 v;
-		
+
 		v.celestial(m.D, lon, lat);
 		S3 k = floor(v / brs.dx + 0.5);
 
@@ -897,6 +1025,56 @@ void selector::action(mobject m)
 	}
 }
 
+extern "C"
+{
+	#include "gpc/gpc.h"
+}
+
+double poly_area(const gpc_vertex *v, int n)
+{
+	double A = 0;
+	FORj(j, 0, n)
+	{
+		const gpc_vertex &a = v[j];
+		const gpc_vertex &b = (j + 1 == n) ? v[0] : v[j+1];
+
+		A += a.x*b.y - b.x*a.y;
+	}
+
+	A *= 0.5;
+	return abs(A);
+}
+
+// calculate pixel area in rad^2 at position i,j of the gnomonic image
+double pixel_area(int i, int j, int npix, int side, const gnomonic &proj)
+{
+	static lambert lnorth(90, 90), lsouth(90, -90);
+	lambert &eqa = side == 5 ? lsouth : lnorth;
+
+	double x = ((double)i) / npix * 2 - 1;
+	double y = ((double)j) / npix * 2 - 1;
+	ASSERT(-1 <= x && x <= 1);
+	ASSERT(-1 <= y && y <= 1);
+	double dx = 1. / npix;
+
+	// take a small triangle around x, y in gnomonic coords.
+	// and map it to lambert coords
+	gpc_vertex c[3] = { {x, y}, {x+dx, y}, {x, y+dx} };
+	double area0 = poly_area(c, 3);
+	double l, b;
+	FOR(0, 3)
+	{
+		proj.inverse(c[i].x, c[i].y, l, b);
+		eqa.convert(l, b, c[i].x, c[i].y);
+	}
+	
+	// return the conversion factor from unit pixel
+	// in gnomonic coordinates to square degree
+	double area1 = poly_area(c, 3);
+	double f = area0 / area1;
+	return area1;
+}
+
 void selector::finish()
 {
 	if(outputMode == OM_MAP)
@@ -907,6 +1085,21 @@ void selector::finish()
 			const S2 &k = (*i).first;
 
 			out << (0.5 + k.x)*om_lambert.dx << " " << (0.5 + k.y)*om_lambert.dx << " " << v << "\n";
+		}
+	}
+	else if(outputMode == OM_PROJECTION)
+	{
+		FOREACH(om_gnomonic.maps)
+		{
+			double n = (*i).second;
+			const S3 &k = (*i).first;
+			int side = k.z;
+
+			// convert to stars per unit square degree
+			n /= pixel_area(k.x, k.y, om_gnomonic.npix, side, *om_gnomonic.proj[side]);
+			n /= sqr(180/ctn::pi);
+
+			out << k.x << " " << k.y << " " << k.z << " " << n << "\n";
 		}
 	}
 	else if(outputMode == OM_CMD)
@@ -1084,12 +1277,30 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		out << "# outputing observations\n";
 		out << "#\n";
 	}
+	else if(cmd == "projection")
+	{
+		// projection gnomonic [dx=256]
+		outputMode = OM_PROJECTION;
+		int npix; std::string proj;
+
+		ss >> proj;
+		ASSERT(!ss.fail());
+		ASSERT(proj == "gnomonic");
+		ss >> npix;
+		if(!ss.fail()) { om_gnomonic.npix = npix; }
+
+		out << "# outputing binned 6-sided gnomonic map\n";
+		out << om_gnomonic << "\n";
+		out << "#\n";
+	}
 	else if(cmd == "lambert")
 	{
 		outputMode = OM_MAP;
-		double l0, phi1;
+		double l0, phi1, dx;
 		ss >> l0 >> phi1;
 		if(!ss.fail()) { om_lambert.l0 = l0; om_lambert.phi1 = phi1; }
+		ss >> dx;
+		if(!ss.fail()) { om_lambert.dx = rad(dx); }
 		out << "# outputing binned lambert map\n";
 		out << om_lambert << "\n";
 		out << "#\n";
@@ -1224,27 +1435,45 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	else if(cmd == "planecut")
 	{
 		//
-		// Syntax: planecut <ri[2]> <r[2]> <coordsys> <dx> <ndx> <x0> <x1> <x2> <origin> <earth_on_x_axis> [matrixoutputfile]
+		// Syntax: planecut <ri[2]> <r[2]> <coordsys> <dx> <ndx> [<x0> <x1> <x2> <origin> <earth_on_x_axis> [matrixoutputfile]]
 		// x0, x1, x2, origin(==x0) are (dist, ra, dec) coordinates if coordsys == equ
+		// If origin info is not specified, the binning coordinate system is galactocentric
+		// and coordsys has to be equal to 'galcart'
 		//
-		std::string fn, mfn;
 		om_planecut_t &o = om_planecut;
 		ss
 			>> o.r.first >> o.r.second
 			>> o.ri.first >> o.ri.second
 			>> o.coordsys >> o.dx >> o.ndx
-			>> o.d1 >> o.x1.first >> o.x1.second
-			>> o.d2 >> o.x2.first >> o.x2.second
-			>> o.d3 >> o.x3.first >> o.x3.second
-			>> o.d0 >> o.x0.first >> o.x0.second
-			>> o.earth_on_x_axis;
-		ASSERT(!ss.fail());
-		ss	>> o.mfn;
+			>> o.d1;
+
+		if(!ss.fail())
+		{
+			ss
+				>> o.x1.first >> o.x1.second
+				>> o.d2 >> o.x2.first >> o.x2.second
+				>> o.d3 >> o.x3.first >> o.x3.second
+				>> o.d0 >> o.x0.first >> o.x0.second
+				>> o.earth_on_x_axis;
+			ASSERT(!ss.fail());
+			ss	>> o.mfn;
+		} else {
+			ASSERT(o.coordsys == "galcart");
+			// earthcentric galactic coordinate system plane
+			istringstream ss("0 0 0    1 0 0   0 1 0   8000 0 0  0  dbg.matrix.txt");
+			ss
+				>> o.d1 >> o.x1.first >> o.x1.second
+				>> o.d2 >> o.x2.first >> o.x2.second
+				>> o.d3 >> o.x3.first >> o.x3.second
+				>> o.d0 >> o.x0.first >> o.x0.second
+				>> o.earth_on_x_axis;
+			ss	>> o.mfn;
+		}
 
 		// initialize plane_transformer
 		setupPlaneTransformer(o.pt, o.coordsys, o.d1, o.x1, o.d2, o.x2, o.d3, o.x3, o.d0, o.x0, 1e10, o.earth_on_x_axis);
 
-		if(mfn.size()) // store matrix and origin - for reading with SM
+		if(o.mfn.size()) // store matrix and origin - for reading with SM
 		{
 			text_output_or_die(mout, o.mfn);
 			mout << "# M_0 M_1 M_2 t0" << nl();
@@ -1511,15 +1740,47 @@ try
 	gsl_set_error_handler_off ();
 
 	VERSION_DATETIME(version);
+	Options opts(
+		"Query the unique object & observation database using our own selection language.",
+		version, Authorship::majuric
+	);
 
-	driver db;
+	std::string
+		obj_cat_fn = "uniq_objects.dmm",
+		obs_cat_fn = "uniq_observations.dmm",
+		query_fn = "-";
 
+	try { // setup arguments and options
+		using namespace peyton::system::opt;
+		opts.argument("queryFile", "Input query file, will use STDIN if not specified.", Option::optional);
+
+		opts.option("objCat", binding(obj_cat_fn), shortname('s'), desc("Filename of object catalog (DMM file)"));
+		opts.option("obsCat", binding(obs_cat_fn), shortname('o'), desc("Filename of observation catalog (DMM file)"));
+
+		opts.parse(argc, argv);
+		
+		if(opts.found("queryFile")) { query_fn = opts["queryFile"]; }
+	} catch(EOptions &e) {
+		cout << opts.usage(argv);
+		e.print();
+		exit(-1);
+	}
+
+	// open the "database"
+	driver db(obj_cat_fn, obs_cat_fn);
+
+	// load the query
 	ifstream qf;
-	if(argc > 1) { qf.open(argv[1]); }
-	if(!qf.good()) { cerr << "Cannot open " << argv[1] << ". Aborting\n"; exit(-1); }
-	
-	istream &in = argc > 1 ? qf : cin;
+	if(query_fn != "-") { qf.open(query_fn.c_str()); }
+	if(!qf.good()) { cerr << "Cannot open [" << query_fn << "]. Aborting\n"; exit(-1); }
 
+	istream &in = query_fn != "-" ? qf : cin;
+
+	// some information
+	cerr << "Object catalog:       " << obj_cat_fn << "\n";
+	cerr << "Observations catalog: " << obs_cat_fn << "\n";
+	cerr << "Query file:           " << query_fn << "\n";
+	
 	string cmd;
 	char line[1000];
 	selector *s = NULL;
@@ -1552,6 +1813,7 @@ try
 		}
 	}
 
+	// run query
 	db.run();
 }
 catch(EAny &e)

@@ -18,7 +18,6 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#if 1
 #include "dm.h"
 
 #include "container.h"
@@ -40,6 +39,18 @@ void make_object_catalog(
 
 	const std::string &select,  // name of the temporary object catalog (indexed by uniq ID) (DMM file) [in]
 	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file) [in]
+	const std::string &runindex,// name of the sloanID -> uniqID (DMM file) [in]
+
+	const std::string &stagesummary_fn // name of text file for output summary
+);
+
+// defined in dm_common.cpp
+void obs_info(
+	int fitsID,
+	const std::string &uniqObjectCat, // "dm_unique_stars.dmm" [output]
+	const std::string &uniqObsvCat, // "dm_starmags.dmm" [output]
+
+	const std::string &selindex, // name of the fitsID -> obsv ID map (DMM file) [in]
 	const std::string &runindex // name of the sloanID -> uniqID (DMM file) [in]
 );
 
@@ -55,41 +66,34 @@ try
 		version, Authorship::majuric
 	);
 
-	double match_radius = 1;
-	double map_resolution = 60;
 	std::string
 		inputCatalog = "/home/mjuric/projects/galaxy/workspace/catalogs/test.txt",
-		stage = "stats",
+		stage = "help",
+		stagesummary_fn("dm-summary.txt"),
 		group_dir("."),
 		lutfn("match_groups.lut"),
 		indexfn("match_index.dmm"),
 		cattype("fits"),
 		tmp_dir("."),
 		tmp_prefix("uniq_lut"),
-		object_dir(","),
-		object_prefix("uniq");
-	bool filter = false;
-	bool one_per_run = true;
-	int rac = 1, decc = 2, runc = 3, colc = 5;
+		object_dir("."),
+		object_prefix("uniq"),
+		run_offset_map_fn("uniq_run_index.map");
 
 	std::vector<std::string> stages;
-	container(stages) = "mklookup", "mkobject", "mkrunidx", "stats", "asciidump";
+	container(stages) = "mklookup", "mkobject", "mkrunidx", "asciidump", "info";
 	std::string allstages = join(", ", stages);
 	stages.push_back("all");
-	stages.push_back("none");
+	stages.push_back("help");
 	std::set<std::string> cattypes;
 	container(cattypes) = "fits", "text";
+	int info_fitsid = 0;
 
 	{ // setup arguments and options
 		using namespace peyton::system::opt;
 
 		opts.argument("inputCatalog", "Input catalog file"); //, Option::optional);
-#if 0
-		opts.argument("run_col", "Column where run is stored, for cattype=text (1-based index, default = " + str(runc) + ")", Option::optional);
-		opts.argument("ra_col", "Column where R.A. is stored, for cattype=text (1-based index, default = " + str(rac) + ")", Option::optional);
-		opts.argument("dec_col", "Column where delta is stored, for cattype=text (1-based index, default = " + str(decc) + ")", Option::optional);
-		opts.argument("cam_col", "Column where camcol is stored, for cattype=text (1-based index, default = " + str(colc) + ")", Option::optional);
-#endif
+
 		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters."));
 		opts.option("type", binding(cattype), desc("Type of the input catalog (valid choices are 'fits' and 'text'"));
 
@@ -102,6 +106,8 @@ try
 
 		opts.option("object-dir", binding(object_dir), desc("Directory where the output object catalog files will be stored."));
 		opts.option("object-catalog-prefix", binding(object_prefix), desc("Prefix of output object catalog files."));
+
+		opts.option("info-fitsid", binding(info_fitsid), desc("fitsID of the observation for which to get the info (use with --stage=info)."));
 	}
 
 	try {
@@ -114,8 +120,6 @@ try
 			{ THROW(EOptions, "Argument to option --cattype must be one of " + join(", ", cattypes) + "."); }
 		if(inputCatalog != "-" && !Filename(inputCatalog).exists())
 			{ THROW(EOptions, "Input catalog file '" + inputCatalog + "' does not exist or is inaccessible"); }
-		if(2*match_radius > map_resolution)
-			{ THROW(EOptions, "2*match-radius must be less than map-resolution"); }
 	} catch(EOptions &e) {
 		cout << opts.usage(argv);
 		e.print();
@@ -124,14 +128,11 @@ try
 
 #if 0
 	cout << "stage = " << stage << "\n";
-	cout << "match_radius = " << match_radius << "\n";
-	cout << "map_resolution = " << map_resolution << "\n";
 	cout << "inputCatalog = " << inputCatalog << "\n";
 	cout << "group_dir = " << group_dir << "\n";
 	cout << "lutfn = " << lutfn  << "\n";
 	cout << "indexfn = " << indexfn << "\n";
 	cout << "cattype = " << cattype << "\n";
-	cout << "filter = " << filter << "\n";
 	cout << "tmp_dir = " << tmp_dir << "\n";
 	cout << "tmp_prefix = " << tmp_prefix << "\n";
 #endif
@@ -163,13 +164,6 @@ try
 			abort();
 		#endif
 		} else {
-#if 0
-			if(opts.found("ra_col")) { rac = opts["ra_col"]; }
-			if(opts.found("dec_col")) { decc = opts["dec_col"]; }
-			if(opts.found("run_col")) { runc = opts["run_col"]; }
-			if(opts.found("cam_col")) { colc = opts["cam_col"]; }
-#endif
-
 			ifstream inf(inputCatalog.c_str());
 			text_file_streamer cat(inputCatalog == "-" ? cin : inf, false);
 			makelookup(cat, select_fn, selindex_fn, selindices_fn);
@@ -180,17 +174,32 @@ try
 	{
 		make_object_catalog(object_fn, object_obsv_fn,
 			match_lut_path,
-			select_fn, selindex_fn, selindices_fn);
+			select_fn, selindex_fn, selindices_fn,
+			stagesummary_fn);
 	}
 
 	if(stage == "mkrunidx" || stage == "all")
 	{
-		std::ofstream out("dm_run_index.map");
-		make_run_index_offset_map(out, "dm_run_index.dmm");
+		cout << "Run offset map file: " << run_offset_map_fn << "\n";
+		std::ofstream out(run_offset_map_fn.c_str());
+		make_run_index_offset_map(out, selindices_fn);
 	}
 
-	//starinfo(58932874);
+	if(stage == "info")
+	{
+		obs_info(info_fitsid,
+			object_fn,
+			object_obsv_fn,
+			selindex_fn,
+			selindices_fn
+		);
+	}
 
+	if(stage == "help")
+	{
+		cout << opts.usage(argv);
+		return -1;
+	}
 #if 0
 	reprocess_driver();
 #endif
@@ -204,12 +213,3 @@ try
 }
 
 }
-#else
-#include <iostream>
-
-int main(int argc, char **argv)
-{
-	std::cerr << "This exe has not been compiled because of the lack of CCfits library.\n";
-	return -1;
-}
-#endif // HAVE_LIBCCFITS

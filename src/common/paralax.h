@@ -32,7 +32,7 @@ public:
 	static const double a = 4.9;	//	a = 5.0;
 	static const double b = 2.45;//	b = 2.4;
 	static const double c = 1.68;//	c = 1.6;
-	static const double d = 0.050;//	d = 0.1;
+	static const double d = 0.035;//	d = 0.1;
 	static const double f = 1.39;
 public:
 	float gr(float ri)
@@ -43,6 +43,7 @@ public:
 		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.049;
 		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.035;
 		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.040;
+		//float F = ((4.9*ri + 2.45)*ri + 1.68)*ri + 0.050;
 		float F = ((a*ri + b)*ri + c)*ri + d;
 		return f*(1-exp(-F));
 	}
@@ -118,7 +119,7 @@ public:
 			
 			return lnL + lnN;
 		}
-		
+
 		double fn_to_minimize(double y)
 		{
 			// Error ellipse equation
@@ -127,6 +128,7 @@ public:
 			double lnL = likelihood(x-x0, y-y0);
 			return -(lnL + lnPrior);
 		}
+
 		~ml_grri()
 		{
 			if(prior != NULL) { gsl_spline_free(prior); }
@@ -151,7 +153,8 @@ public:
 public:
 /*	plx_gri_locus() : mlri(*this) { Mrc[0] = 4.6; Mrc[1] = 7.9; Mrc[2] = -3.0; Mrc[3] = 0.69; }*/
 	std::valarray<double> Mrc;
-	plx_gri_locus() : mlri(*this), Mrc(5) { Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; }
+	plx_gri_locus() : mlri(*this), Mrc(5)
+		{ Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; }
 
 	void distance_limits(double &Dmin, double &Dmax, float ri0, float ri1, float r_min, float r_max)
 	{
@@ -206,6 +209,20 @@ public:
 		{
 			return false;
 		}
+	}
+
+	double ml_r_band(float ri, float gr, float sg, float sr, float si, float *lnL = NULL)
+	{
+		double RI;
+		try {
+			RI = this->mlri(ri, gr, sg, sr, si, lnL);
+		}
+		catch(peyton::exceptions::EGSLMinimizer &e)
+		{
+			// the observed colors are inconsistent with stellar locus
+			return -1;
+		}
+		return RI;
 	}
 };
 

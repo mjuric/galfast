@@ -242,7 +242,7 @@ protected:
 	std::valarray<int> f1, f2;
 	sdss_star s;
 public:
-	catalog_streamer() : f1(5), f2(5) {}
+	catalog_streamer() : f1(0, 5), f2(0, 5) { }
 
 	//virtual int catalogId() const = 0;
 	virtual bool next() = 0;

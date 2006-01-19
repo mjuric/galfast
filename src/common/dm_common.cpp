@@ -20,7 +20,6 @@
 
 #include "config.h"
 //#ifdef HAVE_LIBCCFITS
-#if 1
 
 #define NO_SDSS_STAR_CAT
 
@@ -71,11 +70,26 @@ using namespace std;
 
 plx_gri_locus paralax;
 
+struct filter_info
+{
+	int no_r_band, r_too_dim, no_two_bands, run_rejected;
+	filter_info() : no_r_band(0), r_too_dim(0), no_two_bands(0), run_rejected(0) {}
+};
+static filter_info definf;
+OSTREAM(const filter_info &inf)
+{
+	out << "# No r-band observation                : " << inf.no_r_band << " observations.\n";
+	out << "# No observation in two bands          : " << inf.no_two_bands << " observations.\n";
+	out << "# r-band observation dimmer than limit : " << inf.r_too_dim << " observations.\n";
+	out << "# Run explicitly rejected              : " << inf.run_rejected << " observations.\n";
+	return out;
+}
+
 //
 // The first filter, applied when importing observations from source catalog
 // to DMM arrays.
 //
-bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags2)
+bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags2, filter_info &inf = definf)
 {
 	//
 	// Flags cuts on magnitudes
@@ -95,10 +109,13 @@ bool filter(sdss_star &s, const valarray<int> &flags, const valarray<int> &flags
 	//
 	// Apply magnitude cuts
 	//
-	if(!finite(s.mag[2])) { return false; }		// must have r magnitude
-	if(nValidBands < 2) { return false; }		// must have at least one color
-	if(s.r > 22) { return false; }			// r magnitude cutoff
+	if(!finite(s.mag[2])) { inf.no_r_band++; return false; }	// must have r magnitude
+	if(nValidBands < 2) { inf.no_two_bands++; return false; }	// must have at least one color
+	if(s.r >= 22) { inf.r_too_dim++; return false; }			// r magnitude cutoff
 
+	// Other case-by-case rejections
+	//if(s.run == 5224) { inf.run_rejected++; return false; }
+	
 	return true;
 }
 
@@ -138,6 +155,7 @@ void makelookup(
 	ticker tick(10000);
 	observation ss; obsv_id sid;
 	sid.uniqId = -1;
+	filter_info inf;
 
 	while(cat.next())
 	{
@@ -145,7 +163,7 @@ void makelookup(
 		tick.tick();
 		if(s.id % 1000000 == 0) { sel.sync(); selidx.sync(); runidx.sync(); }
 
-		bool accept = filter(s, f1, f2);
+		bool accept = filter(s, f1, f2, inf);
 
 		if(!accept) { selidx[s.id] = -1; continue; }
 
@@ -167,9 +185,23 @@ void makelookup(
 		sel.push_back(ss);
 		runidx.push_back(sid);
 	}
+	tick.close();
+
+	cout << "\n";
+
+	cout << "Lookup table: " << select << " [ " << sel.size() << " entries ]\n";
+	cout << "Cat->Lut intex: " << selindex << " [ " << selidx.size() << " entries ]\n";
+	cout << "Lut->other index: " << " [ " << runidx.size() << " entries ]\n";
+
+	cout << "\n" << inf << "\n";
+	
 	cout << "Total observations in FITS files: " << s.id+1 << "\n";
 	cout << "Total observations accepted     : " << sel.size() << "\n";
 	cout << "\n";
+	
+	ASSERT(sel.size() == runidx.size());
+	ASSERT(selidx.size() == s.id+1);
+
 	cout.flush();
 //#else
 //	cerr << "CCfits support not compiled\n";
@@ -177,8 +209,26 @@ void makelookup(
 //#endif
 }
 
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv)
+struct proc_obs_info
 {
+	std::map<float, zero_init<double> > lnLhist;
+	int lf_failed, magerr_too_small;
+	proc_obs_info() { lf_failed = magerr_too_small = 0; }
+};
+
+OSTREAM(const proc_obs_info &inf)
+{
+	out << "# Locus fit failed                   : " << inf.lf_failed << " objects.\n";
+	out << "# Magnitude error too small          : " << inf.magerr_too_small << " measurements.\n";
+	out << "# Likelihood histogram:\n";
+	FOREACH(inf.lnLhist) { out << (*i).first << "\t" << (*i).second << "\n"; }
+	return out;
+}
+
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv, proc_obs_info &inf)
+{
+	static plx_gri_locus plx;
+
 	int N = obsv.size();
 
 	// initialize
@@ -192,13 +242,13 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 
 	m.flags = MAG_MEAN;
 
-	// magnitudes
+	// for each magnitude...
 	FOR(0, 5)
 	{
 		// sum things up
 		float f[N], w[N], mag[N];
 		int n = 0;
-		FORj(k, 0, N)
+		FORj(k, 0, N) // for each observation...
 		{
 			obsv_mag &s = obsv[k];
 
@@ -212,6 +262,7 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 			if(s.magErr[i] < 0.01)
 			{
 				s.magErr[i] = sqrt(1./2.*(sqr(0.01) + sqr(s.magErr[i])));
+				inf.magerr_too_small++;
 			}
 			n++;
 
@@ -233,7 +284,7 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 			// convert to luptitudes and stdevs
 			m.magErr[i] = 1./sqrt(m.magErr[i]);
 			phot::luptitude(m.mag[i], m.magErr[i], i, m.mag[i], m.magErr[i], 1e9);
-			
+
 			// correct for extinction
 			m.mag[i] -= extinction(Ar, (i+1) % 5); // note the hack to account for grizu ordering
 		} else {
@@ -245,19 +296,43 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 	}
 
 	// calculate distance, from paralax relation
+#if 1
+	float lnL;
+	float RI = plx.ml_r_band(m.ri(), m.gr(), m.gErr(), m.rErr(), m.iErr(), &lnL);
+	if(RI != -1)
+	{
+		float GR = plx.gr(RI);
+		plx.ml_magnitudes(m.ml_g(), m.ml_r(), m.ml_i(), m.g(), m.r(), m.i(), m.gErr(), m.rErr(), m.iErr(), RI, GR);
+
+		double Mr = plx.Mr(RI);
+		m.D = stardist::D(m.ml_r(), Mr);
+
+		ASSERT(fabs(m.ml_ri() - RI) < 0.001);
+		ASSERT(fabs(m.ml_gr() - GR) < 0.001);
+
+		//cout << lnL << " " << 0.1*int(-lnL / 0.1) << "\n";
+		inf.lnLhist[0.1*int(-lnL / 0.1)]++;
+	} else {
+		inf.lf_failed++;
+	}
+#else
 	sdss_star s;
 	s.ra = m.ra*ctn::d2r; s.dec = m.dec*ctn::d2r;
 	coordinates::equgal(s.ra, s.dec, s.l, s.b);
-	FOR(0, 3) { s.mag[i+1] = m.mag[i]; s.magErr[i+1] = m.magErr[i]; }
+	FOR(0, 3) { s.mag[i+1] = m.mag[i]; s.magErr[i+1] = m.magErr[i]; } // grizu ordering hack (sdss_star has ugriz ordering)
 
-	if(paralax(s))	// calculate the absolute magnitude and distances
+	if(paralax(s))	// calculate the absolute magnitude, ML colors, and distances
 	{
 		m.D = s.earth.D;
 		m.ml_mag[0] = s.ml_g;
 		m.ml_mag[1] = s.ml_r;
 		m.ml_mag[2] = s.ml_i;
+	} else {
+		inf.lf_failed++;
 	}
-
+#endif
+	//cout << m << "\t" << lnL << "\n";
+	//exit(-1);
 	return m;
 }
 
@@ -272,9 +347,11 @@ void make_object_catalog(
 
 	const std::string &matchGroups, // "match_groups.lut" (produced by unique.x)
 
-	const std::string &select,  // name of the temporary object catalog (indexed by uniq ID) (DMM file) [in]
-	const std::string &selindex,// name of the fitsID -> uniq ID map (DMM file) [in]
-	const std::string &runindex // name of the sloanID -> uniqID (DMM file) [in]
+	const std::string &select,   // name of the temporary object catalog (indexed by uniq ID) (DMM file) [in]
+	const std::string &selindex, // name of the fitsID -> uniq ID map (DMM file) [in]
+	const std::string &runindex, // name of the sloanID -> uniqID (DMM file) [in]
+	
+	const std::string &stagesummary_fn // name of text file for output summary
 )
 {
 	binary_input_or_die(in, matchGroups);
@@ -287,6 +364,9 @@ void make_object_catalog(
 	sel.open(select, "r");
 	selidx.open(selindex, "r");
 	runidx.open(runindex, NOMOD ? "r" : "rw");
+	cout << "Lookup table: " << select << " [ " << sel.size() << " entries ]\n";
+	cout << "Cat->Lut intex: " << selindex << " [ " << selidx.size() << " entries ]\n";
+	cout << "Lut->other index: " << " [ " << runidx.size() << " entries ]\n";
 
 	int N, id, size;
 	vector<obsv_mag> obsv;
@@ -305,14 +385,15 @@ void make_object_catalog(
 	unsigned int t = time(NULL), tstart = t;
 	in >> size;
 	// stream through all observations, grouped by unique objects
+	proc_obs_info inf;
 	FORj(k, 0, size)
 	{
 		int uniqId = out.size();
 
 		// load the whole group of observations belonging to an object
-		in >> N;
-		obsv.clear();
 		double ra, dec; float Ar;
+		in >> N >> ra >> dec;
+		obsv.clear();
 		for(int i = 0; i != N; i++)
 		{
 			in >> id; // source catalog id of the observation
@@ -343,8 +424,9 @@ void make_object_catalog(
 		if(obsv.size() != 0)		// ignore groups with zero selected observations
 		{
 			// process and store
-			mobject m = process_observations(obsv_mags.size(), ra, dec, Ar, obsv);
+			mobject m = process_observations(obsv_mags.size(), ra, dec, Ar, obsv, inf);
 
+			// store observation lookup table (holds magnitudes only, for now)
 			FOREACH(obsv) { obsv_mags.push_back((obsv_mag&)*i); }
 
 			out.push_back(m);
@@ -354,6 +436,7 @@ void make_object_catalog(
 
 		// user interface stuff
 		tick.tick();
+		#if 0
 		if((k % 10000) == 0)
 		{
 			unsigned int tnow = time(NULL);
@@ -363,7 +446,17 @@ void make_object_catalog(
 			t = tnow;
 			cout.flush();
 		}
+		#endif
 	}
+	
+	// convert histogram to cumulative
+	double total = 0;
+	FOREACH(inf.lnLhist) { total += (*i).second; }
+	double cur = 0;
+	FOREACH(inf.lnLhist) { cur = ((*i).second += cur); (*i).second /= total; }
+
+	std::ofstream of(stagesummary_fn.c_str());
+	of << inf;
 }
 
 
@@ -435,29 +528,41 @@ void reprocess_driver()
 	}
 }
 
+#define DUMP(x) cerr << #x << " = " << x << "\n";
 
 /*
 	Find the ID of the first observation for each run, and 
 	store them to a simple text file. This is mainly to help
 	debugging and mapping observation IDs to catalog entries.
 */
+struct columns_t { int col[6]; };
+inline OSTREAM(const columns_t &c) { out << c.col[0]; FOR(1, 6) { out << "\t" << c.col[i]; } return out; }
 void make_run_index_offset_map(std::ostream &out, const std::string &runidxfn)
 {
 	DMMArray<obsv_id> runidx;
 	runidx.open(runidxfn, "r");
 
-	map<int, int> runoffs;
+	map<int, columns_t> runoffs;
 
-	int oldrun = -1;
+	int oldrun = -1, oldcol = -1;
 	FOR(0, runidx.size())
 	{
 		int run = runidx[i].sloanId.run();
+		int col = runidx[i].sloanId.col();
 		if(run != oldrun)
 		{
 			ASSERT(runoffs.count(run) == 0);
-			cout << run << "\t" << i << "\n";
-			runoffs[run] = i;
 			oldrun = run;
+			col = -1;
+			FORj(j,0,6) { runoffs[run].col[j] = -1; }
+		}
+		if(col != oldcol)
+		{
+			ASSERT(runoffs[run].col[col] == -1) { DUMP(runoffs[run].col[col]); }
+			runoffs[run].col[col] = i;
+
+			cout << run << "\t" << col << "\t" << i << "\n";
+			oldcol = col;
 		}
 	}
 
@@ -473,13 +578,19 @@ void loadRuns(set<int> &runs, const std::string &runfile)
 	in_stream.close();
 }
 
-void starinfo(int fitsID)
+void obs_info(
+	int fitsID,
+	const std::string &uniqObjectCat, // "dm_unique_stars.dmm" [output]
+	const std::string &uniqObsvCat, // "dm_starmags.dmm" [output]
+
+	const std::string &selindex, // name of the fitsID -> obsv ID map (DMM file) [in]
+	const std::string &runindex // name of the sloanID -> uniqID (DMM file) [in]
+)
 {
 	// open catalogs
-	DMMArray<observation> sel("dm_tmpcat.dmm");
-	DMMArray<int> selidx("dm_tmpcat_index.dmm");
-	DMMArray<obsv_id> runidx("dm_run_index.dmm");
-	DMMArray<mobject> unique("dm_unique_stars.dmm");
+	DMMArray<mobject> unique(uniqObjectCat);
+	DMMArray<int> selidx(selindex);
+	DMMArray<obsv_id> runidx(runindex);
 	
 	if(fitsID < 0 || fitsID > selidx.size())
 	{
@@ -487,18 +598,22 @@ void starinfo(int fitsID)
 		return;
 	}
 
+	// map fitsId to selId
 	int selid = selidx[fitsID];
 	if(selid == -1)
 	{
-		cerr << "This observation was not included in our sample\n";
+		cerr << "This observation [fitsId = " << fitsID << "] was not included in our sample\n";
 		return;
 	}
 
+	// observation information
 	obsv_id sid = runidx[selid];
 	ASSERT(sid.fitsId == fitsID);
+	cout << "fitsId = " << sid.fitsId << "\n";
 	cout << "uniqId = " << sid.uniqId << "\n";
 	cout << "sloanID = " << sid.sloanId << "\n";
 
+	// object information
 	mobject m = unique[sid.uniqId];
 	print_mobject(cout, m);
 }
@@ -506,15 +621,14 @@ void starinfo(int fitsID)
 void print_mobject(std::ostream &out, const mobject &m)
 {
 	out << "ra = " << m.ra << ", dec = " << m.dec << "\n";
-	out << "Magnitudes:\n";
-	out << "mag    = "; FOR(0, 3) { cout << m.mag[i] << " "; } cout << "\n";
-	out << "magErr = "; FOR(0, 3) { cout << m.magErr[i] << " "; } cout << "\n";
-	out << "N      = "; FOR(0, 3) { cout << m.N[i] << " "; } cout << "\n";
+	out << "Magnitudes (ugriz):\n";
+	out << "mag    = "; FOR(0, 5) { cout << m.mag[(i+4) % 5] << " "; } cout << "\n";
+	out << "magErr = "; FOR(0, 5) { cout << m.magErr[(i+4) % 5] << " "; } cout << "\n";
+	out << "N      = "; FOR(0, 5) { cout << m.N[(i+4) % 5] << " "; } cout << "\n";
 	out << "ml_mag = "; FOR(0, 3) { cout << m.ml_mag[i] << " "; } cout << "\n";
 	out << "Distances:\n";
 	//out << "Mr = " << m.Mr << "\n";
 	V3 p; calculate_cartesian(p, m);
-	out << "D = " << abs(p) << "\n";
-	out << "(x, y, z) = " << p.x << " " << p.y << " " << p.z << "\n";
+	out << "\tD = " << abs(p) << "\n";
+	out << "\t(x, y, z) = " << p.x << " " << p.y << " " << p.z << "\n";
 }
-#endif

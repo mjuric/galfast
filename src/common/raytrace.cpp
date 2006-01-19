@@ -2538,7 +2538,7 @@ void setupPlaneTransformer(
 	double d[] = {d0, d1, d2, d3};
 	pair<double, double> x[] = {p0, p1, p2, p3};
 	V3 v[4];
-	
+
 	FOR(0, 4)
 	{
 		Radians l, b;

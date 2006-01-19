@@ -1406,6 +1406,8 @@ gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx
 			proj.convert(ex[i], ey[i], v[i].x, v[i].y);
 		}
 
+		// TODO: check if the projection antipode is inside of the polygon
+		
 		// add contour to polygon
 		gpc_vertex_list c = { ex.size(), v };
 		gpc_add_contour(&p, &c, false);
@@ -1649,6 +1651,251 @@ double polygon_area(const gpc_polygon &p)
 	return abs(A);
 }
 
+gpc_polygon poly_rect(double x0, double x1, double y0, double y1);
+gpc_tristrip triangulatePoly(gpc_polygon sky)
+{
+	double dx = rad(5);
+	double x0, x1, y0, y1, xa, xb, ya, yb;
+//	std::vector<gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
+	std::vector<gpc_vertex_list> tristrips;
+ 	poly_bounding_box(x0, x1, y0, y1, sky);
+	for(double x = x0; x < x1; x += dx) // loop over all x values in the bounding rectangle
+	{
+		double xa = x, xb = x+dx;
+		double xysum = 0.;
+		for(double y = y0; y < y1; y += dx) // loop over all y values for a given x
+		{
+			double ya = y, yb = y+dx;
+			gpc_polygon r = poly_rect(xa, xb, ya, yb);
+
+			gpc_polygon poly;
+			gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
+			if(poly.num_contours == 0) continue; // if there are no observations in this direction
+
+			gpc_tristrip tri = { 0, NULL };
+			gpc_polygon_to_tristrip(&poly, &tri);
+			tristrips.insert(tristrips.begin(), tri.strip, tri.strip + tri.num_strips);
+//			skymap.push_back(poly); // store the polygon into a fast lookup map
+		}
+		cerr << "#";
+	}
+
+	gpc_tristrip tri;
+	tri.num_strips = tristrips.size();
+	tri.strip = (gpc_vertex_list*)malloc(sizeof(gpc_vertex_list) * tri.num_strips);
+	FOR(0, tristrips.size())
+	{
+		tri.strip[i] = tristrips[i];
+	}
+#if 0	
+	gpc_tristrip tri = { 0, NULL };
+	gpc_polygon_to_tristrip(&sky, &tri);
+#endif
+
+	return tri;
+}
+
+gpc_polygon loadSky(const std::string &prefix)
+{
+	gpc_polygon sky;
+	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
+	gpc_read_polygon(fp, 1, &sky);
+	fclose(fp);
+
+	return sky;
+}
+
+void vrml_foot(const std::string &prefix)
+{
+	lambert lnorth(rad(90), rad(90));
+	double d = 1;
+#if 1
+	gpc_polygon sky = loadSky(prefix);
+	gpc_tristrip tri = triangulatePoly(sky);
+#else
+	gpc_polygon sky = make_circle(0., 0., 1, .1);
+	gpc_tristrip tri = triangulatePoly(sky);
+#endif
+
+	std::vector<V3> vert;
+	std::vector<int> indices;
+//#define SET(v, d, l, b) v = V3(l, b, 0)
+#define SET(v, d, l, b) v.celestial(d, l, b)
+	V3 v[3]; Radians l, b;
+	FOR(0, tri.num_strips)
+	{
+		static int cnt = 0;
+		cnt++;
+// 		if(cnt != 363 &&
+// 		   cnt != 300 &&
+// 		   cnt != 314 &&
+// 		   cnt != 315) { continue; }
+
+		gpc_vertex_list &strip = tri.strip[i];
+		ASSERT(strip.num_vertices >= 3); // this has to be a tristrip
+		
+		cerr << cnt << " " << strip.num_vertices << "\n";
+
+		lnorth.inverse(strip.vertex[0].x, strip.vertex[0].y, l, b);
+		SET(v[0], d, l, b);
+		vert.push_back(v[0]);
+		lnorth.inverse(strip.vertex[1].x, strip.vertex[1].y, l, b);
+		SET(v[1], d, l, b);
+		vert.push_back(v[1]);
+		FORj(j, 2, strip.num_vertices)
+		{
+			lnorth.inverse(strip.vertex[j].x, strip.vertex[j].y, l, b);
+			SET(v[2], d, l, b);
+
+			// output polygon
+			#if 0
+			static int p = 0;
+			FORj(k, 0, 3) { 
+				std::cout << v[k].x << "\t" << v[k].y << "\t" << p << "\n";
+			}
+			std::cout << "#\n";
+			++p;
+			#else
+			vert.push_back(v[2]);
+			if(j % 2 == 0)
+			{
+				indices.push_back(vert.size()-1-2);
+				indices.push_back(vert.size()-1-1);
+				indices.push_back(vert.size()-1-0);
+			} else {
+				indices.push_back(vert.size()-1-0);
+				indices.push_back(vert.size()-1-1);
+				indices.push_back(vert.size()-1-2);
+			}
+			indices.push_back(-1);
+			#endif
+			
+			// setup for next vertex
+			FORj(k, 0, 2) { 
+				v[k] = v[k+1];
+			}
+		}
+//		break;
+	}
+
+	// boundaries of the cone
+	FOR(0, sky.num_contours)
+	{
+		gpc_vertex_list &poly = sky.contour[i];
+
+		int zero = vert.size();
+		vert.push_back(V3(0., 0., 0.));
+
+		V3 v;
+		gpc_vertex vlast = poly.vertex[poly.num_vertices-1];
+		lnorth.inverse(vlast.x, vlast.y, l, b);
+		SET(v, d, l, b);
+		vert.push_back(v);
+
+		FORj(j, 0, poly.num_vertices)
+		{
+			lnorth.inverse(poly.vertex[j].x, poly.vertex[j].y, l, b);
+			SET(v, d, l, b);
+			vert.push_back(v);
+
+			indices.push_back(zero);
+			indices.push_back(vert.size()-1-1);
+			indices.push_back(vert.size()-1-2);
+			indices.push_back(-1);
+		}
+	}
+
+	// generate VRML
+	cout << "#VRML V2.0 utf8\n";
+	cout << "DEF FOOT IndexedFaceSet {\n";
+//	cout << "  solid FALSE\n";
+	cout << "  coord Coordinate {\n";
+	cout << "    point [\n";
+	FOREACH(vert)
+	{
+		V3 &v = *i;
+		cout << "      " << v.x << " " << v.y << " " << v.z << "\n";
+	}
+	cout << "    ]\n";
+	cout << "  }\n";
+	cout << "  coordIndex [\n";
+	FOREACH(indices)
+	{
+		cout << "     ";
+		while(i != indices.end() && *i != -1)
+		{
+			cout << " " << *i;
+			++i;
+		}
+		cout << " -1\n";
+		if(i == indices.end()) break;
+	}
+	cout << "    ]\n";
+	cout << "  }\n";
+	cout << "}\n";
+
+	gpc_free_polygon(&sky);
+	gpc_free_tristrip(&tri);
+}
+
+void virgo_model()
+{
+	cout << "#VRML V2.0 utf8\n\n";
+	cout << "PointSet { coord Coordinate { point [\n";
+
+	int seed = 42;
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(rng, seed);
+
+	double r0 = 7, phi0 = rad(30);
+	FOR(0, 5000)
+	{
+		i--;
+		double d = abs(gsl_ran_gaussian(rng, 2));
+//		if(d > 2.5) continue;
+//		cerr << d << "\n";
+		double phi = gsl_ran_flat(rng, 0, ctn::pi2);
+		double x = cos(phi0)*r0 + d*cos(phi);
+		double y = sin(phi0)*r0 + d*sin(phi);
+
+		double z = 10.5 + gsl_ran_gaussian(rng, 3);
+		if(z > 15 || z < 0) { continue; }
+		//double z = gsl_ran_flat(rng, 5, 15);
+
+		cout << "\t" << x << " " << y << " " << z << "\n";
+		i++;
+	}
+	// tail
+	if(1) {
+	double d0 = 15; // stream at ~15kpc
+	FOR(0, 2500)
+	{
+		double mu = rad(gsl_ran_flat(rng, 117, 193));
+		double dd = gsl_ran_gaussian(rng, 1);
+		double phi = gsl_ran_flat(rng, 0, ctn::pi2);
+
+		// convert from great circle to l, b
+		Radians l, b;
+		coordinates::gcsgal(rad(220), rad(-20), mu, 0, l, b);
+		
+		V3 v; v.celestial(d0, l, b);
+		v.x = 8 - v.x;
+		v.y = -v.y;
+
+		// random scatter
+		v.x += gsl_ran_gaussian(rng, .5);
+		v.y += gsl_ran_gaussian(rng, .5);
+		v.z += gsl_ran_gaussian(rng, .5);
+
+//		cerr << deg(mu) << " " << deg(l) << " " << deg(b) << "\n";
+		
+		cout << "\t" << v.x << " " << v.y << " " << v.z << "\n";
+		i++;
+	}
+	}
+	cout << "] } }\n";
+}
+
 void sm_write(const std::string &fn, const gpc_polygon &p)
 {
 	// dump polygons in SM compatible format
@@ -1664,8 +1911,68 @@ void sm_write(const std::string &fn, const gpc_polygon &p)
 	}
 }
 
+#if 0
 //lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
-void makeSkyMap(const std::string &prefix, const lambert &proj)
+//Radians dx = rad(.25); /* polygon sampling resolution in radians */
+void sky_footprint(const Radians dx, const std::set<int> &runs, gpc_polygon &sky)
+{
+	lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
+
+	RunGeometryDB db;
+	double x, y;
+	gpc_polygon sky0 = {0, 0, NULL};
+	sky = sky0;
+/*	proj.convert(rad(0.), rad(-30.), x, y);
+	cerr << sqrt(x*x+y*y) << "\n";*/
+	gpc_polygon south_pole = make_circle(0., 0., 2, dx);
+
+	text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
+	std::set<int> runs;
+	load(in, runs, 0);
+	cerr << "Processing " << runs.size() << " runs.\n";
+
+	int k = 0;
+	FOREACH(runs)
+	{
+		const RunGeometry &geom = db.getGeometry(*i);
+// 		cerr << geom.run << " ";
+ 		cerr << ".";
+
+		//if(geom.run != 752) continue;
+		//if(geom.run != 752 && geom.run != 756) continue;
+
+		gpc_polygon rpoly = make_polygon(geom, proj, dx);
+		gpc_polygon_clip(GPC_INT, &rpoly, &circle, &rpoly);
+		gpc_polygon_clip(GPC_UNION, &sky, &rpoly, &sky);
+
+// 		double A = polygon_area(rpoly);
+// 		gpc_free_polygon(&rpoly);
+// 
+// 		int nvert = 0;
+// 		FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+// 		cerr << " [" << A*sqr(deg(1)) << "] [" << sky.num_contours << " contours, " << nvert << " vertices]\n";
+	}
+	cerr << "\n";
+
+	int nvert = 0;
+	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+	cerr << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
+	     << sky.num_contours << " contours, " << nvert << " vertices]\n";
+
+	// store the footprint polygon
+	sm_write(prefix + ".foot.txt", sky);
+	FILE *ofp = fopen((prefix + ".gpc.txt").c_str(), "w");
+	gpc_write_polygon(ofp, 1, &sky);
+	fclose(ofp);
+
+	// free memory
+	gpc_free_polygon(&sky);
+	gpc_free_polygon(&circle);
+}
+#endif
+
+//lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
+void makeSkyMap(std::set<int> &runs, const std::string &prefix, const lambert &proj)
 {
 	Radians dx = rad(.25); /* polygon sampling resolution in radians */
 //	Radians dx = rad(1); /* polygon sampling resolution - good for footprint plots */
@@ -1678,9 +1985,6 @@ void makeSkyMap(const std::string &prefix, const lambert &proj)
 	cerr << sqrt(x*x+y*y) << "\n";*/
 	gpc_polygon circle = make_circle(0., 0., sqrt(2.), dx);
 
-	text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
-	std::set<int> runs;
-	load(in, runs, 0);
 	cerr << "Processing " << runs.size() << " runs.\n";
 
 	int k = 0;
@@ -1732,11 +2036,21 @@ int main(int argc, char **argv)
 try
 {
 //	simulate();
-/*	makeSkyMap("north", lambert(rad(90), rad(90)));
- 	makeSkyMap("south", lambert(rad(-90), rad(-90)));*/
+	//text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
+/*	text_input_or_die(in, "uniq_run_index.map");
+	std::set<int> runs;
+	load(in, runs, 0);
+	runs.erase(5224);
+	makeSkyMap(runs, "dr5north", lambert(rad(90), rad(90)));
+ 	makeSkyMap(runs, "dr5south", lambert(rad(-90), rad(-90)));
+	return 0;
+*/
 //	testIntersection("north");
 //	test_nurbs();
 //	test_lapack();
+
+	virgo_model(); return 0;
+	vrml_foot("north"); return 0;
 
 	//toy_homogenious_model model(1.);
 	//toy_geocentric_powerlaw_model model(1., 0.);

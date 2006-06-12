@@ -177,6 +177,7 @@ public:
 	#define F_CART		0x8000
 	#define F_SIGMA		0x10000
 	#define F_LIMIT		0x20000
+	#define T_GMIRROR	0x40000
 	int filters;
 	
 	// supporting per-mobject fields
@@ -758,6 +759,15 @@ bool selector::select(mobject m)
 	v.y = -v.y; // convert to earthcentric galactic
 
 	// transformation filters
+	TRANSFORM(T_GMIRROR)
+	{
+		// mirror around the l=0 meridian
+		l =  2*ctn::pi-l;
+		//if(l < 0) { l += 2*ctn::pi; }
+		// update lon/lat, XYZ
+		coordinates::galequ(l, b, lon, lat);
+		v.y = -v.y;
+	}
 	TRANSFORM(T_COORD)
 	{
 		// rotate coordinate system in ra/dec
@@ -1618,6 +1628,12 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		filters |= F_ML_R;
 		out << "# ml_r filter active\n";
 		out << "# [r0, r1)    = " << r0 << " " << r1 << "\n";
+		out << "#\n";
+	}
+	else if(cmd == "gal_mirror")
+	{
+		filters |= T_GMIRROR;
+		out << "# Galactic l=0 line mirror active\n";
 		out << "#\n";
 	}
 	else if(cmd == "transform")

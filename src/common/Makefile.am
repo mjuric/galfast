@@ -6,5 +6,4 @@ libcommon_a_SOURCES = analysis.h binarystream.cpp binarystream.h \
 			textstream.h xcat.h ximage.h xcat.cpp fitsloader.cpp floodfill.h binner_tng.cpp dm.h \
 			interval_arithmetic.h packed_id.cpp raytrace.cpp fitsloader.h paralax.cpp model.cpp \
 		dm_common.cpp textloader.h
-noinst_HEADERS = projections.h raytrace.h model.h
-
+noinst_HEADERS = projections.h raytrace.h model.h container.h clapack.h

@@ -68,6 +68,7 @@ protected:
 	std::auto_ptr<fits_loader> cur;
 	std::set<int> runs;
 	std::set<int>::iterator at;
+	std::string filepat;
 
 	std::auto_ptr<peyton::system::dir> inputfiles;
 	peyton::system::dir::iterator curfile;
@@ -77,7 +78,7 @@ protected:
 
 	void nextfile();
 public:
-	fits_set_streamer(const std::set<int> &runs_);
+	fits_set_streamer(const std::string &filepattern, const std::set<int> &runs_);
 	bool next();
 	//int catalogId() const { return fitsid; }	/// fits ID of the last record loaded
 };

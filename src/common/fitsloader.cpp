@@ -110,8 +110,8 @@ bool fits_loader::next()
 
 ///////////
 
-fits_set_streamer::fits_set_streamer(const std::set<int> &runs_)
-	: runs(runs_), at(NULL), first(true), fitsid(-1)
+fits_set_streamer::fits_set_streamer(const std::string &filepattern, const std::set<int> &runs_)
+	: filepat(filepattern), runs(runs_), at(NULL), first(true), fitsid(-1)
 {
 	FITS::setVerboseMode(true);
 }
@@ -119,7 +119,7 @@ fits_set_streamer::fits_set_streamer(const std::set<int> &runs_)
 void fits_set_streamer::nextfile()
 {
 	// advance to next run
-	string pattern = io::format("data/schlegel/calibObj-%06d-?-star.fits.gz") << *at;
+	string pattern = io::format(filepat) << *at;
 	inputfiles.reset(new dir(pattern));
 	curfile = inputfiles->begin();
 	ASSERT(curfile != inputfiles->end());

@@ -222,11 +222,17 @@ struct obsv_mag
 };
 OSTREAM(const obsv_mag &sm);
 
+#define PROPER_MOTION_SUPPORT 0
+
 // observation with photometry, astrometry and extinction information
 struct observation : public obsv_mag
 {
 	double ra, dec;			// ra & dec (degrees)
 	float Ar;			// extinction
+	
+#if PROPER_MOTION_SUPPORT
+	float colc;			// frame column
+#endif
 };
 
 #define MAG_MEAN		1
@@ -249,6 +255,21 @@ struct mobject
 	float D;			// geocentric distance, calculated through phot. paralax
 
 	double ra, dec;			// object coordinates (degrees)
+
+#if PROPER_MOTION_SUPPORT
+	struct pm_t
+	{
+		// variability information
+		float variance[5], chi2[5], magMin[5], magMax[5]; // grizu ordering
+
+		// proper motion information
+		struct { double a, b; double cov00, cov01, cov11, r; } vra, vdec;
+		peyton::MJD t0, t1; // first/last epoch
+		
+		// minimum distance of any observation from the border of a frame
+		float colcdist;
+	} pm;
+#endif
 
 public:
 	// accessors

@@ -78,7 +78,8 @@ try
 		tmp_prefix("uniq_lut"),
 		object_dir("."),
 		object_prefix("uniq"),
-		run_offset_map_fn("uniq_run_index.map");
+		run_offset_map_fn("uniq_run_index.map"),
+		fitsfilepat("fits/calibObj-%06d-?-star.fits.gz");
 
 	std::vector<std::string> stages;
 	container(stages) = "mklookup", "mkobject", "mkrunidx", "asciidump", "info";
@@ -103,6 +104,8 @@ try
 
 		opts.option("tmp-dir", binding(tmp_dir), desc("Directory where the temporary lookup file, used while creating the object catalog, will be stored."));
 		opts.option("tmp-lookup-prefix", binding(tmp_prefix), desc("Prefix of temporary lookup files."));
+
+		opts.option("fits-files-pattern", binding(fitsfilepat), desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)"));
 
 		opts.option("object-dir", binding(object_dir), desc("Directory where the output object catalog files will be stored."));
 		opts.option("object-catalog-prefix", binding(object_prefix), desc("Prefix of output object catalog files."));
@@ -157,7 +160,7 @@ try
 			cerr << "\n[1/3] Creating matching lookup table\n";
 			std::set<int> runs;
 			loadRuns(runs, inputCatalog);
-			fits_set_streamer fitscat(runs);
+			fits_set_streamer fitscat(fitsfilepat, runs);
 			makelookup(fitscat, select_fn, selindex_fn, selindices_fn);
 		#else
 			cerr << "FITS support not compiled in!\n";

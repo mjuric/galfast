@@ -1651,7 +1651,21 @@ double polygon_area(const gpc_polygon &p)
 	return abs(A);
 }
 
-gpc_polygon poly_rect(double x0, double x1, double y0, double y1);
+// create a gpc_polygon rectangle
+gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
+{
+	static gpc_vertex v[4];
+	static gpc_vertex_list vl = {4, v};
+	static gpc_polygon rect = {1, NULL, &vl};
+
+	v[0].x = x0; v[0].y = y0;
+	v[1].x = x1; v[1].y = y0;
+	v[2].x = x1; v[2].y = y1;
+	v[3].x = x0; v[3].y = y1;
+
+	return rect;
+}
+
 gpc_tristrip triangulatePoly(gpc_polygon sky)
 {
 	double dx = rad(5);

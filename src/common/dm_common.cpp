@@ -179,7 +179,9 @@ void makelookup(
 		// so the ordering is grizu
 		FOR(0, 5) { ss.mag[i] = s.mag[(i+1) % 5]; ss.magErr[i] = s.magErr[(i+1) % 5]; }		
 		ss.Ar = s.Ar;
-
+#if PROPER_MOTION_SUPPORT
+		ss.colc = s.colc;
+#endif
 		// store
 		selidx[sid.fitsId] = sel.size();
 		sel.push_back(ss);
@@ -225,7 +227,25 @@ OSTREAM(const proc_obs_info &inf)
 	return out;
 }
 
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv, proc_obs_info &inf)
+#if PROPER_MOTION_SUPPORT
+	#define MAXRUNS			10000
+	#define MJD_OF_J2000_NOON	51544.5
+	double runepochs[MAXRUNS];	// time of runs since J2000, in years
+	void initrunepochs(const set<int> &runs)
+	{
+		RunGeometryDB geomDB;
+		FOR(0, MAXRUNS) { runepochs[i] = 0; }
+		FOREACH(runs)
+		{
+			runepochs[*i] = (geomDB.getGeometry(*i).tstart - MJD_OF_J2000_NOON)
+				/ (365.);
+		}
+	}
+	MJD epochtomjd(double epochTime) { return epochTime*365. + MJD_OF_J2000_NOON; }
+	float dist_from_edge(const float colc) { return min(colc, 2048 - colc); }
+#endif
+
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<pair<observation, obsv_id> > &obsv, proc_obs_info &inf)
 {
 	static plx_gri_locus plx;
 
@@ -250,7 +270,8 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 		int n = 0;
 		FORj(k, 0, N) // for each observation...
 		{
-			obsv_mag &s = obsv[k];
+			obsv_mag &s = obsv[k].first;
+			f[k] = -1;
 
 			// throw out bad measurements
 			if(!finite(s.mag[i]) || !finite(s.magErr[i]))
@@ -273,6 +294,14 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 
 			m.mag[i] += f[k]*w[k];
 			m.magErr[i] += w[k];
+
+#if PROPER_MOTION_SUPPORT
+			// minimum and maximum _magnitudes_
+			m.pm.magMin[i] = std::min(m.pm.magMin[i], s.mag[i]);
+			m.pm.magMax[i] = std::max(m.pm.magMax[i], s.mag[i]);
+
+			// flux weighted variance calculation
+#endif
 		}
 		m.N[i] = n;
 
@@ -280,6 +309,20 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 		{
 			// average
 			m.mag[i] /= m.magErr[i];
+
+#if PROPER_MOTION_SUPPORT
+			// "reduced" chi squared _of flux_
+			n = 0;
+			FORj(k, 0, N)
+			{
+				if(f[i] < 0) { continue; } // throw out measurements flagged as bad
+
+				n++;
+				m.pm.chi2[i] += sqr(f[k] - m.mag[i]) * w[k];
+			}
+			m.pm.chi2[i] /= m.N[i];
+			ASSERT(m.N[i] == n);
+#endif
 
 			// convert to luptitudes and stdevs
 			m.magErr[i] = 1./sqrt(m.magErr[i]);
@@ -295,8 +338,69 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 		}
 	}
 
+#if PROPER_MOTION_SUPPORT
+	// proper motions
+	pair<double, double> primary = make_pair(ra, dec);
+	{
+		double ra[N], dec[N], t[N];	// ra and dec are in milli arcsecs, time in years since J2000
+		m.pm.t0 = 1e+10;			// earliest time of observation
+		m.pm.t1 = -1e-10;			// latest time of observation
+		FORj(k, 0, N)
+		{
+			observation &s = obsv[k].first;
+			obsv_id &id = obsv[k].second;
+	
+			t[k] = runepochs[id.sloanId.run()];
+			ra[k] = (s.ra - primary.first)*3600.*1000.;
+			dec[k] = (s.dec - primary.second)*3600.*1000.;
+	
+			m.pm.t0 = min(m.pm.t0, epochtomjd(t[k]));
+			m.pm.t1 = max(m.pm.t1, epochtomjd(t[k]));
+	
+			// distance from the edge
+			m.pm.colcdist = std::min(m.pm.colcdist, dist_from_edge(s.colc));
+	
+			// doublecheck, just in case...
+			ASSERT(distance(rad(s.ra), rad(s.dec), rad(primary.first), rad(primary.second)) < rad(1./3600.)*2.);
+			{
+				Radians dist = distance(rad(s.ra), rad(s.dec), rad(primary.first), rad(primary.second));
+				cout << s.ra << s.dec << " !~ " << primary.first << " " << primary.second << " | " << deg(dist)*3600. << "\n";
+			}
+		}
+	
+		if(N > 1)	// velocities make sense only if N > 1
+		{
+			double sumsq;
+			gsl_fit_linear(t, 1, ra, 1, N, &m.pm.vra.b, &m.pm.vra.a, &m.pm.vra.cov00, &m.pm.vra.cov01, &m.pm.vra.cov11, &sumsq);
+			gsl_fit_linear(t, 1, dec, 1, N, &m.pm.vdec.b, &m.pm.vdec.a, &m.pm.vdec.cov00, &m.pm.vdec.cov01, &m.pm.vdec.cov11, &sumsq);
+			
+			if(N == 2)
+			{
+				// if we have only two points, errors are "perfect"
+				m.pm.vra.cov00 = m.pm.vra.cov01 = m.pm.vra.cov11 = m.pm.vra.r = 0.;
+				m.pm.vdec.cov00 = m.pm.vdec.cov01 = m.pm.vdec.cov11 = m.pm.vdec.r = 0.;
+			}
+			else
+			{
+				double sxx = gsl_stats_variance(t, 1, N);
+	
+				double syy = gsl_stats_variance(ra, 1, N);
+				double sxy = gsl_stats_covariance(t, 1, ra, 1, N);
+				m.pm.vra.r = sxy / sqrt(sxx*syy);
+	
+				syy = gsl_stats_variance(dec, 1, N);
+				sxy = gsl_stats_covariance(t, 1, dec, 1, N);
+				m.pm.vdec.r = sxy / sqrt(sxx*syy);
+	
+				//cout << m.vra.cov00 << " " << m.vra.cov11 << " " << m.vra.cov01 << " " << m.vra.r << "\n";
+				//cout << m.vdec.cov00 << " " << m.vdec.cov11 << " " << m.vdec.cov01 << " " << m.vdec.r << "\n";
+				//exit(0);
+			}
+		}
+	}
+#endif
+
 	// calculate distance, from paralax relation
-#if 1
 	float lnL;
 	float RI = plx.ml_r_band(m.ri(), m.gr(), m.gErr(), m.rErr(), m.iErr(), &lnL);
 	if(RI != -1)
@@ -315,22 +419,7 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 	} else {
 		inf.lf_failed++;
 	}
-#else
-	sdss_star s;
-	s.ra = m.ra*ctn::d2r; s.dec = m.dec*ctn::d2r;
-	coordinates::equgal(s.ra, s.dec, s.l, s.b);
-	FOR(0, 3) { s.mag[i+1] = m.mag[i]; s.magErr[i+1] = m.magErr[i]; } // grizu ordering hack (sdss_star has ugriz ordering)
 
-	if(paralax(s))	// calculate the absolute magnitude, ML colors, and distances
-	{
-		m.D = s.earth.D;
-		m.ml_mag[0] = s.ml_g;
-		m.ml_mag[1] = s.ml_r;
-		m.ml_mag[2] = s.ml_i;
-	} else {
-		inf.lf_failed++;
-	}
-#endif
 	//cout << m << "\t" << lnL << "\n";
 	//exit(-1);
 	return m;
@@ -369,7 +458,7 @@ void make_object_catalog(
 	cout << "Lut->other index: " << " [ " << runidx.size() << " entries ]\n";
 
 	int N, id, size;
-	vector<obsv_mag> obsv;
+	vector<pair<observation, obsv_id> > obsv;
 
 	// open object/observation catalogs (output)
 	DMMArray<mobject> out;
@@ -404,16 +493,14 @@ void make_object_catalog(
 #if !NOMOD
 			// load this observation
 			observation &o = sel[sid];
-			obsv.push_back(o);
 
 			if(obsv.size() == 1) { ra = o.ra; dec = o.dec; Ar = o.Ar; }
-#endif
 
 			// store ID of the unique object together with this observation
-#if !NOMOD
 			obsv_id &oid = runidx[sid];
 			oid.uniqId = uniqId;
 
+			obsv.push_back(make_pair(o, oid));
 			ASSERT(oid.fitsId == o.fitsId);
 #endif
 		}
@@ -427,7 +514,7 @@ void make_object_catalog(
 			mobject m = process_observations(obsv_mags.size(), ra, dec, Ar, obsv, inf);
 
 			// store observation lookup table (holds magnitudes only, for now)
-			FOREACH(obsv) { obsv_mags.push_back((obsv_mag&)*i); }
+			FOREACH(obsv) { obsv_mags.push_back((*i).first); }
 
 			out.push_back(m);
 		}

@@ -650,7 +650,7 @@ public:
 
 				m.mag[i] += f[k]*w[k];
 				m.wt[i] += w[k];
-	
+
 				m.min[i] = std::min(m.min[i], mag[k]);
 				m.max[i] = std::max(m.max[i], mag[k]);
 			}

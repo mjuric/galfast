@@ -19,15 +19,15 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/raytrace.x</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <activetarget>src/fitter.x</activetarget>
+      <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/selector.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/dr5more/</customdirectory>
-      <programargs>gnomonic.sel</programargs>
+      <customdirectory>/home/mjuric/projects/galaxy/workspace/</customdirectory>
+      <programargs>--type=plane 15.000 21.500 0.150 0.200 merged.bin 8.333333 60 &quot;cache/plane.r=15.000-21.500,ri=0.150-0.200,dx=500.000,origin=0.00000,0.00000,0.00000,euler_rot=0.00000,0.00000,0.00000.bin&quot; --coordsys=galcart --x1=0.000000,0.000000,0.000000 --x2=1.000000,0.000000,0.000000 --x3=0.000000,1.000000,0.000000 --x0=8000.000000,0.000000,0.000000 --delta=10000000000.000000 --earthonaxis=0</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -151,7 +151,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet></prefixGet>
+      <prefixGet/>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -162,11 +162,11 @@
   <kdevdebugger>
     <general>
       <programargs>gnomonic.sel</programargs>
-      <gdbpath></gdbpath>
-      <dbgshell></dbgshell>
-      <configGdbScript></configGdbScript>
-      <runShellScript></runShellScript>
-      <runGdbScript></runGdbScript>
+      <gdbpath/>
+      <dbgshell/>
+      <configGdbScript/>
+      <runShellScript/>
+      <runGdbScript/>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

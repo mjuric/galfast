@@ -44,7 +44,7 @@ using namespace std;
 
 /////////////
 
-#define FOLLOW_OBJECTS 1
+#define FOLLOW_OBJECTS 0
 //obsoleted by --one-per-run cmdline option #define RUN_CHECK 1
 //obsoleted by --filter cmdline option #define FILTER 1
 
@@ -1098,7 +1098,8 @@ try
 		indexfn("match_index.dmm"),
 		cattype("fits"),
 		tmp_dir("."),
-		tmp_fn("catlookup.dmm");
+		tmp_fn("catlookup.dmm"),
+		fitsfilepat("fits/calibObj-%06d-?-star.fits.gz");
 	bool filter = false;
 	bool one_per_run = true;
 
@@ -1131,6 +1132,7 @@ try
 		opts.option("group-index-file", binding(indexfn), desc("Name of the group index file"));
 		opts.option("tmp-dir", binding(tmp_dir), desc("Directory where the temporary lookup file, used while matchin, will be stored."));
 		opts.option("tmp-lookup-file", binding(tmp_fn), desc("Name of the temporary lookup file. This file can be deleted after the matching is complete."));
+		opts.option("fits-files-pattern", binding(fitsfilepat), desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)"));
 	}
 
 	try {
@@ -1182,7 +1184,7 @@ try
 		#ifdef HAVE_PKG_CCfits
 			std::set<int> runs;
 			loadRuns(runs, inputCatalog);
-			fits_set_streamer fitscat(runs);
+			fits_set_streamer fitscat(fitsfilepat, runs);
 			m.makelookup(fitscat, tmp_fookup);
 		#else
 			cerr << "FITS support not compiled in!\n";

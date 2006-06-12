@@ -154,7 +154,8 @@ public:
 /*	plx_gri_locus() : mlri(*this) { Mrc[0] = 4.6; Mrc[1] = 7.9; Mrc[2] = -3.0; Mrc[3] = 0.69; }*/
 	std::valarray<double> Mrc;
 	plx_gri_locus() : mlri(*this), Mrc(5)
-		{ Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; }
+		{ Mrc[0] = 3.2; Mrc[1] = 13.30; Mrc[2] = -11.50; Mrc[3] = 5.40; Mrc[4] = -0.65; } // this is ZI's "kinematic" relation
+//		{ Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; } // this was the relation from astro-ph draft
 
 	void distance_limits(double &Dmin, double &Dmax, float ri0, float ri1, float r_min, float r_max)
 	{

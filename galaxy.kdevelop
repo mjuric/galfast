@@ -20,7 +20,7 @@
   <kdevautoproject>
     <general>
       <activetarget>src/fitter.x</activetarget>
-      <useconfiguration>optimized</useconfiguration>
+      <useconfiguration>debug</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>

@@ -613,6 +613,8 @@ void selector::start()
 	switch(outputMode)
 	{
 	case OM_CYLINDRICAL: {
+		std::cerr << "In selector::start()\n";
+	
 		double dx = om_cyl.dx;
 		int ndx = om_cyl.ndx;
 		pair<float, float> ri = om_cyl.ri, r = om_cyl.r;
@@ -721,6 +723,7 @@ void selector::start()
 	}
 	
 	out.flush();
+
 }
 
 int selector::select_beam(Radians ra_, Radians dec_, Radians radius_)
@@ -1754,7 +1757,7 @@ int main(int argc, char **argv)
 try
 {
 	gsl_set_error_handler_off ();
-
+	
 	VERSION_DATETIME(version);
 	Options opts(
 		"Query the unique object & observation database using our own selection language.",
@@ -1784,6 +1787,8 @@ try
 
 	// open the "database"
 	driver db(obj_cat_fn, obs_cat_fn);
+
+
 
 	// load the query
 	ifstream qf;

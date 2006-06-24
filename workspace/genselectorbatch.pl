@@ -3,6 +3,7 @@
 scalar(@ARGV) == 1 or die("Usage: genselectorbatch.pl <runset_directory>.\n");
 
 $runset = shift @ARGV;
+$plx = "3.2 13.30 -11.50 5.40 -0.65";
 
 open(BINS, "$runset/bins.txt") or die("Cannot open $runset/bins.txt");
 
@@ -13,9 +14,9 @@ while($_ = <BINS>)
 
 	$name="dcar${ri0}_$ri1";
 	print "qsub -l walltime=04:00:00 -o hydra.astro.princeton.edu:/scr0/mjuric/galaxy/workspace/$runset/outputs/$name.output -N $name ".
-		" -v RUNSET=$runset,RI0=$ri0,RI1=$ri1,DX0=$dx0,NDX=$ndx driver_sel_xy\n";
+		" -v RUNSET=$runset,RI0=$ri0,RI1=$ri1,DX0=$dx0,NDX=$ndx,PLX='$plx' driver_sel_xy\n";
 
 	$name="dcyl${ri0}_$ri1";
 	print "qsub -l walltime=04:00:00 -o hydra.astro.princeton.edu:/scr0/mjuric/galaxy/workspace/$runset/outputs/$name.output -N $name ".
-		" -v RUNSET=$runset,RI0=$ri0,RI1=$ri1,DX0=$dx0,NDX=$ndx driver_sel_cyl\n";
+		" -v RUNSET=$runset,RI0=$ri0,RI1=$ri1,DX0=$dx0,NDX=$ndx,PLX='$plx' driver_sel_cyl\n";
 }

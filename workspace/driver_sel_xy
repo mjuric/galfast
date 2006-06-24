@@ -9,8 +9,17 @@
 #PBS -l nodes=1:ppn=1
 #PBS -j oe
 
-setenv LD_LIBRARY_PATH /scr0/mjuric/usr/lib
-setenv CONF_SDSS /scr0/mjuric/galaxy/workspace/$RUNSET/conf.sdss
+if(`hostname` == 'caladan.astro.Princeton.EDU' ) then
+	echo "Caladan settings."
+	setenv WORKSPACE /home/mjuric/projects/galaxy/workspace
+	setenv CONF_SDSS $WORKSPACE/$RUNSET/conf.sdss
+	setenv BIN /home/mjuric/projects/galaxy/optimized/src
+else
+	setenv WORKSPACE /scr0/mjuric/galaxy/workspace
+	setenv LD_LIBRARY_PATH /scr0/mjuric/usr/lib
+	setenv CONF_SDSS /scr0/mjuric/galaxy/workspace/$RUNSET/conf.sdss
+	setenv BIN /scr0/mjuric/usr/bin
+endif
 
 set ddx = `echo "$DX0 * $NDX" | bc`
 set ddx = `printf "%6.3f" $ddx`
@@ -23,6 +32,6 @@ echo Photometric paralax: $PLX
 echo "Creating density map for bin ($RI0, $RI1), dx0=$DX0 ndx=$NDX dx=$ddx"
 echo "Output file: $output"
 
-cd /scr0/mjuric/galaxy/workspace/$RUNSET && \
-echo "new $output\n     paralax $PLX\n        planecut 15 21.5 $RI0 $RI1 galcart $DX0 $NDX" | /scr0/mjuric/usr/bin/selector.x \
-  -s dmm/dm_unique_objects.dmm -o dmm/uniq_observations.dmm
+cd $WORKSPACE/$RUNSET && \
+echo "new $output\n     paralax $PLX\n        planecut 15 21.5 $RI0 $RI1 galcart $DX0 $NDX" | $BIN/selector.x \
+  -s dmm/uniq_objects.dmm -o dmm/uniq_observations.dmm

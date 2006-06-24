@@ -1,0 +1,28 @@
+#!/bin/tcsh
+
+#
+# PBS invocations
+#
+
+#PBS -v SSH_AUTH_SOCK=foo
+#PBS -m a
+#PBS -l nodes=1:ppn=1
+#PBS -j oe
+
+setenv LD_LIBRARY_PATH /scr0/mjuric/usr/lib
+setenv CONF_SDSS /scr0/mjuric/galaxy/workspace/$RUNSET/conf.sdss
+
+set ddx = `echo "$DX0 * $NDX" | bc`
+set ddx = `printf "%6.3f" $ddx`
+setenv RI0 `printf "%.2f" $RI0`
+setenv RI1 `printf "%.2f" $RI1`
+set output = "ri$RI0-$RI1.txt"
+
+echo Runset ID: $RUNSET
+echo Photometric paralax: $PLX
+echo "Creating density map for bin ($RI0, $RI1), dx0=$DX0 ndx=$NDX dx=$ddx"
+echo "Output file: $output"
+
+cd /scr0/mjuric/galaxy/workspace/$RUNSET && \
+echo "new $output\n     paralax $PLX\n        planecut 15 21.5 $RI0 $RI1 galcart $DX0 $NDX" | /scr0/mjuric/usr/bin/selector.x \
+  -s dmm/dm_unique_objects.dmm -o dmm/uniq_observations.dmm

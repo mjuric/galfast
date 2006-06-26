@@ -823,8 +823,8 @@ bool selector::select(mobject m)
 	{
 		float c = m.field(m_color.color);
 		selected = between(c, (pair<float,float>)m_color.range);
-		if(c > 1 && selected)
-			std::cerr << c << "\n";
+/*		if(c > 1 && selected)
+			std::cerr << m_color.range.first << " " << m_color.range.second << " " << c << "\n";*/
 	}
 	FILTER(F_SIGMA)
 	{

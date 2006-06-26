@@ -171,7 +171,7 @@ class model_factory
 public:
 	std::vector<std::pair<std::pair<float, float>, disk_model> > models;
 	spline lf;		// luminosity function
-	plx_gri_locus plx;	// paralax relation
+	//plx_gri_locus plx;	// paralax relation
 public:
 	model_factory(const std::string &models = "");
 	void load(const std::string &models);

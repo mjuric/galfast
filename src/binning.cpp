@@ -989,7 +989,7 @@ struct plx_gri_locus_filter : public filter_function
 {
 	double Dmin, Dmax;
 	float ri0, ri1;
-	plx_gri_locus paralax;
+//	plx_gri_locus paralax;
 
 	plx_gri_locus_filter(float ri0_, float ri1_, float rmin, float rmax)
 		: ri0(ri0_), ri1(ri1_)
@@ -1172,7 +1172,7 @@ try
 	}
 	else if(cmd == "distlimits")								/// Info about a particular star (interactive mode, type in star IDs)
 	{
-		plx_gri_locus paralax;
+//		plx_gri_locus paralax;
 
 		float ri0 = atof(shift(args).c_str());
 		float ri1 = atof(shift(args).c_str());
@@ -1402,7 +1402,7 @@ try
 	else if(cmd == "dumpLocus")
 	{
 #if 0
-		plx_gri_locus paralax;
+//		plx_gri_locus paralax;
 		float ri = 1.1;
 		float gi = 1.5;
 		float riErr = .1, giErr = .1;

@@ -31,7 +31,7 @@
 #include <astro/useall.h>
 using namespace std;
 
-plx_gri_locus plx;
+//plx_gri_locus plx;
 
 int main(int argc, char **argv)
 {

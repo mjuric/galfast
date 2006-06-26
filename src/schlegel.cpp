@@ -208,7 +208,7 @@ int importCatalog(int run, const string &output, int id)
 	// Loading
 	//
 	ticker tick(io::format("Importing run %d") << run, 1);
-	plx_gri_locus paralax;
+	//plx_gri_locus paralax;
 	int rejected = 0, distrejected = 0;
 
 	string pattern = io::format("data/schlegel/calibObj-%06d-?-star.fits.gz") << run;

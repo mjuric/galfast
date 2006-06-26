@@ -24,16 +24,44 @@
 #include "gslcc_min.h"
 #include "gslcc_exceptions.h"
 #include <fstream>
+#include <sstream>
 
+#include <astro/system/fs.h>
 #include <astro/useall.h>
 using namespace std;
 //float plx_gri_locus::Mrc[4] = {4.6, 7.9, -3.0, 0.69};
 
-void plx_gri_locus::ml_grri::setprior(const std::string &priorfile)
+plx_gri_locus_ng paralax;
+
+plx_gri_locus_ng::plx_gri_locus_ng()
+: mlri(*this)
+{
+	// check if paralax relation was specified through an environment variable
+	EnvVar plx("PARALAX");
+	if(plx)
+	{
+		std::cerr << "#++++ Taking paralax from $PARALAX env. var.\n";
+		istringstream in(plx.c_str());
+		double coef;
+		while(in >> coef)
+		{
+			Mrc.push_back(coef);
+		}
+	} else {
+		Mrc.resize(5);
+		Mrc[0] = 3.2; Mrc[1] = 13.30; Mrc[2] = -11.50; Mrc[3] = 5.40; Mrc[4] = -0.65; // this is ZI's "kinematic" relation
+		// Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; // this was the relation from astro-ph draft
+	}
+	std::cerr << "# M_r(r-i) coef. =";
+	FOREACH(Mrc) { std::cerr << " " << *i; }
+	std::cerr << "\n";
+}
+
+void plx_gri_locus_ng::ml_grri::setprior(const std::string &priorfile)
 {
 	ifstream ps(priorfile.c_str());
 	itextstream pin(ps);
-	
+
 	vector<double> x, logp;
 	load(pin, x, 0, logp, 1);
 	double s = 0;
@@ -47,7 +75,7 @@ void plx_gri_locus::ml_grri::setprior(const std::string &priorfile)
 
 double paralax_with_prior(float ri, float gr, float sg, float sr, float si, float *lnL)
 {
-	static plx_gri_locus plx;
+	static plx_gri_locus_ng plx;
 	if(plx.mlri.prior == NULL) { plx.mlri.setprior("ri_prior.txt"); }
 
 	double RIp;
@@ -65,11 +93,11 @@ double paralax_with_prior(float ri, float gr, float sg, float sr, float si, floa
 
 double paralax_without_prior(float ri, float gr, float sg, float sr, float si, float *lnL)
 {
-	static plx_gri_locus plx;
+//	static plx_gri_locus plx;
 	
 	double RI;
 	try {
-		RI = plx.mlri(ri, gr, sg, sr, si, lnL);
+		RI = paralax.mlri(ri, gr, sg, sr, si, lnL);
 	}
 	catch(peyton::exceptions::EGSLMinimizer &e)
 	{
@@ -83,7 +111,6 @@ double paralax_without_prior(float ri, float gr, float sg, float sr, float si, f
 // Finds the distance of point (gr, ri) from the locus
 struct distance_from_locus_t : public gsl::mmizer
 {
-	plx_gri_locus paralax;
 	double y0, x0;
 
 	distance_from_locus_t() : mmizer(-.5, 2.5, 0, .001) { }

@@ -68,7 +68,7 @@ using namespace std;
 
 ////////////////////////////////////////////////////////////////
 
-plx_gri_locus paralax;
+//plx_gri_locus paralax;
 
 struct filter_info
 {
@@ -247,7 +247,7 @@ OSTREAM(const proc_obs_info &inf)
 
 mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<pair<observation, obsv_id> > &obsv, proc_obs_info &inf)
 {
-	static plx_gri_locus plx;
+//	static plx_gri_locus plx;
 
 	int N = obsv.size();
 
@@ -402,13 +402,13 @@ mobject process_observations(int obs_offset, double ra, double dec, float Ar, st
 
 	// calculate distance, from paralax relation
 	float lnL;
-	float RI = plx.ml_r_band(m.ri(), m.gr(), m.gErr(), m.rErr(), m.iErr(), &lnL);
+	float RI = paralax.ml_r_band(m.ri(), m.gr(), m.gErr(), m.rErr(), m.iErr(), &lnL);
 	if(RI != -1)
 	{
-		float GR = plx.gr(RI);
-		plx.ml_magnitudes(m.ml_g(), m.ml_r(), m.ml_i(), m.g(), m.r(), m.i(), m.gErr(), m.rErr(), m.iErr(), RI, GR);
+		float GR = paralax.gr(RI);
+		paralax.ml_magnitudes(m.ml_g(), m.ml_r(), m.ml_i(), m.g(), m.r(), m.i(), m.gErr(), m.rErr(), m.iErr(), RI, GR);
 
-		double Mr = plx.Mr(RI);
+		double Mr = paralax.Mr(RI);
 		m.D = stardist::D(m.ml_r(), Mr);
 
 		ASSERT(fabs(m.ml_ri() - RI) < 0.001);

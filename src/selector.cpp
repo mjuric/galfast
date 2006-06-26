@@ -206,7 +206,7 @@ public:
 		pair<float, float> range;
 		sdss_color color;
 	} m_sigma;
-	plx_gri_locus paralax;
+	//plx_gri_locus paralax;
 	struct m_cart_t
 	{
 		bool use[3];

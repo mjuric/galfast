@@ -51,3 +51,4 @@ locusfit_x_LDADD = $(top_builddir)/src/common/libcommon.a
 locus_demo_x_SOURCES =  locus_demo.cpp
 fitter_x_SOURCES = fitter.cpp onedimfit.cpp
 fitter_x_LDADD = $(top_builddir)/src/common/libcommon.a
+locus_demo_x_LDADD = $(top_builddir)/src/common/libcommon.a

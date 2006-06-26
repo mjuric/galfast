@@ -1446,7 +1446,7 @@ bool zray_fill::initial_flood_point(I2 &vpix)
 int zrayng(const set<int> &runs, float dx, pair<float, float> r, pair<float, float> ri)
 {
 	double d0, d1;
-	plx_gri_locus paralax;
+	//plx_gri_locus paralax;
 	paralax.distance_limits(d0, d1, ri.first, ri.second, r.first, r.second);
 	cout << "Distance limits: " << d0 << " " << d1 << "\n";
 	ASSERT(d0 < d1);
@@ -1791,7 +1791,7 @@ void rhoray(int argc, char **argv)
 int bin_volumes(const std::set<int> &runs, double dx, int ndx, pair<float, float> r, pair<float, float> ri, bool justinfo)
 {
 	double Dmin, Dmax;
-	plx_gri_locus paralax;
+	//plx_gri_locus paralax;
 	paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 	cout << "Distance limits: " << Dmin << " " << Dmax << "\n";
 
@@ -2153,7 +2153,7 @@ public:
 		br.run = ss.vm.run;
 
 		double Dmin, Dmax;
-		plx_gri_locus paralax;
+		//plx_gri_locus paralax;
 		paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 		cout << "Distance limits: " << Dmin << " " << Dmax << "\n";
 		br.Dmin = Dmin;
@@ -2261,7 +2261,7 @@ void mergeUniqVolume(binned_runset &brs, const std::string &uniqMapFn, pair<floa
 	// Calculate the solid angle covered by uniq volume
 	// this is mostly for sanity check/debugging purposes
 	double Dmin, Dmax;
-	plx_gri_locus paralax;
+	//plx_gri_locus paralax;
 	paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 	
 	double vsouth = 0, vnorth = 0;

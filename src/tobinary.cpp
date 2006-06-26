@@ -101,7 +101,7 @@ void importCatalog(const string &input, const string &output)
 		// Loading
 		//
 		ticker tick(io::format("Importing run %d") << run, 1000);
-		plx_gri_locus paralax;
+		//plx_gri_locus paralax;
 		int rejected = 0, distrejected = 0, n = 0;
 		
 		do

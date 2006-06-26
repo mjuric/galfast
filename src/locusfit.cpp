@@ -68,7 +68,7 @@ try
 	/////// Start your application code here
 	gsl_set_error_handler_off ();
 
-	plx_gri_locus as;
+//	plx_gri_locus as;
 
 	// load density prior
 	string priorfile = opts["prior"];
@@ -80,7 +80,7 @@ try
 			exit(-1);
 		}
 		
-		as.mlri.setprior(priorfile);
+		paralax.mlri.setprior(priorfile);
 		cout << "# Using prior from " << priorfile << "\n";
 
 #if 0
@@ -142,8 +142,8 @@ try
 		//cerr << g << " " << r << " " << i << " " << gErr << " " << rErr << " " << iErr << " " << r - i << " " << g - r << "\n";
 
 		try {
-			ml_ri = as.mlri(r - i, g - r, gErr, rErr, iErr, &lnL);
-			ml_gr = as.gr(ml_ri);
+			ml_ri = paralax.mlri(r - i, g - r, gErr, rErr, iErr, &lnL);
+			ml_gr = paralax.gr(ml_ri);
 			ml_magnitudes(g, r, i, g, r, i, gErr, rErr, iErr, ml_ri, ml_gr);
 
 			g += Ar*3.793/2.751;

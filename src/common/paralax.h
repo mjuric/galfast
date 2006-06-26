@@ -27,7 +27,7 @@ double paralax_with_prior(float ri, float gr, float sg, float sr, float si, floa
 double paralax_without_prior(float ri, float gr, float sg, float sr, float si, float *lnL = NULL);
 double distance_from_locus(float gr, float ri, float *ri_closest = NULL);
 
-class plx_gri_locus : public paralax_relation
+class plx_gri_locus_ng : public paralax_relation
 {
 public:
 	static const double a = 4.9;	//	a = 5.0;
@@ -68,13 +68,13 @@ public:
 	// Maximum likelihood locus forcing
 	struct ml_grri : public gsl::mmizer
 	{
-		plx_gri_locus &as;
+		plx_gri_locus_ng &as;
 		double y0, x0, sx2, sy2, sxy, denom, lnN;
 		//double (*prior)(double);
 		gsl_spline *prior;
 		gsl_interp_accel *acc;
 
-		ml_grri(plx_gri_locus &as_) : as(as_), mmizer(-.5, 2.5, 0, .001), prior(NULL), acc(NULL) { }
+		ml_grri(plx_gri_locus_ng &as_) : as(as_), mmizer(-.5, 2.5, 0, .001), prior(NULL), acc(NULL) { }
 		void setprior(const std::string &priorfile);
 
 		// finds r-i for which the likelihood is maximum
@@ -153,10 +153,8 @@ public:
 
 public:
 /*	plx_gri_locus() : mlri(*this) { Mrc[0] = 4.6; Mrc[1] = 7.9; Mrc[2] = -3.0; Mrc[3] = 0.69; }*/
-	std::valarray<double> Mrc;
-	plx_gri_locus() : mlri(*this), Mrc(5)
-		{ Mrc[0] = 3.2; Mrc[1] = 13.30; Mrc[2] = -11.50; Mrc[3] = 5.40; Mrc[4] = -0.65; } // this is ZI's "kinematic" relation
-//		{ Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; } // this was the relation from astro-ph draft
+	std::vector<double> Mrc;
+	plx_gri_locus_ng();
 
 	void distance_limits(double &Dmin, double &Dmax, float ri0, float ri1, float r_min, float r_max)
 	{
@@ -227,5 +225,7 @@ public:
 		return RI;
 	}
 };
+
+extern plx_gri_locus_ng paralax;
 
 #endif

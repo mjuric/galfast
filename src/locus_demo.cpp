@@ -68,17 +68,17 @@ float rri(float gr)
 
 void locusCorrect(double gr, double ri, double sigma_g, double sigma_r, double sigma_i)
 {
-	plx_gri_locus plx;
-	double ml_ri = plx.mlri(ri, gr, sigma_g, sigma_r, sigma_i);
-	double ml_gr = plx.gr(ml_ri);
+//	plx_gri_locus plx;
+	double ml_ri = paralax.mlri(ri, gr, sigma_g, sigma_r, sigma_i);
+	double ml_gr = paralax.gr(ml_ri);
 
 	// calculate osculating error ellipse
 	double x = ml_gr - gr;
 	double y = ml_ri - ri;
 	double z2 =
-		peyton::sqr(x)/plx.mlri.sx2
-		- 2*plx.mlri.sxy*(x)*(y)/(plx.mlri.sx2*plx.mlri.sy2)
-		+ peyton::sqr(y)/plx.mlri.sy2;
+		peyton::sqr(x)/paralax.mlri.sx2
+		- 2*paralax.mlri.sxy*(x)*(y)/(paralax.mlri.sx2*paralax.mlri.sy2)
+		+ peyton::sqr(y)/paralax.mlri.sy2;
 
 	cerr << "\tlocal set xp = " << gr << "\n";
 	cerr << "\tlocal set yp = " << ri << "\n";
@@ -90,9 +90,9 @@ void locusCorrect(double gr, double ri, double sigma_g, double sigma_r, double s
 	cerr << "\tlocal define d (" << z2 << "**.5)\n";
 
 	cerr << "\n";
-	cerr << "# sx2 = " << plx.mlri.sx2 << "\n";
-	cerr << "# sy2 = " << plx.mlri.sy2 << "\n";
-	cerr << "# sxy = " << plx.mlri.sxy << "\n";
+	cerr << "# sx2 = " << paralax.mlri.sx2 << "\n";
+	cerr << "# sy2 = " << paralax.mlri.sy2 << "\n";
+	cerr << "# sxy = " << paralax.mlri.sxy << "\n";
 }
 
 int main(int argc, char **argv)
@@ -143,9 +143,9 @@ try
 	float delri = (float)opts["delri"];
 	float n = (float)opts["n"];
 
-	plx_gri_locus plx;
-	float ri = plx.ri(gr);
-	cerr << "back gr = " << plx.gr(ri) << "\n";
+//	plx_gri_locus plx;
+	float ri = paralax.ri(gr);
+	cerr << "back gr = " << paralax.gr(ri) << "\n";
 
 	cout << "# gr = " << gr << "\n";
 	cout << "# ri = " << ri << "\n";
@@ -168,7 +168,7 @@ try
 	{
 		double pri = gsl_rng_uniform(rng);
 		pri = pow(A*pri + ri0n1, 1./(n+1.));
-		double pgr = plx.gr(pri);
+		double pgr = paralax.gr(pri);
 		
 		double dg = gsl_ran_gaussian(rng, sigma_g);
 		double dr = gsl_ran_gaussian(rng, sigma_r);
@@ -177,8 +177,8 @@ try
 		double dgr = dg - dr;
 		double dri = dr - di;
 
-		double ml_ri = plx.mlri(pri + dri, pgr + dgr, sigma_g, sigma_r, sigma_i);
-		double ml_gr = plx.gr(ml_ri);
+		double ml_ri = paralax.mlri(pri + dri, pgr + dgr, sigma_g, sigma_r, sigma_i);
+		double ml_gr = paralax.gr(ml_ri);
 
 		cout << i << " " << pri + dri << " " << pgr + dgr << " " << ml_ri << " " << ml_gr << " ";
 		cout << pri << " " << pgr << "\n";

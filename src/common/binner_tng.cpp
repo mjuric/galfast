@@ -183,7 +183,7 @@ bool boundsCheck(mobject &m, int run)
 
 #if DIST_RECALC
 
-static plx_gri_locus paralax;
+//static plx_gri_locus paralax;
 bool calculate_distance(mobject &m)
 {
 	// calculate distance, from paralax relation
@@ -432,7 +432,6 @@ int bin(const set<int> &runs, pair<float, float> r, pair<float, float> ri)
 	double Dmin, Dmax;
 	int boundsr, novolr;
 
-	plx_gri_locus paralax;
 	paralax.distance_limits(Dmin, Dmax, ri.first, ri.second, r.first, r.second);
 	cout << "Distance limits: " << Dmin << " " << Dmax << "\n";
 

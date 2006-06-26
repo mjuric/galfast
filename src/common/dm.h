@@ -239,6 +239,9 @@ struct observation : public obsv_mag
 #define MAG_MEDIAN		2
 #define MAG_CLIPPED_MEAN	3
 
+class mobject;
+void print_mobject(std::ostream &out, const mobject &m);
+
 struct mobject
 {
 	int obs_offset;			// offset in obsv_mags array to where the obsv. of this object begin
@@ -322,11 +325,13 @@ public:
 		ASSERT(0);
 	}
 
-	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC};
+	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC, FIELD_LOCUSDIST, FIELD_COLORLOGL};
 	static int field_id(const std::string &name)
 	{
 		if(name == "ra") { return FIELD_RA; }
 		if(name == "dec") { return FIELD_DEC; }
+		if(name == "locdist") { return FIELD_LOCUSDIST; }
+		if(name == "colorlogL") { return FIELD_COLORLOGL; }
 		return FIELD_UNKNOWN;
 	}
 
@@ -339,9 +344,29 @@ public:
 			switch(c.first) {
 			case FIELD_RA: return ra;
 			case FIELD_DEC: return dec;
-			default: ASSERT(0);
+#if 1
+			case FIELD_LOCUSDIST: return distance_from_locus(gr(), ri());
+#else
+			case FIELD_LOCUSDIST: {
+				double d = distance_from_locus(gr(), ri());
+				if(d == -1 && ml_mag[0] != 0.) {
+//					print_mobject(std::cout, *this);
+					std::cerr << "gr, ri, d(ml,real) = " << ml_gr() << " " << ml_ri()
+						<< " " << sqrt(peyton::sqr(ml_gr() - gr()) + peyton::sqr(ml_ri() - ri()))
+						<< "\n";
+				}
+				return d;
 			}
-		default: ASSERT(0);
+#endif
+			case FIELD_COLORLOGL: 
+			{
+				float lnL = 1;
+				paralax_without_prior(ri(), gr(), magErr[0], magErr[1], magErr[2], &lnL);
+				return lnL;
+			}
+			default: ASSERT(0) { std::cerr << "Unknown field = " << c.first << "\n"; }
+			}
+		default: ASSERT(0) { std::cerr << "Unknown color/field type = " << c.type << " [name = " << c.name << "]\n"; }
 		}
 	}
 
@@ -418,12 +443,13 @@ void sdss_color::set(const std::string &color)
 			std::cerr << "color = " << color << "\n";
 		}
 	}
+
+//	ASSERT(0) { std::cerr << "Unknown color/field " << color << "\n"; };
 }
 
 struct proc_obs_info;
 mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv, proc_obs_info &inf);
 void loadRuns(std::set<int> &runs, const std::string &runfile = "");
-void print_mobject(std::ostream &out, const mobject &m);
 class catalog_streamer;
 void makelookup(
 	catalog_streamer &cat,		// input catalog of observations (FITS files, text files, etc.)

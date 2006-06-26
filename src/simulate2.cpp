@@ -1088,7 +1088,7 @@ void sim::montecarlo(unsigned int K)
 		obsv.clear();
 		obsv.push_back(sm);
 		mobject m = process_observations(starmags.size(), ra, dec, Ar, obsv);
-		
+
 // 		cout << g << "\t" << m.mag[0] << "\t" << m.magErr[0] << "\n";
 // 		cout << r << "\t" << m.mag[1] << "\t" << m.magErr[1] << "\n";
 // 		cout << i << "\t" << m.mag[2] << "\t" << m.magErr[2] << "\n";

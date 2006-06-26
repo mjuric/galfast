@@ -453,6 +453,7 @@ public:
 	int record_count() { return n; }	
 
 	bool parse(const std::string &text);
+	bool parse(istream &ss);
 	bool parse(const std::string &cmd, istream &ss);
 	void start();
 	bool select(mobject m);
@@ -820,8 +821,10 @@ bool selector::select(mobject m)
 	}
 	FILTER(F_COLOR)
 	{
-		float c = m.color(m_color.color);
+		float c = m.field(m_color.color);
 		selected = between(c, (pair<float,float>)m_color.range);
+		if(c > 1 && selected)
+			std::cerr << c << "\n";
 	}
 	FILTER(F_SIGMA)
 	{
@@ -1028,7 +1031,7 @@ void selector::action(mobject m)
 		}
 		}
 	case OM_HISTOGRAM: {
-		float x = m.color(om_hist.c);
+		float x = m.field(om_hist.c);
 		if(!between(x, om_hist.x0, om_hist.x1)) break;
 
 		int b = (int)floor(x / om_hist.dx + 0.5);
@@ -1209,10 +1212,37 @@ std::string join(const char *separator, const T array[N])
 	return res;
 }
 
+// "quoted string" wrapper for std::string IO
+class qstring
+{
+public:
+	std::string &s;
+	qstring(std::string &s_) : s(s_) {}
+};
+
+ISTREAM(const qstring &cqs)
+{
+	string &s = const_cast<qstring &>(cqs).s;
+	in >> s;
+	if(!in) return in;
+	if(s[0] != '"') return in;
+
+	std::string tmp;
+	getline(in, tmp, '"');
+	if(!in) return in;
+
+	s = s.substr(1, s.size()-1) + tmp.substr(0, s.size()-1);
+	return in;
+}
+
 bool selector::parse(const std::string &text)
 {
 	istringstream in(text.c_str());
+	return parse(in);
+}
 
+bool selector::parse(istream &in)
+{
 	string cmd;
 	char line[1000];
 	while(!in.eof())
@@ -1445,6 +1475,36 @@ bool selector::parse(const std::string &cmd, istream &ss)
 
 		outputMode = OM_CYLINDRICAL;
 	}
+	else if(cmd == "import")
+	{
+		// import other_file.sel [cont|stop]
+		std::string fn, ifnotexist;
+		ss >> qstring(fn);
+		ASSERT(!ss.fail());
+		ss >> ifnotexist;
+
+		ifstream in(fn.c_str());
+//		if(!Filename(fn).exists())
+		if(!in)
+		{
+			if(ifnotexist == "cont")
+			{
+				std::cerr << "Error opening include file [" << fn << "].\n";
+				abort();
+			} else {
+				out << "# File [" << fn << "] does not exist. Ignoring\n";
+			}
+		} else {
+			out << "# Importing file [" << fn << "].\n";
+			out << "# >-----------------\n#\n";
+			
+			parse(in);
+	
+			out << "# -----------------<\n";
+			out << "# Import of [" << fn << "] complete.\n";
+		}
+		out << "#\n";
+}
 	else if(cmd == "planecut")
 	{
 		//

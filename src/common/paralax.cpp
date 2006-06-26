@@ -25,6 +25,7 @@
 #include "gslcc_exceptions.h"
 #include <fstream>
 
+#include <astro/useall.h>
 using namespace std;
 //float plx_gri_locus::Mrc[4] = {4.6, 7.9, -3.0, 0.69};
 
@@ -44,14 +45,14 @@ void plx_gri_locus::ml_grri::setprior(const std::string &priorfile)
 	acc = gsl_interp_accel_alloc();
 }
 
-double paralax_with_prior(float ri, float gr, float sg, float sr, float si)
+double paralax_with_prior(float ri, float gr, float sg, float sr, float si, float *lnL)
 {
 	static plx_gri_locus plx;
 	if(plx.mlri.prior == NULL) { plx.mlri.setprior("ri_prior.txt"); }
 
 	double RIp;
 	try {
-		RIp = plx.mlri(ri, gr, sg, sr, si);
+		RIp = plx.mlri(ri, gr, sg, sr, si, lnL);
 	}
 	catch(peyton::exceptions::EGSLMinimizer &e)
 	{
@@ -62,13 +63,13 @@ double paralax_with_prior(float ri, float gr, float sg, float sr, float si)
 	return RIp;
 }
 
-double paralax_without_prior(float ri, float gr, float sg, float sr, float si)
+double paralax_without_prior(float ri, float gr, float sg, float sr, float si, float *lnL)
 {
 	static plx_gri_locus plx;
 	
 	double RI;
 	try {
-		RI = plx.mlri(ri, gr, sg, sr, si);
+		RI = plx.mlri(ri, gr, sg, sr, si, lnL);
 	}
 	catch(peyton::exceptions::EGSLMinimizer &e)
 	{
@@ -77,4 +78,40 @@ double paralax_without_prior(float ri, float gr, float sg, float sr, float si)
 	}
 
 	return RI;
+}
+
+// Finds the distance of point (gr, ri) from the locus
+struct distance_from_locus_t : public gsl::mmizer
+{
+	plx_gri_locus paralax;
+	double y0, x0;
+
+	distance_from_locus_t() : mmizer(-.5, 2.5, 0, .001) { }
+
+	double operator()(float gr, float ri, float *ri_closest = NULL)
+	{
+		y0 = ri; x0 = gr;
+		float dummy;
+		if(ri_closest == NULL) { ri_closest = &dummy; }
+
+		*ri_closest = evaluate(y0);
+		return fn_to_minimize(*ri_closest);
+	}
+
+	double fn_to_minimize(double y)
+	{
+		double x = paralax.gr(y);
+		return sqrt(sqr(x-x0)+sqr(y-y0));
+	}
+} distance_from_locus_obj;
+
+double distance_from_locus(float gr, float ri, float *ri_closest)
+{
+	try {
+		return distance_from_locus_obj(gr, ri, ri_closest);
+	}
+	catch(peyton::exceptions::EGSLMinimizer &e)
+	{
+		return -1;
+	}
 }

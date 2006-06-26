@@ -18,13 +18,14 @@
 
 namespace stardist
 {
-	inline double logD(float m, double M) { return 1. + (m - M)/5.; }			///< log10 distance, based on absolute and apparent i magnitudes
+	inline double logD(float m, double M) { return 1. + (m - M)/5.; }		///< log10 distance, based on absolute and apparent i magnitudes
 	inline double D(float m, double M) { return std::pow(10.0, logD(m, M)); }	///< distance, based on absolute and apparent i magnitudes
 	inline float m(double D, double M) { return M + 5*log10(D/10); }
 };
 
-double paralax_with_prior(float ri, float gr, float sg, float sr, float si);
-double paralax_without_prior(float ri, float gr, float sg, float sr, float si);
+double paralax_with_prior(float ri, float gr, float sg, float sr, float si, float *lnL = NULL);
+double paralax_without_prior(float ri, float gr, float sg, float sr, float si, float *lnL = NULL);
+double distance_from_locus(float gr, float ri, float *ri_closest = NULL);
 
 class plx_gri_locus : public paralax_relation
 {

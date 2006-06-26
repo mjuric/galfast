@@ -19,4 +19,12 @@ while($_ = <BINS>)
 	$name="bincyl_$map";
 	print "qsub -l walltime=04:00:00 -o hydra.astro.princeton.edu:/scr0/mjuric/galaxy/workspace/$runset/outputs/$name.output -N $name ".
 		" -v RUNSET=$runset,CMD=bincyl,MAP=$map driver_ng\n";
+
+	$name="selxy_$map";
+	print "qsub -l walltime=04:00:00 -o hydra.astro.princeton.edu:/scr0/mjuric/galaxy/workspace/$runset/outputs/$name.output -N $name ".
+		" -v RUNSET=$runset,CMD=selxy,MAP=$map driver_ng\n";
+
+	$name="selcyl_$map";
+	print "qsub -l walltime=04:00:00 -o hydra.astro.princeton.edu:/scr0/mjuric/galaxy/workspace/$runset/outputs/$name.output -N $name ".
+		" -v RUNSET=$runset,CMD=selcyl,MAP=$map driver_ng\n";
 }

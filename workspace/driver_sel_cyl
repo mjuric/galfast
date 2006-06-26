@@ -21,18 +21,22 @@ else
 	setenv BIN /scr0/mjuric/usr/bin
 endif
 
-
 set ddx = `echo "$DX0 * $NDX" | bc`
 set ddx = `printf "%6.3f" $ddx`
-setenv RI0 `printf "%.2f" $RI0`
-setenv RI1 `printf "%.2f" $RI1`
-set output = "cyl.$RI0-$RI1.txt"
+setenv RI0 `printf "%5.3f" $RI0`
+setenv RI1 `printf "%5.3f" $RI1`
+set output = "txt/cyl.$RI0-$RI1.txt"
 
 echo Runset ID: $RUNSET
-echo Photometric paralax: $PLX
 echo "Creating cylindrical density map for bin ($RI0, $RI1), dx0=$DX0 ndx=$NDX dx=$ddx"
 echo "Output file: $output"
 
+if ( -f $RUNSET/sample.sel) then
+	echo "Sample definition file [$RUNSET/sample.sel] contents:"
+	cat $RUNSET/sample.sel
+endif
+echo
+
 cd $WORKSPACE/$RUNSET && \
-time echo "new $output\n     paralax $PLX\n        cylindrical 15 21.5 $RI0 $RI1 $DX0 $NDX -180 $DX0 $NDX" | $BIN/selector.x \
+echo "new $output\n     import sample.sel\n        cylindrical 15 21.5 $RI0 $RI1 $DX0 $NDX -180 $DX0 $NDX" | $BIN/selector.x \
   -s dmm/uniq_objects.dmm -o dmm/uniq_observations.dmm

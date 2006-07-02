@@ -211,13 +211,6 @@ void makelookup(
 //#endif
 }
 
-struct proc_obs_info
-{
-	std::map<float, zero_init<double> > lnLhist;
-	int lf_failed, magerr_too_small;
-	proc_obs_info() { lf_failed = magerr_too_small = 0; }
-};
-
 OSTREAM(const proc_obs_info &inf)
 {
 	out << "# Locus fit failed                   : " << inf.lf_failed << " objects.\n";

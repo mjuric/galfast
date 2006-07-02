@@ -188,6 +188,22 @@ public:
 	void push_back(const int &s) { tick(); }
 };
 
+class spinner
+{
+public:
+	const static int NCHARS = 4;
+	static char chars[NCHARS+1];
+
+public:
+	int at;
+	bool first;
+		
+	spinner() : at(0), first(true) {}
+	void tick();
+	void start();
+	void stop();
+};
+
 //
 // This is the type of function that the heavily macro-ed functions below generate:
 //

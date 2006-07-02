@@ -2049,30 +2049,108 @@ int main(int argc, char **argv)
 {
 try
 {
+	VERSION_DATETIME(version);
+
+	Options opts(
+		"Program for creating mock star catalogs",
+		version,
+		Authorship::majuric
+	);
+
+	//# add any arguments your program needs. eg:
+/*	opts.argument("north", "Configuration file for northern hemisphere.");
+	opts.argument("south", "Configuration file for southern hemisphere.");*/
+	opts.argument("cmd", "What to make. Can be 'footprint', 'pdf' or 'catalog'");
+	opts.argument("conf", "Configuration file for the Bahcall-Soneira model, or if cmd=footprint, the file with the set of runs for which to calculate footprint.");
+
+// 	std::string cmd;
+// 	{ // setup arguments and options
+// 		using namespace peyton::system::opt;
+// 
+// 		opts.option("just-info", binding(justinfo), arg_none, desc("Just print the information about what will be done, do no actual work. Works only for some subcommands."));
+// 	}
+
+	// add any options your program might need. eg:
+	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
+
+	std::string cmd, conf;
+	try {
+		opts.parse(argc, argv);
+		cmd = opts["cmd"];
+		if(cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
+		conf = opts["conf"];
+	} catch(EOptions &e) {
+		cout << opts.usage(argv);
+		e.print();
+		exit(-1);
+	}
+
+	/////// Start your application code here
 //	simulate();
-	//text_input_or_die(in, "/home/scratch/projects/galaxy/workspace/catalogs/runs.txt");
-/*	text_input_or_die(in, "uniq_run_index.map");
-	std::set<int> runs;
-	load(in, runs, 0);
-	runs.erase(5224);
-	makeSkyMap(runs, "dr5north", lambert(rad(90), rad(90)));
- 	makeSkyMap(runs, "dr5south", lambert(rad(-90), rad(-90)));
-	return 0;
-*/
+// Activate this to calculate sky coverage polygons
+
 //	testIntersection("north");
 //	test_nurbs();
 //	test_lapack();
 
+#if 0
+	// these were quickies used for AAS Virgo press release and press conference
 	virgo_model(); return 0;
 	vrml_foot("north"); return 0;
-
+#endif
 	//toy_homogenious_model model(1.);
 	//toy_geocentric_powerlaw_model model(1., 0.);
-	toy_geo_plaw_abspoly_model model("north");
-	sim north("north", &model);
+	//toy_geo_plaw_abspoly_model model("north");
 
- 	north.precalculate_mpdf();
-	north.montecarlo(100000);
+	if(cmd == "footprint")
+	{
+		//text_input_or_die(in, "/home/mjuric/projects/galaxy/workspace/catalogs/runs.txt");
+		//text_input_or_die(in, "uniq_run_index.map");
+		//text_input_or_die(in, "runs.txt");
+		text_input_or_die(in, conf);
+		std::set<int> runs;
+		load(in, runs, 0);
+		//runs.erase(5224);
+
+		makeSkyMap(runs, "north", lambert(rad(90), rad(90)));
+		makeSkyMap(runs, "south", lambert(rad(-90), rad(-90)));
+
+		return 0;
+	}
+
+	std::ifstream inconf(conf.c_str()); ASSERT(inconf);
+	std::auto_ptr<galactic_model> model(galactic_model::load(inconf));
+	ASSERT(model.get() != NULL);
+
+	model_pdf north("north", &*model); 
+	model_pdf south("south", &*model);
+
+	if(cmd == "pdf")
+	{
+		north.precalculate_mpdf(); north.store(north.prefix);
+		south.precalculate_mpdf(); south.store(south.prefix);
+	}
+	else if(cmd == "catalog")
+	{
+		int seed = 42;
+		gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+		gsl_rng_set(rng, seed);
+
+		sky_generator skygen;
+		ASSERT(north.load(north.prefix)); skygen.add_pdf(north);
+		ASSERT(south.load(south.prefix)); skygen.add_pdf(south);
+
+#if 1
+		star_output_to_dmm cat_out("uniq_objects.dmm", "uniq_observations.dmm", true);
+#else	// simple debug dump to file
+		std::ofstream out("sky.sim.txt");
+		star_output_to_textstream cat_out(out);
+#endif
+		skygen.montecarlo(10000000, cat_out, rng);
+	
+		cat_out.close();
+		gsl_rng_free(rng);
+	}
 	return 0;
 }
 catch(EAny &e)

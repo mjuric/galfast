@@ -34,7 +34,7 @@ namespace math {
 	
 	class lambert
 	{
-		double l0, phi1, cosphi1, sinphi1;
+		Radians l0, phi1, cosphi1, sinphi1;
 	
 	public:
 		lambert(Radians l0_ = peyton::math::rad(90), Radians phi1_ = peyton::math::rad(90))

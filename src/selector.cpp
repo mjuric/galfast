@@ -31,6 +31,12 @@
 #include "dm.h"
 #include "projections.h"
 #include "raytrace.h"
+#include "model.h"
+
+extern "C"
+{
+	#include "gpc/gpc.h"
+}
 
 #include <astro/useall.h>
 using namespace std;
@@ -336,6 +342,24 @@ public:
 			  l0(90), phi1(90)
 			{}
 	} om_lambert;
+
+	struct om_conic_t
+	{
+		// input
+		Radians dx;						// angular pixel scale (lambert coordinates)
+		std::map<std::pair<int, int>, gpc_polygon> skymap;	// pixel area map of the sky (dOmega)
+		std::auto_ptr<galactic_model> model;			// galactic model used to determine radial pixel lengths
+
+		// output
+		struct pix
+		{
+			double dd;	// radial extend of the pixel
+			int N;		// number of stars found in the pixel
+			double V;	// volume of the pixel (== d^2*dOmega*dd)
+		};
+		typedef std::map<double, pix> beam_t;
+		std::map<std::pair<int, int>, beam_t> sky;
+	} om_conic;
 
 	struct om_cyl_t
 	{
@@ -751,6 +775,8 @@ bool selector::select(mobject m)
 {
 	bool selected = true;
 
+	//print_mobject(cout, m);
+
 	lon = rad(m.ra);
 	lat = rad(m.dec);
 
@@ -890,6 +916,8 @@ bool selector::select(mobject m)
 
 void selector::action(mobject m)
 {
+//	std::cerr << "In action\n";
+	
 	// SM doesn't like infinities
 	FOR(0, 3) { if(!isfinite(m.magErr[i])) { m.magErr[i] = 0; } }
 
@@ -970,6 +998,7 @@ void selector::action(mobject m)
 		if(abs(v.z) > om_planecut.pt.delta) break; // out of plane thinkness
 
 		S3 k = floor(v / brs.dx + 0.5);
+//		std::cerr << "Binning to " << k << "\n";
 		if(brs.pixels.count(k) == 0)
 		{
 			cerr << m.D << " " << m.ml_r() << " " << m.ml_ri() << "\n";

@@ -40,7 +40,7 @@ using namespace std;
 /////////////
 
 const char *disk_model::param_name[disk_model::nparams] = { "rho0", "l", "h", "z0", "f", "lt", "ht", "fh", "q", "n" };
-const char *disk_model::param_format[disk_model::nparams] = { "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f" };
+const char *disk_model::param_format[disk_model::nparams] = { "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f" };
 
 /////////////
 
@@ -115,10 +115,28 @@ void model_fitter::cull(double nSigma)
 		if(abs(x.rho - rhom) <= nSigma*x.sigma)
 		{
 			newmap.push_back(x);
+		} else {
+			culled.push_back(x);
 		}
 	}
 	cerr << "Selected " << newmap.size() << " out of " << map->size() << " pixels\n";
 	*map = newmap;
+}
+
+void model_fitter::residual_distribution(std::map<int, int> &hist, double binwidth)
+{
+	// calculate f_i values for all datapoints
+	FOR(0, map->size())
+	{
+		const rzpixel &x = (*map)[i];
+		double rhom = rho(x.r, x.z);
+		double r = abs(x.rho - rhom) / x.sigma;
+		int ir = (int)(r / binwidth);
+// 		std::cerr << r << " " << binwidth*ir << "\n";
+
+		if(hist.find(ir) == hist.end()) hist[ir] = 1;
+		else hist[ir]++;
+	}
 }
 
 void model_fitter::print(ostream &out, int format)
@@ -126,7 +144,9 @@ void model_fitter::print(ostream &out, int format)
 	switch(format)
 	{
 	case PRETTY:
-		out << io::format("%15s = %d") << "n(DOF)" << ndof << "\n";
+		out << io::format("%15s = %d") << "n(DOF)" << ndof() << "\n";
+		out << io::format("%15s = %.5g") << "chi^2/dof" << chi2_per_dof << "\n";
+		out << io::format("%15s = %.5g") << "eps{abs,rel}" << epsabs << " " << epsrel << "\n";
 		FOR(0, nparams)
 		{
 			out << io::format(std::string("%15s = ") + param_format[i]) << param_name[i] << p[i];
@@ -134,7 +154,23 @@ void model_fitter::print(ostream &out, int format)
 			out << (fixed[i] ? " (const)" : " (var)");
 			out << "\n";
 		}
-		out << io::format("%15s = %.5g") << "chi^2/dof" << chi2_per_dof << "\n";
+		out << "\n";
+		if(covar.size())
+		{
+			FORj(r, -1, nparams) // rows
+			{
+				if(r == -1) { out << io::format("%15s = ") << "corr. matrix"; }
+				else { out << io::format("%15s = ") << param_name[r]; }
+	
+				FORj(c, 0, nparams) // columns
+				{
+					if(r == -1) { out << io::format(" %10s") << param_name[c]; continue; }
+					double corr = fixed[c] || fixed[r] ? 0 : covar[r*nparams + c] / sqrt(variance(c)*variance(r));
+					std::cerr << io::format(" %10.3g") << corr;
+				}
+				out << "\n";
+			}
+		}
 		break;
 	case HEADING:
 		out << "# ";
@@ -165,6 +201,7 @@ void model_fitter::print(ostream &out, int format)
 
 /// model_factory class
 
+#if 0
 model_factory::model_factory(const std::string &modelsfile)
 {
 	if(modelsfile.size()) { load(modelsfile); }
@@ -212,6 +249,7 @@ disk_model *model_factory::get(float ri, double dri)
 	return dm.release();
 }
 
+#endif
 
 spline::spline(const double *x, const double *y, int n)
 	: f(NULL), acc(NULL)
@@ -307,7 +345,7 @@ toy_geo_plaw_abspoly_model::toy_geo_plaw_abspoly_model(const std::string &prefix
 double toy_geo_plaw_abspoly_model::rho(double x, double y, double z, double ri)
 {
 	// geocentric powerlaw distribution
-#if 0
+#if 1
  	x -= Rg;
  	double d2 = sqr(x) + sqr(y) + sqr(z);
  	return rho0 * pow(d2, alpha/2.);
@@ -332,4 +370,54 @@ double toy_geo_plaw_abspoly_model::absmag(double ri)
 //	return 4;
 //	return 4+2*ri-3;
 	return gsl_poly_eval(&Mr_coef[0], Mr_coef.size(), ri);
+}
+
+void BahcallSoneira_model::load(peyton::system::Config &cfg)
+{
+	FOREACH(cfg) { std::cerr << "BS model: " << (*i).first << " = " << (*i).second << "\n"; }
+
+	FOR(0, m.nparams)
+	{
+		std::string param = m.param_name[i];
+		ASSERT(cfg.count(param)) { std::cerr << "Initial value for " << param << " not specified\n"; }
+
+		m.p[i] = cfg[param];
+	}
+}
+
+BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
+{
+	load(cfg);
+}
+
+BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
+{
+	Config cfg(prefix);
+	load(cfg);
+}
+
+double BahcallSoneira_model::absmag(double ri)
+{
+	return paralax.Mr(ri);
+}
+
+double BahcallSoneira_model::rho(double x, double y, double z, double ri)
+{
+	double r = sqrt(x*x + y*y);
+	return m.rho(r, z);
+}
+
+galactic_model *galactic_model::load(istream &cfgstrm)
+{
+	Config cfg;
+	cfg.load(cfgstrm);
+
+	FOREACH(cfg) { std::cerr << (*i).first << " = " << (*i).second << "\n"; }	
+	if(cfg.count("model") == 0) { ASSERT(0); return NULL; }
+	
+	std::string model = cfg["model"];
+
+	if(model == "BahcallSoneira") { return new BahcallSoneira_model(cfg); }
+
+	ASSERT(0); return NULL;
 }

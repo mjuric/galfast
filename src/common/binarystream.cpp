@@ -3,8 +3,38 @@
 #include <ctime>
 #include <astro/util.h>
 #include <iostream>
+#include "analysis.h"
 
 using namespace std;
+
+// this should be put into its own file
+char spinner::chars[spinner::NCHARS+1] = "-/|\\";
+void spinner::tick()
+{
+	if(!first) {
+		char buf[3] = {8, chars[at], 0};
+		std::cerr << buf;
+	} else {
+		first = false;
+		std::cerr << chars[at];
+	}
+
+	at++;
+	if(at == NCHARS) { at = 0; }
+}
+void spinner::stop()
+{
+	if(first) return;
+	std::cerr << (char)8;
+	first = true;
+	at = 0;
+	std::cerr << " ";
+}
+void spinner::start()
+{
+	stop();
+}
+
 
 // random magic number
 const int header::magic = 0x37592664;

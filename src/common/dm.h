@@ -447,8 +447,14 @@ void sdss_color::set(const std::string &color)
 //	ASSERT(0) { std::cerr << "Unknown color/field " << color << "\n"; };
 }
 
-struct proc_obs_info;
-mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<obsv_mag> &obsv, proc_obs_info &inf);
+struct proc_obs_info
+{
+	std::map<float, zero_init<double> > lnLhist;
+	int lf_failed, magerr_too_small;
+	proc_obs_info() { lf_failed = magerr_too_small = 0; }
+};
+OSTREAM(const proc_obs_info &inf);
+mobject process_observations(int obs_offset, double ra, double dec, float Ar, std::vector<std::pair<observation, obsv_id> > &obsv, proc_obs_info &inf);
 void loadRuns(std::set<int> &runs, const std::string &runfile = "");
 class catalog_streamer;
 void makelookup(

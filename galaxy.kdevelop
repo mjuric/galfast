@@ -27,7 +27,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/sim/</customdirectory>
-      <programargs></programargs>
+      <programargs>catalog sim.conf blabla</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -49,7 +49,7 @@
         <simulate.x/>
         <locusfit.x/>
         <fitter.x/>
-        <locus_demo.x></locus_demo.x>
+        <locus_demo.x/>
       </runarguments>
     </run>
     <configurations>
@@ -191,9 +191,9 @@
   </ctagspart>
   <kdevdocumentation>
     <projectdoc>
-      <docsystem></docsystem>
-      <docurl></docurl>
-      <usermanualurl></usermanualurl>
+      <docsystem/>
+      <docurl/>
+      <usermanualurl/>
     </projectdoc>
   </kdevdocumentation>
 </kdevelop>

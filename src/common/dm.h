@@ -35,6 +35,7 @@
 #include <astro/io/format.h>
 #include <astro/system/memorymap.h>
 #include <astro/system/fs.h>
+#include <astro/io/binarystream.h>
 
 #include <gsl/gsl_fit.h>
 #include <gsl/gsl_statistics_double.h>
@@ -189,11 +190,18 @@ public:
 
 	inline void set(const std::string &color); /* defined below */
 
-	sdss_color(const std::string &color = "")
+	sdss_color(const std::string &color)
 	{
 		if(color.size()) { set(color); }
 	}
+
+	sdss_color(const char *color = NULL)
+	{
+		if(color != NULL) { set(color); }
+	}
 };
+BOSTREAM2(const sdss_color &c);
+BISTREAM2(sdss_color &c);
 
 inline ISTREAM(sdss_color &c)
 {
@@ -201,6 +209,11 @@ inline ISTREAM(sdss_color &c)
 	in >> color;
 	c.set(color);
 	return in;
+}
+
+inline OSTREAM(const sdss_color &c)
+{
+	return out << c.name;
 }
 
 /////////////////
@@ -325,13 +338,14 @@ public:
 		ASSERT(0);
 	}
 
-	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC, FIELD_LOCUSDIST, FIELD_COLORLOGL};
+	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC, FIELD_LOCUSDIST, FIELD_COLORLOGL, FIELD_DISTANCE};
 	static int field_id(const std::string &name)
 	{
 		if(name == "ra") { return FIELD_RA; }
 		if(name == "dec") { return FIELD_DEC; }
 		if(name == "locdist") { return FIELD_LOCUSDIST; }
 		if(name == "colorlogL") { return FIELD_COLORLOGL; }
+		if(name == "distance") { return FIELD_DISTANCE; }
 		return FIELD_UNKNOWN;
 	}
 
@@ -364,6 +378,7 @@ public:
 				paralax_without_prior(ri(), gr(), magErr[0], magErr[1], magErr[2], &lnL);
 				return lnL;
 			}
+			case FIELD_DISTANCE: return D;
 			default: ASSERT(0) { std::cerr << "Unknown field = " << c.first << "\n"; }
 			}
 		default: ASSERT(0) { std::cerr << "Unknown color/field type = " << c.type << " [name = " << c.name << "]\n"; }

@@ -91,5 +91,11 @@ namespace math {
 	};
 } // math
 } // peyton
-	
+
+#if HAVE_BOOST_IOSTREAMS
+	#include <astro/io/binarystream.h>
+	BLESS_POD(peyton::math::lambert);
+	BLESS_POD(peyton::math::gnomonic);
+#endif
+
 #endif

@@ -36,6 +36,7 @@
 #include <astro/types.h>
 #include <astro/system/config.h>
 #include <astro/system/log.h>
+#include <astro/io/binarystream.h>
 
 #include "paralax.h"
 
@@ -196,8 +197,11 @@ class galactic_model
 public:
 	virtual double absmag(double ri) = 0;
 	virtual double rho(double x, double y, double z, double ri) = 0;
-	
+
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
+
 	static galactic_model *load(std::istream &cfg);
+	static galactic_model *unserialize(peyton::io::ibstream &in);
 };
 
 class BahcallSoneira_model : public galactic_model
@@ -205,10 +209,12 @@ class BahcallSoneira_model : public galactic_model
 public:
 	disk_model m;
 public:
+	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);
 	BahcallSoneira_model(const std::string &prefix);
 	virtual double absmag(double ri);
 	virtual double rho(double x, double y, double z, double ri);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
 protected:
 	void load(peyton::system::Config &cfg);
 };

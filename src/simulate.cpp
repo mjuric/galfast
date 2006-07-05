@@ -1347,10 +1347,7 @@ void simulate()
 //	simulate(500000, rad(0), rad(10.), 0.1, 15.0, 21.5);
 }
 
-extern "C"
-{
-	#include "gpc/gpc.h"
-}
+#include "gpc_cpp.h"
 
 gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx)
 {
@@ -1471,27 +1468,6 @@ public:
 };
 
 void sm_write(const std::string &fn, const gpc_polygon &p);
-
-void poly_bounding_box(double &x0, double &x1, double &y0, double &y1,
-	const gpc_polygon &p)
-{
-	// find minimum and maximum vertex
-	x0 = x1 = p.contour[0].vertex[0].x;
-	y0 = y1 = p.contour[0].vertex[0].y;
-	FOR(0, p.num_contours)
-	{
-		const int n = p.contour[i].num_vertices;
-		FORj(j, 0, n)
-		{
-			const double x = p.contour[i].vertex[j].x;
-			const double y = p.contour[i].vertex[j].y;
-			x0 = std::min(x0, x);
-			x1 = std::max(x1, x);
-			y0 = std::min(y0, y);
-			y1 = std::max(y1, y);
-		}
-	}
-}
 
 striped_polygon::striped_polygon(gpc_polygon &p, int n_)
 	: n(n_)
@@ -1626,44 +1602,6 @@ gpc_polygon make_circle(double x0, double y0, double r, double dx)
 	}
 	gpc_add_contour(&p, &c, false);
 	return p;
-}
-
-// calculate and return the area of a gpc_polygon
-double polygon_area(const gpc_polygon &p)
-{
-	double A = 0;
-	FOR(0, p.num_contours)
-	{
-		int n = p.contour[i].num_vertices;
-		gpc_vertex *v = p.contour[i].vertex;
-		double cA = 0;
-		FORj(j, 0, n)
-		{
-			gpc_vertex &a = v[j];
-			gpc_vertex &b = (j + 1 == n) ? v[0] : v[j+1];
-
-			cA += a.x*b.y - b.x*a.y;
-		}
-		cA = abs(cA) * (p.hole[i] ? -1 : 1);
-		A += cA;
-	}
-	A *= 0.5;
-	return abs(A);
-}
-
-// create a gpc_polygon rectangle
-gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
-{
-	static gpc_vertex v[4];
-	static gpc_vertex_list vl = {4, v};
-	static gpc_polygon rect = {1, NULL, &vl};
-
-	v[0].x = x0; v[0].y = y0;
-	v[1].x = x1; v[1].y = y0;
-	v[2].x = x1; v[2].y = y1;
-	v[3].x = x0; v[3].y = y1;
-
-	return rect;
 }
 
 gpc_tristrip triangulatePoly(gpc_polygon sky)
@@ -2044,7 +1982,9 @@ void test_nurbs();
 void test_lapack();
 
 #ifdef COMPILE_SIMULATE_X
+
 #include "simulate.h"
+void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 int main(int argc, char **argv)
 {
 try
@@ -2060,8 +2000,14 @@ try
 	//# add any arguments your program needs. eg:
 /*	opts.argument("north", "Configuration file for northern hemisphere.");
 	opts.argument("south", "Configuration file for southern hemisphere.");*/
-	opts.argument("cmd", "What to make. Can be 'footprint', 'pdf' or 'catalog'");
+	opts.argument("cmd", "What to make. Can be 'footprint', 'pdf', 'catalog' or 'pskymap'");
 	opts.argument("conf", "Configuration file for the Bahcall-Soneira model, or if cmd=footprint, the file with the set of runs for which to calculate footprint.");
+	opts.argument("output", "Name of the output file (needed for cmd='pdf')");
+
+	// ./simulate.x footprint runs.txt prefix
+	// ./simulate.x pdf north.conf north.pdf.bin
+	// ./simulate.x pdf south.conf south.pdf.bin
+	// ./simulate.x catalog sim.conf
 
 // 	std::string cmd;
 // 	{ // setup arguments and options
@@ -2073,12 +2019,13 @@ try
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 
-	std::string cmd, conf;
+	std::string cmd, confFn, output;
 	try {
 		opts.parse(argc, argv);
 		cmd = opts["cmd"];
-		if(cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
-		conf = opts["conf"];
+		if(cmd != "pskymap" && cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
+		confFn = opts["conf"];
+		output = opts["output"];
 	} catch(EOptions &e) {
 		cout << opts.usage(argv);
 		e.print();
@@ -2107,38 +2054,48 @@ try
 		//text_input_or_die(in, "/home/mjuric/projects/galaxy/workspace/catalogs/runs.txt");
 		//text_input_or_die(in, "uniq_run_index.map");
 		//text_input_or_die(in, "runs.txt");
-		text_input_or_die(in, conf);
+		text_input_or_die(in, confFn);
 		std::set<int> runs;
 		load(in, runs, 0);
 		//runs.erase(5224);
 
-		makeSkyMap(runs, "north", lambert(rad(90), rad(90)));
-		makeSkyMap(runs, "south", lambert(rad(-90), rad(-90)));
+		makeSkyMap(runs, output + ".north", lambert(rad(90), rad(90)));
+		makeSkyMap(runs, output + ".south", lambert(rad(-90), rad(-90)));
+
+		return 0;
+	}
+	if(cmd == "pskymap")
+	{
+		partitioned_skymap sky;
+		Radians dx = rad(4.);
+
+		make_skymap(sky, dx, "north.gpc.txt");
+		{ std::ofstream f("north.pskymap.bin"); io::obstream out(f); out << sky; }
+
+		make_skymap(sky, dx, "south.gpc.txt");
+		{ std::ofstream f("south.pskymap.bin"); io::obstream out(f); out << sky; }
 
 		return 0;
 	}
 
-	std::ifstream inconf(conf.c_str()); ASSERT(inconf);
-	std::auto_ptr<galactic_model> model(galactic_model::load(inconf));
-	ASSERT(model.get() != NULL);
-
-	model_pdf north("north", &*model); 
-	model_pdf south("south", &*model);
-
+	ifstream in(confFn.c_str()); ASSERT(in);
 	if(cmd == "pdf")
 	{
-		north.precalculate_mpdf(); north.store(north.prefix);
-		south.precalculate_mpdf(); south.store(south.prefix);
+		// ./simulate.x pdf north.conf north.pdf.bin
+		model_pdf pdf(in);
+		std::ofstream oout(output.c_str()); ASSERT(oout);
+
+		pdf.precalculate_mpdf();
+
+		io::obstream out(oout);
+		out << pdf;
+
+		std::cout << io::binary::manifest << "\n";
 	}
 	else if(cmd == "catalog")
 	{
-		int seed = 42;
-		gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
-		gsl_rng_set(rng, seed);
-
-		sky_generator skygen;
-		ASSERT(north.load(north.prefix)); skygen.add_pdf(north);
-		ASSERT(south.load(south.prefix)); skygen.add_pdf(south);
+		// ./simulate.x catalog sim.conf dmmwriter.conf
+		sky_generator skygen(in);
 
 #if 1
 		star_output_to_dmm cat_out("uniq_objects.dmm", "uniq_observations.dmm", true);
@@ -2146,10 +2103,9 @@ try
 		std::ofstream out("sky.sim.txt");
 		star_output_to_textstream cat_out(out);
 #endif
-		skygen.montecarlo(10000000, cat_out, rng);
-	
+		skygen.montecarlo(cat_out);
+
 		cat_out.close();
-		gsl_rng_free(rng);
 	}
 	return 0;
 }

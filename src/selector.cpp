@@ -26,17 +26,16 @@
 #include <astro/system/options.h>
 #include <astro/system/shell.h>
 #include <astro/system/fs.h>
+#include <astro/io/binarystream.h>
 #include <boost/shared_ptr.hpp>
 
 #include "dm.h"
 #include "projections.h"
 #include "raytrace.h"
 #include "model.h"
+#include "conic_volume_map.h"
 
-extern "C"
-{
-	#include "gpc/gpc.h"
-}
+#include "gpc_cpp.h"
 
 #include <astro/useall.h>
 using namespace std;
@@ -144,15 +143,6 @@ public:
 };
 
 RunMap rm;
-#if 0
-static char band_names[] = "grizu";
-
-	#define MAG_G	0
-	#define MAG_R	1
-	#define MAG_I	2
-	#define MAG_Z	3
-	#define MAG_U	4
-#endif
 
 void increment(std::map<int, int> &h, int b)
 {
@@ -162,10 +152,41 @@ void increment(std::map<int, int> &h, int b)
 
 double pixel_area(int i, int j, int npix, int side, const gnomonic &proj);
 
+std::string &filterName(int filter)
+{
+	static std::map<int, std::string> *names = new std::map<int, std::string>();
+	return (*names)[filter];
+}
+struct nameSetter { nameSetter(int val, const char *name) { filterName(val) = name; } };
+
+#define DEFINE_FILTER(filt, val) \
+	static const int filt = val; \
+	nameSetter ns_##filt(val, #filt);
+
+DEFINE_FILTER(F_BEAM,		0x01);
+DEFINE_FILTER(F_RECT,		0x02);
+DEFINE_FILTER(F_RI,		0x04);
+DEFINE_FILTER(F_R,		0x08);
+DEFINE_FILTER(F_ML_RI,		0x10);
+DEFINE_FILTER(F_ML_R,		0x20);
+DEFINE_FILTER(F_GAL_RECT,	0x40);
+DEFINE_FILTER(F_SPARSE,		0x80);
+DEFINE_FILTER(F_RUN,		0x100);
+DEFINE_FILTER(F_GR,		0x200);
+DEFINE_FILTER(F_D,		0x400);
+DEFINE_FILTER(T_COORD,		0x800);
+DEFINE_FILTER(F_ML_GR,		0x1000);
+DEFINE_FILTER(F_COLOR,		0x2000);
+DEFINE_FILTER(T_DISTANCE,	0x4000);
+DEFINE_FILTER(F_CART,		0x8000);
+DEFINE_FILTER(F_SIGMA,		0x10000);
+DEFINE_FILTER(F_LIMIT,		0x20000);
+DEFINE_FILTER(T_GMIRROR,	0x40000);
+
 class selector
 {
 public:
-	#define F_BEAM		0x01
+/*	#define F_BEAM		0x01
 	#define F_RECT		0x02
 	#define F_RI		0x04
 	#define F_R		0x08
@@ -183,7 +204,7 @@ public:
 	#define F_CART		0x8000
 	#define F_SIGMA		0x10000
 	#define F_LIMIT		0x20000
-	#define T_GMIRROR	0x40000
+	#define T_GMIRROR	0x40000*/
 	int filters;
 	
 	// supporting per-mobject fields
@@ -235,7 +256,8 @@ public:
 	#define OM_HISTOGRAM	9
 	#define OM_CATSTATS2	10
 	#define OM_PROJECTION	11
-	
+	#define OM_CONICMAP	12
+
 	int outputMode;
 
 	struct om_gnomonic_t
@@ -343,23 +365,9 @@ public:
 			{}
 	} om_lambert;
 
-	struct om_conic_t
-	{
-		// input
-		Radians dx;						// angular pixel scale (lambert coordinates)
-		std::map<std::pair<int, int>, gpc_polygon> skymap;	// pixel area map of the sky (dOmega)
-		std::auto_ptr<galactic_model> model;			// galactic model used to determine radial pixel lengths
-
-		// output
-		struct pix
-		{
-			double dd;	// radial extend of the pixel
-			int N;		// number of stars found in the pixel
-			double V;	// volume of the pixel (== d^2*dOmega*dd)
-		};
-		typedef std::map<double, pix> beam_t;
-		std::map<std::pair<int, int>, beam_t> sky;
-	} om_conic;
+	conic_volume_map om_conic;
+	bool om_conic_doserialize;
+	std::ofstream om_conic_bout;
 
 	struct om_cyl_t
 	{
@@ -452,20 +460,23 @@ public:
 		om_hist_t() : x0(-1e10), x1(1e10), dx(.02), c("ri") {}
 	} om_hist;
 protected:
-	int n;	// number of records selected
-
 	lambert lambert_map;
 	typedef map<S2, int, less_S2> binnedmap;
 	binnedmap binned;
 	typedef map<S3, int, less_S3> volmap;
 	volmap volume;
 
-	ostream &out;
+	int nsparsereject;
 public:
+	ostream &out;
+	std::string filename;	// filename of the output stream (or the description, if it's not a file)
+	int nselected;	// number of records selected
+	std::map<int, int> nrejected;
+
 	bool running;
 public:
-	selector(ostream &out_, driver &db_)
-		: running(true), db(db_), n(0), filters(0), outputMode(OM_STARS), out(out_)
+	selector(ostream &out_, driver &db_, std::string fn_)
+		: running(true), db(db_), nselected(0), filters(0), outputMode(OM_STARS), out(out_), filename(fn_), nsparsereject(0)
 		{
 			ASSERT(!out.fail());
 		}
@@ -473,8 +484,6 @@ public:
 	int select_beam(Radians ra, Radians dec, Radians radius);
 	int select_rect(Radians ra0, Radians dec0, Radians ra1, Radians dec1);
 	int select_gal_rect(Radians l0_, Radians b0_, Radians l1_, Radians b1_);
-
-	int record_count() { return n; }	
 
 	bool parse(const std::string &text);
 	bool parse(istream &ss);
@@ -541,13 +550,6 @@ OSTREAM(const selector::om_lambert_t &l)
 	out << "# x = [" << l.x0 << ", " << l.x1 << ")\n";
 	out << "# y = [" << l.y0 << ", " << l.y1 << ")";
 	return out;
-}
-
-OSTREAM(const sdss_color &c)
-{
-/*	if(c.first < 0) return out << c.name;
-	return out << sdss_color::bandName(c.first) << "-" << sdss_color::bandName(c.second);*/
-	return out << c.name;
 }
 
 OSTREAM(const selector::m_color_t &l)
@@ -637,6 +639,9 @@ void selector::start()
 	
 	switch(outputMode)
 	{
+	case OM_CONICMAP: {
+		break;
+		}
 	case OM_CYLINDRICAL: {
 		std::cerr << "In selector::start()\n";
 	
@@ -769,11 +774,12 @@ int selector::select_gal_rect(Radians l0_, Radians b0_, Radians l1_, Radians b1_
 	filters |= F_GAL_RECT;
 }
 
-#define FILTER(f) if(selected && (filters & f))
+#define FILTER(f) if(selected && (filters & (lastfilter = f)))
 #define TRANSFORM(f) if(filters & f)
 bool selector::select(mobject m)
 {
 	bool selected = true;
+	int lastfilter = 0;
 
 	//print_mobject(cout, m);
 
@@ -813,10 +819,6 @@ bool selector::select(mobject m)
 	}
 
 	// selection filters
-	FILTER(F_SPARSE)
-	{
-		selected = (n % nskip) == 0;
-	}
 	FILTER(F_LIMIT)
 	{
 		++nread;
@@ -905,10 +907,28 @@ bool selector::select(mobject m)
 			if(rm[sm.fitsId] == run) { selected = true; break; }
 		}
 	}
+	
+	// Note: thisone has to be _last_
+	FILTER(F_SPARSE)
+	{
+		selected = ((nselected + nsparsereject) % nskip) == 0;
+		if(!selected) nsparsereject++;
+	}
 
-	if(!selected) return false;
+	if(!selected)
+	{
+		if(lastfilter)
+		{
+			// record which filter deselected this object
+			if(nrejected.count(lastfilter)) { nrejected[lastfilter]++; }
+			else nrejected[lastfilter] = 0;
+		}
+		return false;
+	}
 
 	action(m);
+	nselected++;
+
 	return true;
 }
 #undef FILTER
@@ -959,6 +979,10 @@ void selector::action(mobject m)
 	case OM_PROJECTION: {
 		om_gnomonic.bin(l, b);
 		} break;
+	case OM_CONICMAP: {
+		om_conic.bin(l, b, m);
+		break;
+		};
 	case OM_MAP: {
 		double x, y;
 		lambert_map.convert(l, b, x, y);
@@ -1131,6 +1155,22 @@ void selector::finish()
 
 			out << (0.5 + k.x)*om_lambert.dx << " " << (0.5 + k.y)*om_lambert.dx << " " << v << "\n";
 		}
+	}
+	else if(outputMode == OM_CONICMAP)
+	{
+		om_conic.text_serialize(out);
+		if(om_conic_doserialize)
+		{
+			{
+				io::obstream out(om_conic_bout);
+				out << om_conic;
+			}
+			om_conic_bout.flush();
+		}
+#if 1 // debugging
+		conic_volume_map_interpolator magerrs;
+		magerrs.initialize(om_conic);
+#endif
 	}
 	else if(outputMode == OM_PROJECTION)
 	{
@@ -1363,6 +1403,55 @@ bool selector::parse(const std::string &cmd, istream &ss)
 
 		out << "# outputing binned 6-sided gnomonic map\n";
 		out << om_gnomonic << "\n";
+		out << "#\n";
+	}
+	else if(cmd == "conicmap")
+	{
+		// conicmap <dx> <d0> <d1> <starsperpix> <galaxy.conf> <north.pskymap.bin> <south.pskymap.bin>
+		outputMode = OM_CONICMAP;
+		ss >> om_conic.dx >> om_conic.d0 >> om_conic.d1 >> om_conic.starsperpix;
+		ss >> om_conic.northfn >> om_conic.southfn >> om_conic.modelfn;
+		ASSERT(!ss.fail());
+
+		RAD(om_conic.dx);
+		out << "# outputing binned conical map with variable radial pixel lengths\n";
+		out << om_conic << "\n";
+		out << "#\n";
+		om_conic.initialize_for_galmodel();
+		out << "# Conic support files load successfull.\n";
+		out << "# " << om_conic.sky_north.size() << " beams (north).\n";
+		out << "# " << om_conic.sky_south.size() << " beams (south).\n";
+		out << "# " << om_conic.npix << " pixels allocated.\n";
+		out << "#\n";
+	}
+	else if(cmd == "conicmap2")
+	{
+		const char *errmsg = 
+		  "conicmap2 <north.pskymap.bin> <south.pskymap.bin>    <dfield> <d0> <d1> <dd>   <vfield>  [binary_output_file]";
+		ss >> om_conic.northfn >> om_conic.southfn;
+		ss >> om_conic.d_field;
+		ss >> om_conic.d0 >> om_conic.d1 >> om_conic.dd;
+		ss >> om_conic.val_field;
+		ASSERT(!ss.fail());
+		std::string om_conic_binaryoutputfile;
+		ss >> om_conic_binaryoutputfile;
+
+		outputMode = OM_CONICMAP;
+		//om_conic.configure_binning(om_conic.d_field, om_conic.val_field, &conic_volume_map::cb_equidistant);
+		om_conic.configure_binning(om_conic.d_field, om_conic.val_field,
+			&conic_volume_map::cb_equidistant,
+			&conic_volume_map::bb_bin_collect,
+			&conic_volume_map::fin_median);
+		om_conic.initialize();
+
+		out << "# outputing binned conical map with variable radial pixel lengths\n";
+		out << om_conic << "\n";
+		if(om_conic_doserialize = om_conic_binaryoutputfile.size())
+		{
+			out << "# serializing conical map to " << om_conic_binaryoutputfile << " file\n";
+			om_conic_bout.open(om_conic_binaryoutputfile.c_str());
+			ASSERT(om_conic_bout.good());
+		}
 		out << "#\n";
 	}
 	else if(cmd == "lambert")
@@ -1761,11 +1850,11 @@ selector *driver::newSelector(const std::string &filename)
 	selector_d s;
 	if(filename == "-")
 	{
-		s.s = new selector(cout, *this);
+		s.s = new selector(cout, *this, "<STDOUT>");
 	} else {
 		s.out = new ofstream(filename.c_str());
 		ASSERT(!s.out->fail());
-		s.s = new selector(*s.out, *this);
+		s.s = new selector(*s.out, *this, filename);
 	}
 
 	selectors.push_back(s);
@@ -1795,10 +1884,15 @@ void driver::run()
 		}
 		if(!running) { break; }
 	}
-	
+
 	FOREACHj(j, selectors)
 	{
 		(*j).s->finish();
+		std::cerr << (*j).s->filename << " : " << (*j).s->nselected << " records selected.\n";
+		FOREACH((*j).s->nrejected)
+		{
+			std::cerr << "\t" << (*i).second << " rejected due to " << filterName((*i).first) << "\n";
+		}
 	}
 }
 
@@ -1820,6 +1914,23 @@ int make_run_plots(const set<int> &runs);
 
 int main(int argc, char **argv)
 {
+#if 1
+	std::string fn = "magerr.conicmap.bin";
+	std::ifstream iin(fn.c_str()); ASSERT(iin) { std::cerr << "Could not open magnitude error map " << fn << "\n"; }
+	io::ibstream in(iin);
+
+	conic_volume_map magerrs_cvm;
+	if(!(in >> magerrs_cvm)) { ASSERT(in >> magerrs_cvm); }
+
+	conic_volume_map_interpolator magerrs;
+	magerrs.initialize(magerrs_cvm);
+
+	ofstream out("conic_interp_dump.txt");
+	magerrs.text_dump(out);
+
+	return 0;
+#endif
+
 #if 0
 	set<int> runs;
 	text_input_or_die (in, "catalogs/runs.txt");

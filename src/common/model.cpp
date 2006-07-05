@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+ 
 #include "model.h"
 #include "textstream.h"
 #include "analysis.h"
@@ -259,7 +261,12 @@ spline::spline(const double *x, const double *y, int n)
 
 spline& spline::operator= (const spline& a)
 {
-	construct(&a.xv[0], &a.yv[0], a.xv.size());
+	if(a.f != NULL && a.acc != NULL)
+	{
+		construct(&a.xv[0], &a.yv[0], a.xv.size());
+	} else {
+		f = NULL; acc = NULL;
+	}
 	return *this;
 }
 
@@ -282,8 +289,8 @@ void spline::construct(const double *x, const double *y, int n)
 
 spline::~spline()
 {
-	gsl_interp_accel_free(acc);
-	gsl_interp_free(f);
+	if(acc != NULL) gsl_interp_accel_free(acc);
+	if(f != NULL) gsl_interp_free(f);
 }
 
 ////////////////////////////////////////////////////
@@ -385,6 +392,10 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 	}
 }
 
+BahcallSoneira_model::BahcallSoneira_model()
+{
+}
+
 BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
 {
 	load(cfg);
@@ -407,6 +418,17 @@ double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 	return m.rho(r, z);
 }
 
+BLESS_POD(disk_model);
+peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out)
+{
+	std::string name("BahcallSoneira");
+	return out << name << m;
+}
+BISTREAM2(BahcallSoneira_model &m)
+{
+	return in >> m.m;
+}
+
 galactic_model *galactic_model::load(istream &cfgstrm)
 {
 	Config cfg;
@@ -414,10 +436,31 @@ galactic_model *galactic_model::load(istream &cfgstrm)
 
 	FOREACH(cfg) { std::cerr << (*i).first << " = " << (*i).second << "\n"; }	
 	if(cfg.count("model") == 0) { ASSERT(0); return NULL; }
-	
+
 	std::string model = cfg["model"];
 
 	if(model == "BahcallSoneira") { return new BahcallSoneira_model(cfg); }
+
+	ASSERT(0); return NULL;
+}
+
+peyton::io::obstream& galactic_model::serialize(peyton::io::obstream& out)
+{
+	ASSERT(0) { std::cerr << "This method must be overrided if you want to use serialization.\n"; }
+	return out;
+}
+
+galactic_model *galactic_model::unserialize(peyton::io::ibstream &in)
+{
+	std::string model;
+	in >> model;
+
+	if(model == "BahcallSoneira")
+	{
+		std::auto_ptr<BahcallSoneira_model> m(new BahcallSoneira_model);
+		in >> *m;
+		return m.release();
+	}
 
 	ASSERT(0); return NULL;
 }

@@ -24,10 +24,14 @@
 #include "projections.h"
 #include "model.h"
 #include "dm.h"
+#include "conic_volume_map.h"
+
 #include <string>
 
 #include <astro/system/memorymap.h>
+#include <astro/math.h>
 #include <boost/shared_ptr.hpp>
+#include <astro/io/binarystream.h>
 
 class cumulative_dist
 {
@@ -81,7 +85,6 @@ inline bool operator<(const Sx& a, const Sx& b) { return a.pcum < b.pcum; }
 // doubles of r-i mpdfs (in Sy::ripdf vector).
 typedef std::vector<boost::shared_ptr<Sx> > XPDF;
 
-
 struct star_output_function;
 class model_pdf
 {
@@ -89,58 +92,92 @@ public:
 	struct star // storage structure for Monte Carlo generated stars
 	{
 		double x, y, ri, m;
-		int X(const model_pdf *gsim) const { return (int)((x - gsim->x0)/gsim->dx); }
-		int Y(const model_pdf *gsim) const { return (int)((y - gsim->y0)/gsim->dx); }
-		int RI(const model_pdf *gsim) const { return (int)((ri - gsim->ri0)/gsim->dri); }
+		int X(const partitioned_skymap &gsim) const { return (int)((x - gsim.x0)/gsim.dx); }
+		int Y(const partitioned_skymap &gsim) const { return (int)((y - gsim.y0)/gsim.dx); }
+		int RI(const model_pdf &gsim) const { return (int)((ri - gsim.ri0)/gsim.dri); }
 	};
 
-public:
-	std::string prefix;	// prefix for input/output datafiles
-	galactic_model *model;	// models for this simulation
+public: // serialized object state
+	std::string pdfname;	// name of this model realization
 
-	double dx; 		// model grid angular resolution
 	double dri;		// model CMD resolution
 	double ri0, ri1;	// color limits
 	double m0, m1;		// magnitude limits
 	double dm;		// model CMD magnitude resolution
 
-public: // internal variables - usually you don't need to touch these (for northern sky)
 	peyton::math::lambert proj;	// lambert projector object (by default, centered at north pole)
-	double x0, x1, y0, y1;		// lambert survey footprint bounding box
+	partitioned_skymap skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
 
-	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
-	XPDF xpdf; 						// marginal cumulative probability distribution function
-	double N; 						// Grand total - number of stars in the whole field
+	XPDF xpdf; 			// marginal cumulative probability distribution function
+	double N; 			// Grand total - number of stars in the whole field
+
+protected: // temporary internal object state (NOT serialized)
+	std::string footprint;			// '*.gpc.txt' filename of polygonal sky footprint
+	std::auto_ptr<galactic_model> model;	// model from which to generate this PDF
+
 public:
-	model_pdf(const std::string &pfx, galactic_model *model);
+	model_pdf();
+	model_pdf(std::istream &in);
 
 	// PDF generation functions
 	void precalculate_mpdf();
 	void magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri);
-	void store(const std::string &outfn);
+	peyton::io::obstream &serialize(peyton::io::obstream &out) const;
 
 	// montecarlo generation functions
-	bool load(const std::string &prefix);
+	peyton::io::ibstream &unserialize(peyton::io::ibstream &in);
 	bool draw_position(star &s, gsl_rng *rng);
 	void draw_magnitudes(std::vector<model_pdf::star> &stars, gsl_rng *rng);
 
+	// accessors
+	const std::string &name() const { return pdfname; }
+	
 protected:
 	double ri_mpdf(std::vector<double> &pdf, const double x, const double y);
 };
+inline BOSTREAM2(const model_pdf &pdf) { return pdf.serialize(out); }
+inline BISTREAM2(model_pdf &pdf) { return pdf.unserialize(in); }
 
 class sky_generator
 {
-public:
-	std::vector<model_pdf *> pdfs;
+protected:
+	gsl_rng *rng;
+
+	std::vector<boost::shared_ptr<model_pdf> > pdfs;
 	std::vector<boost::shared_ptr<std::vector<model_pdf::star> > > stars;	// generated stars
+
+	conic_volume_map magerrs_cvm;
+	conic_volume_map_interpolator magerrs;
+	
+	int nstars;	///< number of stars to generate (read from config file)
+protected:
+	double constant_photo_error;	///< photometric error to add to all magnitudes
+	double paralax_dispersion;	///< Gaussian dispersion of photometric paralax relation
+	int flags;
+	static const int APPLY_PHOTO_ERRORS		= 0x00000001;
 public:
+	sky_generator(std::istream &in);
+
+	void add_pdf(boost::shared_ptr<model_pdf> &pdf);
 	void add_pdf(model_pdf &pdf);
-	void montecarlo(unsigned int K, star_output_function &sf, gsl_rng *rng);
+
+	/// K is the number of stars to generate.
+	///     K = -1 takes the number from config file variable nstars
+	///	K = 0  generates as many stars as there are according to model
+	///		normalization
+	///	K > 0  the exact number of stars to generate
+	void montecarlo(star_output_function &sf, int K = -1);
+
+	~sky_generator();
+protected:
+	void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
 };
 
 struct star_output_function
 {
-	virtual void output (const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj) = 0;
+	typedef peyton::Radians Radians;
+
+	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
 };
 
 struct star_output_to_dmm : star_output_function
@@ -153,7 +190,7 @@ public:
 	star_output_to_dmm(const std::string &objcat, const std::string &obscat, bool create);
 	void close();
 
-	virtual void output (const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj);
+	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
 };
 
 struct star_output_to_textstream : star_output_function
@@ -163,7 +200,7 @@ protected:
 public:
 	star_output_to_textstream(std::ostream &out_) : out(out_) {}
 
-	virtual void output (const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj);
+	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
 };
 
 #endif // simulate_h__

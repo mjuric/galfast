@@ -23,6 +23,8 @@ sub trim(\$)
 sub filter
 {
 	my $PI = 3.14159;
+	
+	return 1;
 
 	my ($r, $rphi, $z) = @_;
 	my $phi = ($r != 0 ? $rphi/$r : 0) - $PI;
@@ -64,6 +66,7 @@ while($_ = <IN>)
 	($x, $y, $z, $obs, $ovol, $n, $v) = split /\s+/;
 	$n == 0 and next;
 
+	#print "($x, $y, $z, $obs, $ovol, $n, $v)\n";
 	if($type eq "cleaned") { filter($x, $y, $z) or next; }
 
 	push @{$den{$x}{$z}}, {'den' => $n/$v, 'N' => $n, 'V' => $v};

@@ -712,3 +712,13 @@ void print_mobject(std::ostream &out, const mobject &m)
 	out << "\tD = " << abs(p) << "\n";
 	out << "\t(x, y, z) = " << p.x << " " << p.y << " " << p.z << "\n";
 }
+
+BOSTREAM2(const sdss_color &c)
+{
+	return out << c.name << c.type << c.first << c.second;
+}
+
+BISTREAM2(sdss_color &c)
+{
+	return in >> c.name >> c.type >> c.first >> c.second;
+}

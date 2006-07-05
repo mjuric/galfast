@@ -36,7 +36,7 @@ if(! -f $RUNSET/bins.txt) then
 	exit -1;
 endif
 
-set specs = (`cat paper/bins.txt | grep -v "^#.*" | head -n $MAP | tail -n 1`)
+set specs = (`cat $RUNSET/bins.txt | grep -v "^#.*" | head -n $MAP | tail -n 1`)
 set RI0 = $specs[1]; set RI1 = $specs[2];
 set DX0 = $specs[3]; set NDX = $specs[4];
 set R0  = $specs[5]; set R1  = $specs[6];

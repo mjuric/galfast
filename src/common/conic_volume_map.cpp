@@ -460,7 +460,7 @@ void conic_volume_map::print_hemisphere(ostream &out, lambert &proj, partitioned
 ////////////////////////////////////////
 
 conic_volume_map_interpolator::conic_volume_map_interpolator()
-: vm(NULL)
+: vm(NULL), use_median_beam_for_all(false)
 {
 }
 
@@ -574,31 +574,34 @@ void conic_volume_map_interpolator::set_aux(beams_t &beams, conic_volume_map::sk
 
 double conic_volume_map_interpolator::interpolate(Radians l, Radians b, double D)
 {
-	// find this beam
-	int skyidx, X, Y;
-
-	bool exists = vm->get_sky_and_index(skyidx, X, Y, l, b);
-	beams_t &sky = skyidx == 0 ? north : south;
-	if(exists && sky.count(make_pair(X, Y)))
+	if(!use_median_beam_for_all)
 	{
-		return sky[make_pair(X, Y)].spl(D);
-	}
-
-	// find adjacent beams and calculate the mean
-	double val = 0; double wt = 0;
-	FORj(dX, -1, 2)
-	{
-		int Xn = X + dX;
-		FORj(dY, -1, 2)
+		// find this beam
+		int skyidx, X, Y;
+	
+		bool exists = vm->get_sky_and_index(skyidx, X, Y, l, b);
+		beams_t &sky = skyidx == 0 ? north : south;
+		if(exists && sky.count(make_pair(X, Y)))
 		{
-			int Yn = Y + dY;
-			if(!sky.count(make_pair(Xn, Yn))) { continue; }
-			beam_t &beam = sky[make_pair(Xn, Yn)];
-			val += beam.spl(D)*beam.dOmega;
-			wt += beam.dOmega;
+			return sky[make_pair(X, Y)].spl(D);
 		}
+	
+		// find adjacent beams and calculate the mean
+		double val = 0; double wt = 0;
+		FORj(dX, -1, 2)
+		{
+			int Xn = X + dX;
+			FORj(dY, -1, 2)
+			{
+				int Yn = Y + dY;
+				if(!sky.count(make_pair(Xn, Yn))) { continue; }
+				beam_t &beam = sky[make_pair(Xn, Yn)];
+				val += beam.spl(D)*beam.dOmega;
+				wt += beam.dOmega;
+			}
+		}
+		if(wt != 0)  { return val / wt; }
 	}
-	if(wt != 0)  { return val / wt; }
 	
 	// calculate from median
 	return median_beam.spl(D);

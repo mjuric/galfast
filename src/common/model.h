@@ -98,16 +98,19 @@ struct model_fitter : public disk_model
 	std::map<std::string, int> param_name_to_index;
 
 	// Model data
-	std::vector<rzpixel> *map, culled;
+	std::vector<rzpixel> orig;		/// all input data
+	std::vector<rzpixel> map;		/// data used in last fit
+	std::vector<rzpixel> culled;		/// culled data (culled = orig - map)
+public:
+	void setdata(const std::vector<rzpixel> &data) { orig = map = data; }
 	std::pair<float, float> ri, r;
 	std::pair<double, double> d;
-	int ndata() { return map->size(); }
+	int ndata() { return map.size(); }
 
 	model_fitter(const model_fitter& m)
 		: disk_model(m),
 		  covar(m.covar), fixed(m.fixed), chi2_per_dof(m.chi2_per_dof),
 		  param_name_to_index(m.param_name_to_index),
-		  map(m.map != NULL ? new std::vector<rzpixel>(*m.map) : NULL),
 		  epsabs(1e-6), epsrel(1e-6)
 		{
 		}
@@ -146,7 +149,7 @@ struct model_fitter : public disk_model
 	void set_parameters(const gsl_vector *x);
 
 	int fdf(gsl_vector *f, gsl_matrix *J);
-	int fit(int cullIter=1, double nsigma = 3.);
+	int fit(int cullIter, const std::vector<double> &nsigma);
 	void cull(double nSigma);
 	void residual_distribution(std::map<int, int> &hist, double binwidth);
 
@@ -208,6 +211,7 @@ class BahcallSoneira_model : public galactic_model
 {
 public:
 	disk_model m;
+	spline lf;		// local luminosity function
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);
@@ -217,6 +221,7 @@ public:
 	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
 protected:
 	void load(peyton::system::Config &cfg);
+	void load_luminosity_function(std::istream &in);
 };
 
 class toy_homogenious_model : public galactic_model

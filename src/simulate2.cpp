@@ -79,6 +79,7 @@ namespace lapack
 #include <boost/tuple/tuple_comparison.hpp>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 #include "simulate.h"
 #include "projections.h"
@@ -647,6 +648,8 @@ io::obstream &model_pdf::serialize(io::obstream &out) const
 	out << ri0 << ri1 << dri;
 	out << m0 << m1 << dm;
 
+	model->serialize(out);
+
 	return out;
 	
 	/* [1] The xsum number (and this whole mpdf tree) _is not_ the total number 
@@ -942,12 +945,16 @@ peyton::io::ibstream &model_pdf::unserialize(peyton::io::ibstream &in)
 	in >> ri0 >> ri1 >> dri;
 	in >> m0 >> m1 >> dm;
 
+#if 1
+	model.reset(galactic_model::unserialize(in));
+#else
 	// TODO: This is just a quick fix for debugging - the model should be serialized
 	// together with the PDF
 	std::ifstream inconf("galaxy.conf"); ASSERT(inconf);
 	model.reset(galactic_model::load(inconf));
 	ASSERT(model.get() != NULL);
-	
+#endif
+
 	std::cerr << "LOAD: N = " << N << "\n";
 	std::cerr << "LOAD: xpdf.size() = " << xpdf.size() << "\n";
 	std::cerr << "LOAD: skymap.skymap.size() = " << skymap.skymap.size() << "\n";
@@ -993,6 +1000,9 @@ sky_generator::sky_generator(std::istream &in)
 
 		if(!(in >> magerrs_cvm)) { ASSERT(in >> magerrs); }
 		magerrs.initialize(magerrs_cvm);
+		
+		cfg.get(magerrs.use_median_beam_for_all, "magerr_only_use_median", false);
+		if(magerrs.use_median_beam_for_all) { std::cerr << "Using median error only.\n"; }
 	}
 
 	cfg.get(constant_photo_error, "constant_photo_error", 0.);
@@ -1032,20 +1042,20 @@ void sky_generator::add_pdf(boost::shared_ptr<model_pdf> &pdf)
 
 // generate K stars in model-sky given in $prefix.pdf.dat
 // file, precalculated with preprecalculate_mpdf
-void sky_generator::montecarlo(star_output_function &out, int K)
+void sky_generator::montecarlo(star_output_function &out, int Ktotal)
 {
 	ASSERT(pdfs.size() != 0);
 
 	bool allowMisses = false;
-	switch(K)
+	switch(Ktotal)
 	{
 	case -1: 
-		K = nstars;
+		Ktotal = nstars;
 	break;
 	case 0: {
 		double Kd = 0;
 		FOREACH(pdfs) { Kd += (*i)->N; }
-		K = (int)rint(Kd);
+		Ktotal = (int)rint(Kd);
 		allowMisses = true;
 		}
 	break;
@@ -1053,7 +1063,7 @@ void sky_generator::montecarlo(star_output_function &out, int K)
 	break;
 	}
 
-	std::cerr << "# Generating " << K << " stars";
+	std::cerr << "# Generating " << Ktotal << " stars";
 	if(allowMisses) { std::cerr << " (approximately, based on model norm.)"; }
 	std::cerr << ".\n";
 
@@ -1065,8 +1075,34 @@ void sky_generator::montecarlo(star_output_function &out, int K)
 	FOR(0, pdfs.size()-1) { modelCPDF[i+1] = modelCPDF[i] + pdfs[i]->N; }
 	double norm = pdfs.back()->N + modelCPDF.back();
 	FOR(1, pdfs.size()) { modelCPDF[i] /= norm; }
-// 	using namespace std;
-// 	FOREACH(modelCPDF) { cerr << "---" << *i;} cerr << "\n";
+	
+	// generate the data in smaller batches (to conserve memory)
+	static const int Kbatch = 15000000;
+
+	int K = 0;
+	while(K < Ktotal)
+	{
+		int Kstep = std::min(Kbatch, Ktotal - K);
+		K += montecarlo_batch(out, Kstep, modelCPDF, allowMisses);
+	}
+}
+
+int sky_generator::montecarlo_batch(star_output_function &out, int K, const std::vector<double> &modelCPDF, bool allowMisses)
+{
+	// clear output vectors
+	FOREACH(stars)
+	{
+		(*i)->clear();
+	}
+
+	// preallocate memory to avoid subsequent frequent reallocation
+	FOR(0, modelCPDF.size())
+	{
+		double frac = i+1 != modelCPDF.size() ? modelCPDF[i+1] : 1;
+		int n = (int)(K * 1.2 * (frac - modelCPDF[i]));
+		stars[i]->reserve(n);
+		std::cerr << "Preallocating space for " << n << " stars\n";
+	}
 
 	// generate K stars in a two step process. First, draw (x,y) positions
 	// from the distribution for all K stars. Then, sort the resulting array
@@ -1074,6 +1110,7 @@ void sky_generator::montecarlo(star_output_function &out, int K)
 	// This two-step process is necessary in order to avoid recalculating 
 	// P(m|x,y,ri) distribution at each step (it's time-consuming to compute,
 	// and there's not enough space to cache it for all pixels at once).
+	std::cerr << "# Generating...\n";
 	ticker tick(10000);
 	int Kgen = 0;
 	FOR(0, K)
@@ -1108,6 +1145,8 @@ void sky_generator::montecarlo(star_output_function &out, int K)
 		std::cerr << "model " << pdfs[i]->name() << " : " << stars[i]->size() << " stars (" << 
 			100. * double(stars[i]->size()) / Kgen << "%)\n";
 	}
+
+	return Kgen;
 }
 
 bool model_pdf::draw_position(star &s, gsl_rng *rng)
@@ -1155,7 +1194,7 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, gsl_rng *rn
 
 	std::cerr << "# Assigning magnitudes \n";
 
-	ticker tick(1000);
+	ticker tick(10000);
 	// draw magnitudes for stars in each cell X,Y
 	boost::tuple<int, int, int> cell = boost::make_tuple(-1000,-1000,-1000);
 	cumulative_dist mspl;
@@ -1199,6 +1238,8 @@ star_output_to_dmm::star_output_to_dmm(const std::string &objcat, const std::str
 		out.open(objcat, "rw");
 		starmags.open(obscat, "rw");
 	}
+	out.setmaxwindows(2);
+	starmags.setmaxwindows(2);
 }
 
 void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
@@ -1236,6 +1277,31 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		coordinates::galequ(l, b, obsv.ra, obsv.dec);
 		obsv.ra = deg(obsv.ra); obsv.dec = deg(obsv.dec);
 
+		//
+		// Things affecting the absolute magnitude of the star
+		//
+		
+		double Mr = paralax.Mr(s.ri);
+		double D = stardist::D(s.m, Mr);
+
+		bool subdwarfs = false;
+		if(subdwarfs)
+		{
+			// calculate galactic coordinates
+			V3 v; v.celestial(l, b, D);
+			v.x = Rg - v.x;
+			v.y *= -1;
+
+			// calculate "metalicity factor" based on location in the Galaxy
+			double f;
+			if(v.z < 500) { f = 0; }
+			else if(v.z < 2500) { f = (v.z - 500.) / 2000.; }
+			else { v.z = 1; }
+
+			// adjust the absolute magnitude accordingly
+			Mr += f;
+		}
+
 		if(paralax_dispersion)
 		{
 			// mix in the photometric paralax uncertancy - here is how this goes:
@@ -1244,13 +1310,18 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 			// absolute magnitude Mr' = Mr + dMr, while _keeping_ the same color and
 			// distance. The observer therefore sees the star to be dimmer/brighter than
 			// a star with absmag Mr (==> change of magnitude).
-			double Mr = paralax.Mr(s.ri);
-			double D = stardist::D(s.m, Mr);
-
 			double dMr = gsl_ran_gaussian(rng, paralax_dispersion);
-			s.m = stardist::m(D, Mr + dMr);
+			Mr += dMr;
 		}
 
+		s.m = stardist::m(D, Mr);
+
+		
+		
+		//
+		// Things happening at observation ("in the telescope")
+		//
+		
 		// calculate magnitudes and convert to flux
 	#if !DBG_MAGCHECK
 		float u, g, r, i, z;

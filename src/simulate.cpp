@@ -1924,18 +1924,21 @@ void sky_footprint(const Radians dx, const std::set<int> &runs, gpc_polygon &sky
 #endif
 
 //lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
-void makeSkyMap(std::set<int> &runs, const std::string &prefix, const lambert &proj)
+void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &proj, Radians b0 = rad(0.))
 {
 	Radians dx = rad(.25); /* polygon sampling resolution in radians */
 //	Radians dx = rad(1); /* polygon sampling resolution - good for footprint plots */
-	cerr << "hemisphere = " << prefix << ", dx = " << dx << " radians\n";
+	cerr << "footprint = " << output << ", dx = " << dx << " radians\n";
 
 	RunGeometryDB db;
 	double x, y;
 	gpc_polygon sky = {0, 0, NULL};
 /*	proj.convert(rad(0.), rad(-30.), x, y);
 	cerr << sqrt(x*x+y*y) << "\n";*/
-	gpc_polygon circle = make_circle(0., 0., sqrt(2.), dx);
+	proj.convert(rad(0.), b0, x, y);
+	double r = sqrt(x*x+y*y);
+	cerr << "Excluding r > " << r << " from the origin of lambert projection.\n";
+	gpc_polygon circle = make_circle(0., 0., r, dx);
 
 	cerr << "Processing " << runs.size() << " runs.\n";
 
@@ -1968,8 +1971,8 @@ void makeSkyMap(std::set<int> &runs, const std::string &prefix, const lambert &p
 	     << sky.num_contours << " contours, " << nvert << " vertices]\n";
 
 	// store the footprint polygon
-	sm_write(prefix + ".foot.txt", sky);
-	FILE *ofp = fopen((prefix + ".gpc.txt").c_str(), "w");
+	sm_write(output + ".foot.txt", sky);
+	FILE *ofp = fopen(output.c_str(), "w");
 	gpc_write_polygon(ofp, 1, &sky);
 	fclose(ofp);
 
@@ -2049,21 +2052,6 @@ try
 	//toy_geocentric_powerlaw_model model(1., 0.);
 	//toy_geo_plaw_abspoly_model model("north");
 
-	if(cmd == "footprint")
-	{
-		//text_input_or_die(in, "/home/mjuric/projects/galaxy/workspace/catalogs/runs.txt");
-		//text_input_or_die(in, "uniq_run_index.map");
-		//text_input_or_die(in, "runs.txt");
-		text_input_or_die(in, confFn);
-		std::set<int> runs;
-		load(in, runs, 0);
-		//runs.erase(5224);
-
-		makeSkyMap(runs, output + ".north", lambert(rad(90), rad(90)));
-		makeSkyMap(runs, output + ".south", lambert(rad(-90), rad(-90)));
-
-		return 0;
-	}
 	if(cmd == "pskymap")
 	{
 		partitioned_skymap sky;
@@ -2079,6 +2067,35 @@ try
 	}
 
 	ifstream in(confFn.c_str()); ASSERT(in);
+	if(cmd == "footprint")
+	{
+		Config cfg; cfg.load(in);
+
+		// load run list
+		ASSERT(cfg.count("footprint_runs"));
+		std::string runsFn = cfg["footprint_runs"];
+		text_input_or_die(in, runsFn);
+		std::set<int> runs;
+		load(in, runs, 0);
+
+		// output filename
+		ASSERT(cfg.count("footprint"));
+		output = cfg["footprint"];
+
+		// projection
+		std::string pole; double l0, b0;
+		cfg.get(pole,	"projection",	std::string("90 90"));
+		std::istringstream ss(pole);
+		ss >> l0 >> b0;
+		lambert proj(rad(l0), rad(b0));
+
+		// lower limit in latitude
+		cfg.get(b0, "footprint_min_lat", 0.);
+
+		makeSkyMap(runs, output, proj, rad(b0));
+
+		return 0;
+	}
 	if(cmd == "pdf")
 	{
 		// ./simulate.x pdf north.conf north.pdf.bin
@@ -2094,6 +2111,10 @@ try
 	}
 	else if(cmd == "catalog")
 	{
+		// turn off GSL's error handler or else locusfitting routines
+		// may barf
+		gsl_set_error_handler_off();
+	
 		// ./simulate.x catalog sim.conf dmmwriter.conf
 		sky_generator skygen(in);
 

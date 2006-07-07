@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+ 
 #define FIT_FULL_3D	0
 #define FIT_2D		1
 
@@ -69,21 +71,23 @@ int model_df (const gsl_vector * v, void *params, gsl_matrix * J)
 }
 
 spinner spin;
+bool print_fitter_progress = false;
 int print_state (size_t iter, gsl_multifit_fdfsolver * s, int dof)
 {
 	spin.tick();
 
-#if 1
+	if(!print_fitter_progress) { return 0; }
+
 	fprintf (stderr, "iter: %3u x = ", iter);
 	FOR(0, dof)
 	{
 	  	fprintf(stderr, "%15.8f ", gsl_vector_get(s->x, i));
 	}
 	fprintf(stderr, "|f(x)| = %.8g\n", gsl_blas_dnrm2 (s->f));
-#endif
+
 }
 
-int model_fitter::fit(int cullIter, double nsigma)
+int model_fitter::fit(int cullIter, const std::vector<double> &nsigma)
 {
 	//
 	// Generic fit driver
@@ -159,17 +163,29 @@ int model_fitter::fit(int cullIter, double nsigma)
 	residual_distribution(resmap, .25);
 	FOREACH(resmap) { std::cerr << .25*(*i).first << "\t" << (*i).second << "\n"; }
 
-	int nsigmaidx = (int)(nsigma/.25);
-	if(cullIter-- && resmap.upper_bound(nsigmaidx) != resmap.end())
+/*	int nsigmaidx = nsigma.size() ? (int)(nsigma[0]/.25) : 1;
+	if(cullIter-- && resmap.upper_bound(nsigmaidx) != resmap.end())*/
+
+	// find maximum deviation
+	typeof(resmap.begin()) it = resmap.end(); it--; double maxsig = 0.25*(*it).first;
+	std::cerr << "MAXSIGMA = " << maxsig << "\n";
+	int k = -1;
+	FOR(0, nsigma.size()) { if(nsigma[i] <= maxsig) { k = i; break; } }
+	std::cerr << "K = " << k << "\n";
+	if(cullIter-- && k != -1)
 	{
-		std::cerr << "\tCulling nsigma > " << nsigma << ": ";
-		cull(nsigma);
+		std::cerr << "\tCulling nsigma > " << nsigma[k] << ": ";
+		cull(nsigma[k]);
 
 		// reset to initial parameters
 		set_parameters(v);
-//		fix("rho0") = false;
-//		fix("z0") = false;
-		fit(cullIter, nsigma);
+		if(k+1 != nsigma.size())
+		{ 
+			std::vector<double> nsigma2(nsigma.begin()+k+1, nsigma.end());
+			fit(cullIter, nsigma2);
+		} else {
+			fit(cullIter, nsigma);
+		}
 	}
 	gsl_vector_free(v);
 }
@@ -1000,14 +1016,14 @@ try
 
 		load_disk(&data, rzfile);
 		clean_disk(&data, how, m, modelname);
-		m.map = &data;
+		m.setdata(data);
 
 //		m.param("l") = 1.;
 
 		cerr << "Limits (mag) (dist) = (" << m.r.first << ", " << m.r.second << ") (" << m.d.first << ", " << m.d.second << ")\n";
 		m.print(cerr);
 		cerr << "Fitting " << rzfile << " ";
-		m.fit(1, 10);
+		m.fit(1, std::vector<double>(1, 10.));
 		m.print(cerr);
 		cerr << "\n";
 		cerr << "norm_thick = " << m.norm_at_Rg() << "\n";
@@ -1123,9 +1139,10 @@ try
 	std::string rzfile = cfg["data"];
 	std::string modelname = cfg["name"];
 	int ncull = cfg["ncull"];
-	int nsigma = cfg["cullsigma"];
+	std::vector<double> nsigma = cfg["cullsigma"];
 	cfg.get(m.epsabs, "epsabs", m.epsabs);
 	cfg.get(m.epsrel, "epsrel", m.epsrel);
+	cfg.get(print_fitter_progress, "print_fitter_progress", false);
 
 //	cout << "# name ri0 ri1 chi2/dof rho0 l h z0 err(rho0 l h z0)\n";
 
@@ -1151,7 +1168,7 @@ try
 
 		load_disk(&data, rzfile);
 		clean_disk(&data, how, m, modelname);
-		m.map = &data;
+		m.setdata(data);
 
 //		m.param("l") = 1.;
 
@@ -1186,7 +1203,7 @@ try
 		rzfitfile = rzfitfile.replace(pos, strlen(".cleaned"), ".fitted");
 		std::ofstream out(rzfitfile.c_str());
 		out << "# input file: " << rzfile << "\n";
-		FOREACH(*m.map)
+		FOREACH(m.map)
 		{
 			rzpixel &pix = *i;
 			out << std::setw(10) << pix.r << " " << pix.z << " 0 0 0 " << pix.N << " " << pix.V << " " << pix.N / pix.V << "\n";

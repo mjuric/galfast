@@ -139,6 +139,7 @@ public:
 	beam_t median_beam;
 
 	beams_t north, south;
+	bool use_median_beam_for_all;
 public:
 	conic_volume_map_interpolator();
 

@@ -71,9 +71,9 @@ void model_fitter::set_parameters(const gsl_vector *x)
 int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 {
 	// calculate f_i values for all datapoints
-	FOR(0, map->size())
+	FOR(0, map.size())
 	{
-		const rzpixel &x = (*map)[i];
+		const rzpixel &x = map[i];
 		double rhothin = rho_thin(x.r, x.z);
 		double rhothick = rho_thick(x.r, x.z);
 		double rhohalo = rho_halo(x.r, x.z);
@@ -109,28 +109,28 @@ int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 void model_fitter::cull(double nSigma)
 {
 	// calculate f_i values for all datapoints
-	vector<rzpixel> newmap;
-	FOR(0, map->size())
+	map.clear();
+	culled.clear();
+	FOR(0, orig.size())
 	{
-		const rzpixel &x = (*map)[i];
+		const rzpixel &x = orig[i];
 		double rhom = rho(x.r, x.z);
 		if(abs(x.rho - rhom) <= nSigma*x.sigma)
 		{
-			newmap.push_back(x);
+			map.push_back(x);
 		} else {
 			culled.push_back(x);
 		}
 	}
-	cerr << "Selected " << newmap.size() << " out of " << map->size() << " pixels\n";
-	*map = newmap;
+	cerr << "Selected " << map.size() << " out of " << orig.size() << " pixels\n";
 }
 
 void model_fitter::residual_distribution(std::map<int, int> &hist, double binwidth)
 {
 	// calculate f_i values for all datapoints
-	FOR(0, map->size())
+	FOR(0, map.size())
 	{
-		const rzpixel &x = (*map)[i];
+		const rzpixel &x = map[i];
 		double rhom = rho(x.r, x.z);
 		double r = abs(x.rho - rhom) / x.sigma;
 		int ir = (int)(r / binwidth);
@@ -416,6 +416,20 @@ double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
 	double r = sqrt(x*x + y*y);
 	return m.rho(r, z);
+}
+
+void BahcallSoneira_model::load_luminosity_function(istream &in)
+{
+	// load the luminosity function and normalize it to rho0.
+	// rho0 is assumed to contain the number of stars per cubic parsec
+	// per 0.1mag of r-i
+	text_input_or_die(lfin, "lumfun.txt")
+	vector<double> ri, phi;
+	::load(lfin, ri, 0, phi, 1);
+	lf.construct(ri, phi);
+
+	std::pair<double, double> rho_ri;
+	double lf_norm = lf.integral(rho_ri.first, rho_ri.second);
 }
 
 BLESS_POD(disk_model);

@@ -170,6 +170,7 @@ public:
 
 	~sky_generator();
 protected:
+	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
 	void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
 };
 

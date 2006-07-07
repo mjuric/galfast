@@ -1914,7 +1914,7 @@ int make_run_plots(const set<int> &runs);
 
 int main(int argc, char **argv)
 {
-#if 1
+#if 0
 	std::string fn = "magerr.conicmap.bin";
 	std::ifstream iin(fn.c_str()); ASSERT(iin) { std::cerr << "Could not open magnitude error map " << fn << "\n"; }
 	io::ibstream in(iin);

@@ -26,8 +26,8 @@
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/sim/</customdirectory>
-      <programargs>catalog sim.conf blabla</programargs>
+      <customdirectory>/home/mjuric/projects/galaxy/workspace/lsst/</customdirectory>
+      <programargs>beam beam.conf blabla</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -163,11 +163,11 @@
   <kdevdebugger>
     <general>
       <programargs>gnomonic.sel</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

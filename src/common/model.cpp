@@ -279,11 +279,16 @@ void spline::construct(const double *x, const double *y, int n)
 	xv.resize(n); yv.resize(n);
 	copy(x, x+n, &xv[0]);
 	copy(y, y+n, &yv[0]);
+	
+	construct_aux();
+}
 
+void spline::construct_aux()
+{
 	// construct spline
-	f = gsl_interp_alloc(gsl_interp_linear, n);
+	f = gsl_interp_alloc(gsl_interp_linear, xv.size());
 	//f = gsl_interp_alloc(gsl_interp_cspline, n);
-	gsl_interp_init(f, &xv[0], &yv[0], n);
+	gsl_interp_init(f, &xv[0], &yv[0], xv.size());
 	acc = gsl_interp_accel_alloc();
 }
 
@@ -291,6 +296,19 @@ spline::~spline()
 {
 	if(acc != NULL) gsl_interp_accel_free(acc);
 	if(f != NULL) gsl_interp_free(f);
+}
+
+BOSTREAM2(const spline &spl)
+{
+	return out << spl.xv << spl.yv;
+}
+
+BISTREAM2(spline &spl)
+{
+	if(!(in >> spl.xv >> spl.yv)) return in;
+	ASSERT(spl.xv.size() == spl.yv.size());
+	if(spl.xv.size()) { spl.construct_aux(); }
+	return in;
 }
 
 ////////////////////////////////////////////////////
@@ -390,6 +408,16 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 
 		m.p[i] = cfg[param];
 	}
+	
+	// luminosity function
+	if(cfg.count("lumfunc"))
+	{
+		ASSERT(cfg.count("rho0_ri"));
+		rho0_ri = cfg["rho0_ri"];
+
+		input_or_die(in, cfg["lumfunc"]);
+		load_luminosity_function(in, rho0_ri);
+	}
 }
 
 BahcallSoneira_model::BahcallSoneira_model()
@@ -415,32 +443,43 @@ double BahcallSoneira_model::absmag(double ri)
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
 	double r = sqrt(x*x + y*y);
-	return m.rho(r, z);
+	double norm = lf.empty() ? 1. : lf(ri);
+//	norm = 1.;
+	return norm * m.rho(r, z);
 }
 
-void BahcallSoneira_model::load_luminosity_function(istream &in)
+void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<double, double> rho0_ri)
 {
-	// load the luminosity function and normalize it to rho0.
+	// load the luminosity function and normalize to m.rho0.
 	// rho0 is assumed to contain the number of stars per cubic parsec
-	// per 0.1mag of r-i
-	text_input_or_die(lfin, "lumfun.txt")
+	// per 1mag of r-i
+	itextstream lfin(in);
 	vector<double> ri, phi;
 	::load(lfin, ri, 0, phi, 1);
 	lf.construct(ri, phi);
 
-	std::pair<double, double> rho_ri;
-	double lf_norm = lf.integral(rho_ri.first, rho_ri.second);
+	// make the LF dimensionless
+	double dr = rho0_ri.second - rho0_ri.first;
+	double stars_per_mag = lf.integral(rho0_ri.first, rho0_ri.second) / dr;
+	FOREACH(phi) { *i /= stars_per_mag; };
+	lf.construct(ri, phi);
+	std::cerr << "Norm.: " << 1./stars_per_mag << "\n";
+	std::cerr << "New int: " << lf.integral(rho0_ri.first, rho0_ri.second) / dr << "\n";
+	std::cerr << "lf(1.0): " << lf(1.0) << "\n";
+	std::cerr << "lf(1.1): " << lf(1.1) << "\n";
 }
 
 BLESS_POD(disk_model);
 peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out)
 {
 	std::string name("BahcallSoneira");
-	return out << name << m;
+	out << name << m << lf;
+
+	return out;
 }
 BISTREAM2(BahcallSoneira_model &m)
 {
-	return in >> m.m;
+	return in >> m.m >> m.lf;
 }
 
 galactic_model *galactic_model::load(istream &cfgstrm)

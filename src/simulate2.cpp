@@ -123,7 +123,8 @@ model_pdf::model_pdf(std::istream &in)
 	ASSERT(cfg.count("footprint"));
 	footprint = cfg["footprint"];
 
-	cfg.get(skymap.dx,	"dx", 	rad(1));
+	cfg.get(skymap.dx,	"dx", 	1.);
+	skymap.dx = rad(skymap.dx);
 	ASSERT(cfg.count("dri")); cfg.get(dri,	"dri",	0.01);
 	cfg.get(ri0,	"ri0",	0.0);
 	cfg.get(ri1,	"ri1",	1.5);
@@ -374,8 +375,11 @@ double model_pdf::ri_mpdf(std::vector<double> &pdf, const double x, const double
 	// loop through spectral types (r-i slices), and calculate the expected
 	// total number of stars with a given SpT (assuming the model returned by
 	// model class), in a direction x, y
-	for(double ri = ri0; ri <= ri1; ri += dri)
+	int nspt = (int)rint((ri1 - ri0)/dri);
+//	for(double ri = ri0; ri <= ri1; ri += dri)
+	FOR(0, nspt)
 	{
+		double ri = ri0 + i*dri;
 		// get a model which will return the number of stars n in
 		// direction (l,b) in the SpT interval [ri, ri+dri) (approximate
 		// this by assuming a constant f=dN/dri in the short interval dri
@@ -622,7 +626,7 @@ void model_pdf::precalculate_mpdf()
 
 //		static int kk = 0; if(++kk == 5) break;
 	}
-	cout << "# Total stars = " << xsum << " stars\n";
+	cout << "# Total stars = " << xsum << " stars within " << skymap.skymap.size()*sqr(deg(skymap.dx)) << "deg^2 of pixelized area." << "\n";
 
 	// convert starcounts to cumulative probabilities
 	FOREACH(xpdf) { (*i)->pcum /= xsum; }
@@ -969,6 +973,7 @@ sky_generator::sky_generator(std::istream &in)
 
 	// number of stars to read
 	cfg.get(nstars,	"nstars", 	0);
+	cfg.get(Ar,	"Ar", 		0.);	// extinction
 	
 	// random number generator
 	int seed;
@@ -1042,25 +1047,20 @@ void sky_generator::add_pdf(boost::shared_ptr<model_pdf> &pdf)
 
 // generate K stars in model-sky given in $prefix.pdf.dat
 // file, precalculated with preprecalculate_mpdf
-void sky_generator::montecarlo(star_output_function &out, int Ktotal)
+void sky_generator::montecarlo(star_output_function &out)
 {
 	ASSERT(pdfs.size() != 0);
 
 	bool allowMisses = false;
-	switch(Ktotal)
+	int Ktotal = nstars;
+
+	if(Ktotal == 0)
 	{
-	case -1: 
-		Ktotal = nstars;
-	break;
-	case 0: {
 		double Kd = 0;
+		std::cerr << "# " << (*pdfs.begin())->N << "\n";
 		FOREACH(pdfs) { Kd += (*i)->N; }
 		Ktotal = (int)rint(Kd);
 		allowMisses = true;
-		}
-	break;
-	default:
-	break;
 	}
 
 	std::cerr << "# Generating " << Ktotal << " stars";
@@ -1079,12 +1079,15 @@ void sky_generator::montecarlo(star_output_function &out, int Ktotal)
 	// generate the data in smaller batches (to conserve memory)
 	static const int Kbatch = 15000000;
 
-	int K = 0;
+	int K = 0, Ngen = 0;
 	while(K < Ktotal)
 	{
 		int Kstep = std::min(Kbatch, Ktotal - K);
-		K += montecarlo_batch(out, Kstep, modelCPDF, allowMisses);
+		K += Kstep;
+		Ngen += montecarlo_batch(out, Kstep, modelCPDF, allowMisses);
 	}
+	
+	std::cerr << "# Generated " << Ngen << " stars.\n";
 }
 
 int sky_generator::montecarlo_batch(star_output_function &out, int K, const std::vector<double> &modelCPDF, bool allowMisses)
@@ -1246,7 +1249,7 @@ void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::
 {
 	// simple ascii-text dump
 	double ri = obsvs[0].first.mag[1] - obsvs[0].first.mag[2];
-	out << deg(ra) << " " << deg(dec) << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
+	out << ra << " " << dec << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
 }
 
 #define DBG_MAGCHECK 0
@@ -1260,7 +1263,6 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 	std::cerr << "Observing... ";
 	spinner spin;
 	std::vector<std::pair<observation, obsv_id> > obsvs;
-	double Ar = .1;
 	FORj(j, 0, stars.size())
 	{
 		model_pdf::star s = stars[j];

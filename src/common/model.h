@@ -163,6 +163,11 @@ private:
 	gsl_interp *f;
 	gsl_interp_accel *acc;
 	std::valarray<double> xv, yv;
+
+	friend BOSTREAM2(const spline &spl);
+	friend BISTREAM2(spline &spl);
+protected:
+	void construct_aux();
 public:
 	spline() : f(NULL), acc(NULL) {}
 	spline(const double *x, const double *y, int n);
@@ -178,10 +183,13 @@ public:
  	double deriv2(double x)             { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
  	double integral(double a, double b) { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
 
+	bool empty() const { return xv.size() == 0; }
 public:
 	spline& operator= (const spline& a);
 	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
 };
+BOSTREAM2(const spline &spl);
+BISTREAM2(spline &spl);
 
 /*class model_factory
 {
@@ -211,7 +219,9 @@ class BahcallSoneira_model : public galactic_model
 {
 public:
 	disk_model m;
-	spline lf;		// local luminosity function
+	std::pair<double, double> rho0_ri;	/// interval accross which m.rho0 was calculated
+
+	spline lf;		/// dimensionless local luminosity function
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);
@@ -221,7 +231,7 @@ public:
 	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
 protected:
 	void load(peyton::system::Config &cfg);
-	void load_luminosity_function(std::istream &in);
+	void load_luminosity_function(std::istream &in, std::pair<double, double> rho0_ri);
 };
 
 class toy_homogenious_model : public galactic_model

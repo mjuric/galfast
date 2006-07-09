@@ -150,6 +150,7 @@ protected:
 	conic_volume_map_interpolator magerrs;
 	
 	int nstars;	///< number of stars to generate (read from config file)
+	double Ar;	///< extinction, conf["Ar"], default = 0
 protected:
 	double constant_photo_error;	///< photometric error to add to all magnitudes
 	double paralax_dispersion;	///< Gaussian dispersion of photometric paralax relation
@@ -161,12 +162,7 @@ public:
 	void add_pdf(boost::shared_ptr<model_pdf> &pdf);
 	void add_pdf(model_pdf &pdf);
 
-	/// K is the number of stars to generate.
-	///     K = -1 takes the number from config file variable nstars
-	///	K = 0  generates as many stars as there are according to model
-	///		normalization
-	///	K > 0  the exact number of stars to generate
-	void montecarlo(star_output_function &sf, int K = -1);
+	void montecarlo(star_output_function &sf);
 
 	~sky_generator();
 protected:

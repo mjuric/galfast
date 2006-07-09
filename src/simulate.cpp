@@ -1923,7 +1923,63 @@ void sky_footprint(const Radians dx, const std::set<int> &runs, gpc_polygon &sky
 }
 #endif
 
-//lambert lnorth(rad(90), rad(90)), lsouth(rad(90), rad(-90));
+gpc_polygon make_polygon(const std::vector<double> &x, const std::vector<double> &y)
+{
+	ASSERT(x.size() == y.size());
+
+	gpc_polygon p = {0, 0, NULL};
+	int n = x.size();
+	gpc_vertex v[n];
+	gpc_vertex_list c = { n, v };
+	FOR(0, n)
+	{
+		v[i].x = x[i];
+		v[i].y = y[i];
+	}
+	gpc_add_contour(&p, &c, false);
+	return p;
+}
+
+void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, const lambert &proj)
+{
+	Radians dx = rad(.1); /* polygon sampling resolution in radians */
+
+	double x, y;
+	std::cerr << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg.\n";
+
+	std::vector<double> lx, ly;
+	dx /= r;
+	lambert bproj(l, b);
+	for(double phi = 0; phi < 2. * ctn::pi; phi += dx)
+	{
+		x = r * cos(phi);
+		y = r * sin(phi);
+
+		Radians lp, bp;
+		bproj.inverse(x, y, lp, bp);
+		proj.convert(lp, bp, x, y);
+
+		lx.push_back(x);
+		ly.push_back(y);
+	}
+
+	gpc_polygon sky = make_polygon(lx, ly);
+
+	int nvert = 0;
+	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+	cerr << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
+	     << sky.num_contours << " contours, " << nvert << " vertices]\n";
+
+	// store the footprint polygon
+	sm_write(output + ".foot.txt", sky);
+	FILE *ofp = fopen(output.c_str(), "w");
+	gpc_write_polygon(ofp, 1, &sky);
+	fclose(ofp);
+
+	// free memory
+	gpc_free_polygon(&sky);
+}
+
 void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &proj, Radians b0 = rad(0.))
 {
 	Radians dx = rad(.25); /* polygon sampling resolution in radians */
@@ -2003,7 +2059,7 @@ try
 	//# add any arguments your program needs. eg:
 /*	opts.argument("north", "Configuration file for northern hemisphere.");
 	opts.argument("south", "Configuration file for southern hemisphere.");*/
-	opts.argument("cmd", "What to make. Can be 'footprint', 'pdf', 'catalog' or 'pskymap'");
+	opts.argument("cmd", "What to make. Can be 'footprint', 'beam', 'pdf', 'catalog' or 'pskymap'");
 	opts.argument("conf", "Configuration file for the Bahcall-Soneira model, or if cmd=footprint, the file with the set of runs for which to calculate footprint.");
 	opts.argument("output", "Name of the output file (needed for cmd='pdf')");
 
@@ -2026,7 +2082,7 @@ try
 	try {
 		opts.parse(argc, argv);
 		cmd = opts["cmd"];
-		if(cmd != "pskymap" && cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
+		if(cmd != "pskymap" && cmd != "beam" && cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
 		confFn = opts["conf"];
 		output = opts["output"];
 	} catch(EOptions &e) {
@@ -2096,6 +2152,32 @@ try
 
 		return 0;
 	}
+	if(cmd == "beam")
+	{
+		Config cfg; cfg.load(in);
+
+		// output filename
+		ASSERT(cfg.count("footprint"));
+		output = cfg["footprint"];
+
+		// projection
+		std::string pole; double l0, b0;
+		cfg.get(pole,	"projection",	std::string("90 90"));
+		std::istringstream ss(pole);
+		ss >> l0 >> b0;
+		lambert proj(rad(l0), rad(b0));
+
+		// beam direction and radius
+		double l, b, r;
+		ASSERT(cfg.count("footprint_beam"));
+		std::istringstream ss2(cfg["footprint_beam"]);
+		ss2 >> l >> b >> r;
+
+		std::cerr << "Projection pole (l, b) = " << deg(l0) << " " << deg(b0) << "\n";
+		makeBeamMap(output, rad(l), rad(b), rad(r), proj);
+
+		return 0;
+	}
 	if(cmd == "pdf")
 	{
 		// ./simulate.x pdf north.conf north.pdf.bin
@@ -2118,7 +2200,7 @@ try
 		// ./simulate.x catalog sim.conf dmmwriter.conf
 		sky_generator skygen(in);
 
-#if 1
+#if 0
 		star_output_to_dmm cat_out("uniq_objects.dmm", "uniq_observations.dmm", true);
 #else	// simple debug dump to file
 		std::ofstream out("sky.sim.txt");
@@ -2126,7 +2208,7 @@ try
 #endif
 		skygen.montecarlo(cat_out);
 
-		cat_out.close();
+//		cat_out.close();
 	}
 	return 0;
 }

@@ -1699,9 +1699,11 @@ double pixelate_volume(binned_run &br, const volume_map &vm, int n)
 
 void rhoray(int argc, char **argv)
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: raytrace.cpp,v 1.9 2006/07/10 19:17:48 mjuric Exp $");
 
+	std::string argv0 = argv[0];
 	Options opts(
+		argv0,
 		"\
 	Program for 'flattening' volume maps of SDSS runs. Used for mstars project. \n\
 	Takes into consideration limiting apparent and absolute magnitudes and produces \n\
@@ -1719,13 +1721,7 @@ void rhoray(int argc, char **argv)
 	opts.argument("d0", "Minimum geocentric distance [pc]");
 	opts.argument("d1", "Maximum geocentric distance [pc]");
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	/////// Now start with the real busyness //////
 

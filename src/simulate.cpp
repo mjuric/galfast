@@ -2044,54 +2044,89 @@ void test_lapack();
 
 #include "simulate.h"
 void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
+
 int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	std::string argv0 = argv[0];
+	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.16 2006/07/10 19:17:48 mjuric Exp $");
+	std::string progdesc = "simulate.x, a mock star catalog simulator.";
 
-	Options opts(
-		"Program for creating mock star catalogs",
-		version,
-		Authorship::majuric
-	);
+	std::string cmd, input, output;
+	std::map<std::string, boost::shared_ptr<Options> > sopts;
+	Options opts(argv[0], progdesc, version, Authorship::majuric);
+	opts.argument("cmd").bind(cmd).desc(
+		"What to make. Can be one of:\n"
+		"  footprint - \tcalculate footprint of a set of runs on the sky\n"
+		"    pskymap - \tconstruct a partitioned sky map given a set of runs on the sky\n"
+		"       beam - \tcalculate footprint of a single conical beam\n"
+		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
+		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
+		);
+	opts.stop_after_final_arg = true;
+	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
+	opts.add_standard_options();
 
-	//# add any arguments your program needs. eg:
-/*	opts.argument("north", "Configuration file for northern hemisphere.");
-	opts.argument("south", "Configuration file for southern hemisphere.");*/
-	opts.argument("cmd", "What to make. Can be 'footprint', 'beam', 'pdf', 'catalog' or 'pskymap'");
-	opts.argument("conf", "Configuration file for the Bahcall-Soneira model, or if cmd=footprint, the file with the set of runs for which to calculate footprint.");
-	opts.argument("output", "Name of the output file (needed for cmd='pdf')");
+	Radians dx;
+	sopts["pskymap"].reset(new Options(argv0 + " pskymap", progdesc + " Partitioned sky map generation subcommand.", version, Authorship::majuric));
+	sopts["pskymap"]->argument("footprint").bind(input).desc("Footprint polygon file (input)");
+	sopts["pskymap"]->argument("output").bind(output).desc("Partitioned sky map file (output)");
+	sopts["pskymap"]->argument("dx").bind(dx).optional().def_val("4").desc("Partitioned map linear pixel size (degrees)");
+	sopts["pskymap"]->add_standard_options();
+
+	sopts["footprint"].reset(new Options(argv0 + " footprint", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));
+	sopts["footprint"]->argument("conf").bind(input).desc("Footprint configuration file");
+	sopts["footprint"]->prolog = 
+		"Input run list filename is read from $footprint_runs configuration variable. "
+		"Output filename is read from $footprint confvar.";
+	sopts["footprint"]->add_standard_options();
+
+	sopts["beam"].reset(new Options(argv0 + " beam", progdesc + " Conical beam footprint polygon generation subcommand.", version, Authorship::majuric));
+	sopts["beam"]->argument("conf").bind(input).desc("Footprint configuration file (input)");
+	sopts["beam"]->prolog = "The direction and width of the beam are read from $footprint_beam confvar.\n"
+		"The output is stored into file $footprint.";
+	sopts["beam"]->add_standard_options();
+
+	sopts["pdf"].reset(new Options(argv0 + " pdf", progdesc + " Cumulative probability density function (CPDF) generation subcommand.", version, Authorship::majuric));
+	sopts["pdf"]->argument("conf").bind(input).desc("CPDF (\"sky\") configuration file (input)");
+	sopts["pdf"]->argument("output").bind(output).desc("CPDF file (output) ");
+	sopts["pdf"]->add_standard_options();
+
+	bool simpleOutput = false;
+	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
+	sopts["catalog"]->argument("conf").bind(input).desc("Catalog (\"sim\") configuration file (input)");
+	sopts["catalog"]->argument("output").bind(output).desc("Generated catalog prefix (output)");
+	sopts["catalog"]->option("s").bind(simpleOutput).addname("simple").value("true").desc("Generate simple .txt output");
+	sopts["catalog"]->prolog = 
+		"The output is stored by default in $(output)/uniq_objects.dmm and $(output)/uniq_observations.dmm DMM files.\n"
+		"If -s is specified, simple textual output is stored to file $(output).";
+	sopts["catalog"]->add_standard_options();
 
 	// ./simulate.x footprint runs.txt prefix
 	// ./simulate.x pdf north.conf north.pdf.bin
 	// ./simulate.x pdf south.conf south.pdf.bin
 	// ./simulate.x catalog sim.conf
 
-// 	std::string cmd;
-// 	{ // setup arguments and options
-// 		using namespace peyton::system::opt;
-// 
-// 		opts.option("just-info", binding(justinfo), arg_none, desc("Just print the information about what will be done, do no actual work. Works only for some subcommands."));
-// 	}
-
-	// add any options your program might need. eg:
-	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
-
-	std::string cmd, confFn, output;
-	try {
-		opts.parse(argc, argv);
-		cmd = opts["cmd"];
-		if(cmd != "pskymap" && cmd != "beam" && cmd != "footprint" && cmd != "pdf" && cmd != "catalog") { THROW(EOptions, "Argument 'cmd' must be one of 'pdf' or 'catalog'"); }
-		confFn = opts["conf"];
-		output = opts["output"];
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
+	//
+	// Parse
+	//
+	Options::option_list optlist;
+	parse_options(optlist, opts, argc, argv);
+	if(sopts.count(cmd))
+	{
+		parse_options(*sopts[cmd], optlist);
+	}
+	else
+	{
+		ostringstream ss;
+		ss << "Unrecognized subcommand `" << cmd << "'";
+		print_options_error(ss.str(), opts);
+		return -1;
 	}
 
 	/////// Start your application code here
+
 //	simulate();
 // Activate this to calculate sky coverage polygons
 
@@ -2111,18 +2146,21 @@ try
 	if(cmd == "pskymap")
 	{
 		partitioned_skymap sky;
-		Radians dx = rad(4.);
+		dx = rad(dx);
 
-		make_skymap(sky, dx, "north.gpc.txt");
-		{ std::ofstream f("north.pskymap.bin"); io::obstream out(f); out << sky; }
+		make_skymap(sky, dx, input);
+		{ std::ofstream f(output.c_str()); io::obstream out(f); out << sky; }
 
-		make_skymap(sky, dx, "south.gpc.txt");
-		{ std::ofstream f("south.pskymap.bin"); io::obstream out(f); out << sky; }
+// 		make_skymap(sky, dx, "north.gpc.txt");
+// 		{ std::ofstream f("north.pskymap.bin"); io::obstream out(f); out << sky; }
+// 
+// 		make_skymap(sky, dx, "south.gpc.txt");
+// 		{ std::ofstream f("south.pskymap.bin"); io::obstream out(f); out << sky; }
 
 		return 0;
 	}
 
-	ifstream in(confFn.c_str()); ASSERT(in);
+	ifstream in(input.c_str()); ASSERT(in);
 	if(cmd == "footprint")
 	{
 		Config cfg; cfg.load(in);
@@ -2200,15 +2238,23 @@ try
 		// ./simulate.x catalog sim.conf dmmwriter.conf
 		sky_generator skygen(in);
 
-#if 0
-		star_output_to_dmm cat_out("uniq_objects.dmm", "uniq_observations.dmm", true);
-#else	// simple debug dump to file
-		std::ofstream out("sky.sim.txt");
-		star_output_to_textstream cat_out(out);
-#endif
-		skygen.montecarlo(cat_out);
-
-//		cat_out.close();
+		if(!simpleOutput)
+		{
+			std::cerr << "DMM output.\n";
+			star_output_to_dmm cat_out(output + "/uniq_objects.dmm", output + "/uniq_observations.dmm", true);
+			skygen.montecarlo(cat_out);
+		}
+		else
+		{
+			std::cerr << "Simple text file output.\n";
+			std::ofstream out(output.c_str());
+			star_output_to_textstream cat_out(out);
+			skygen.montecarlo(cat_out);
+		}
+	}
+	else
+	{
+		ASSERT(0);
 	}
 	return 0;
 }

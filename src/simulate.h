@@ -175,6 +175,7 @@ struct star_output_function
 	typedef peyton::Radians Radians;
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
+	virtual ~star_output_function() {}
 };
 
 struct star_output_to_dmm : star_output_function

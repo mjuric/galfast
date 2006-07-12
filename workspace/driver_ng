@@ -31,12 +31,19 @@ if(! $?CMD ) then
 	exit -1;
 endif
 
-if(! -f $RUNSET/bins.txt) then
+if(! -f $WORKSPACE/$RUNSET/bins.txt) then
 	echo "Cannot open $RUNSET/bins.txt. Aborting.\n";
 	exit -1;
 endif
 
-set specs = (`cat $RUNSET/bins.txt | grep -v "^#.*" | head -n $MAP | tail -n 1`)
+# source environment variables
+if(-d $WORKSPACE/$RUNSET/vars) then
+	foreach i (`ls $WORKSPACE/$RUNSET/vars`)
+		setenv $i `cat $WORKSPACE/$RUNSET/vars/$i`
+	end
+endif
+
+set specs = (`cat $WORKSPACE/$RUNSET/bins.txt | grep -v "^#.*" | head -n $MAP | tail -n 1`)
 set RI0 = $specs[1]; set RI1 = $specs[2];
 set DX0 = $specs[3]; set NDX = $specs[4];
 set R0  = $specs[5]; set R1  = $specs[6];
@@ -106,4 +113,5 @@ breaksw;
 default:
 	echo Unknown command $CMD. Aborting.
 	exit -1;
+breaksw;
 endsw;

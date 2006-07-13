@@ -146,6 +146,7 @@ void model_fitter::print(ostream &out, int format)
 	switch(format)
 	{
 	case PRETTY:
+		out << io::format("%15s = (%.3f, %.3f)") << "ri" << ri.first << ri.second << "\n";
 		out << io::format("%15s = %d") << "n(DOF)" << ndof() << "\n";
 		out << io::format("%15s = %.5g") << "chi^2/dof" << chi2_per_dof << "\n";
 		out << io::format("%15s = %.5g") << "eps{abs,rel}" << epsabs << " " << epsrel << "\n";

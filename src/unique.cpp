@@ -1081,8 +1081,9 @@ int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: unique.cpp,v 1.9 2006/07/13 23:27:30 mjuric Exp $");
 	Options opts(
+		argv[0],
 		"Identify observations of unique objects, and generate a lookup table. The code "
 		"assumes the observations in the catalog are sorted in time-ascending order.",
 		version, Authorship::majuric
@@ -1115,28 +1116,23 @@ try
 		using namespace peyton::system::opt;
 
 		opts.argument("inputCatalog", "Input catalog file"); //, Option::optional);
-#if 0
-		opts.argument("run_col", "Column where run is stored, for cattype=text (1-based index, default = 1)", Option::optional);
-		opts.argument("ra_col", "Column where R.A. is stored, for cattype=text (1-based index, default = 2)", Option::optional);
-		opts.argument("dec_col", "Column where delta is stored, for cattype=text (1-based index, default = 3)", Option::optional);
-#endif
 
-		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters."));
-		opts.option("radius", binding(match_radius), shortname('r'), desc("Match radius (arcsec)"));
-		opts.option("map-resolution", binding(map_resolution), shortname('m'), desc("Size of bins into which the sky is divided while matching (arcsec). Has to be greater than 2*radius."));
-		opts.option("type", binding(cattype), desc("Type of the input catalog (valid choices are 'fits' and 'text'"));
-		opts.option('f', binding(filter), name("filter"), desc("Turn on filtering of input catalog to reduce the number of input stars"));
-		opts.option("one-per-run", binding(one_per_run), desc("If set to true, only one object observation per run will be allowed while matching. Usually the right thing to do, except in really weird situations."));
-		opts.option("group-dir", binding(output_dir), desc("Directory where the group table and index will be stored"));
-		opts.option("group-table-file", binding(lutfn), desc("Name of the group table file"));
-		opts.option("group-index-file", binding(indexfn), desc("Name of the group index file"));
-		opts.option("tmp-dir", binding(tmp_dir), desc("Directory where the temporary lookup file, used while matchin, will be stored."));
-		opts.option("tmp-lookup-file", binding(tmp_fn), desc("Name of the temporary lookup file. This file can be deleted after the matching is complete."));
-		opts.option("fits-files-pattern", binding(fitsfilepat), desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)"));
+		opts.option("stage").bind(stage).def_val("stats").desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters.");
+		opts.option("r").bind(match_radius).def_val("1").addname("radius").desc("Match radius (arcsec)");
+		opts.option("m").bind(map_resolution).def_val("60").addname("map-resolution").desc("Size of bins into which the sky is divided while matching (arcsec). Has to be greater than 2*radius.");
+		opts.option("type").bind(cattype).def_val("fits").desc("Type of the input catalog (valid choices are 'fits' and 'text'");
+		opts.option("f").bind(filter).def_val("false").addname("filter").desc("Turn on filtering of input catalog to reduce the number of input stars");
+		opts.option("one-per-run").bind(one_per_run).def_val("true").desc("If set to true, only one object observation per run will be allowed while matching. Usually the right thing to do, except in really weird situations.");
+		opts.option("group-dir").bind(output_dir).def_val(".").desc("Directory where the group table and index will be stored");
+		opts.option("group-table-file").bind(lutfn).def_val("match_groups.lut").desc("Name of the group table file");
+		opts.option("group-index-file").bind(indexfn).def_val("match_index.dmm").desc("Name of the group index file");
+		opts.option("tmp-dir").bind(tmp_dir).def_val(".").desc("Directory where the temporary lookup file, used while matchin, will be stored.");
+		opts.option("tmp-lookup-file").bind(tmp_fn).def_val("catlookup.dmm").desc("Name of the temporary lookup file. This file can be deleted after the matching is complete.");
+		opts.option("fits-files-pattern").bind(fitsfilepat).def_val("fitsfilepat").desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)");
 	}
 
 	try {
-		opts.parse(argc, argv);
+		parse_options(opts, argc, argv);
 		if(opts.found("inputCatalog")) { inputCatalog = opts["inputCatalog"]; }
 
 		if(find(stages.begin(), stages.end(), stage) == stages.end())
@@ -1148,7 +1144,7 @@ try
 		if(2*match_radius > map_resolution)
 			{ THROW(EOptions, "2*match-radius must be less than map-resolution"); }
 	} catch(EOptions &e) {
-		cout << opts.usage(argv);
+		opts.help(cerr);
 		e.print();
 		exit(-1);
 	}

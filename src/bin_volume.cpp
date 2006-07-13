@@ -60,9 +60,10 @@ int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: bin_volume.cpp,v 1.3 2006/07/13 23:27:30 mjuric Exp $");
 
 	Options opts(
+		argv[0],
 		"This program has not been described",
 		version,
 		Authorship::majuric
@@ -76,40 +77,30 @@ try
 	opts.argument("run", "Run number or text file with list of runs, or binned unique volume file, if <uniqMapFn> is specified");
 	opts.argument("dx", "Scale of a pixel of sampled volume [pc]");
 	opts.argument("ndx", "How many sampled volume pixels to bin into one binned volume pixel [even integer]");
-	opts.argument("uniqMapFn", "Filename which contains map of unique volume", Option::optional);
+	opts.argument("uniqMapFn", "Filename which contains map of unique volume").optional();
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 	bool justinfo = false;
-	{ // setup arguments and options
-		using namespace peyton::system::opt;
+	opts.option("just-info").bind(justinfo).param_none().desc("Just print the information about what will be done, do no actual work. Works only for some subcommands.");
 
-		opts.option("just-info", binding(justinfo), arg_none, desc("Just print the information about what will be done, do no actual work. Works only for some subcommands."));
-	}
+	opts.option("type", "Type of binning to perform ('gc', 'plane' and 'cyl' are defined)").param_required();
+	opts.option("coordsys", "Coordinate system used for x0...xn ('equ' is the default, 'gal' and 'galcart' are available)").param_required();
 
-	opts.option_arg("type", "Type of binning to perform ('gc', 'plane' and 'cyl' are defined)");
-	opts.option_arg("coordsys", "Coordinate system used for x0...xn ('equ' is the default, 'gal' and 'galcart' are available)");
+	opts.option("node", "Great circle node [deg] (for use with --type=gc)").param_required();
+	opts.option("inc", "Great circle inclination [deg] (for use with --type=gc)").param_required();
+	opts.option("nu", "Great circle nu range [deg] - everything in [-nu, nu) will be selected (for use with --type=gc)").param_required();
 
-	opts.option_arg("node", "Great circle node [deg] (for use with --type=gc)");
-	opts.option_arg("inc", "Great circle inclination [deg] (for use with --type=gc)");
-	opts.option_arg("nu", "Great circle nu range [deg] - everything in [-nu, nu) will be selected (for use with --type=gc)");
-	
-	opts.option_arg("x1", "Coordinates of the 1st point in the plane (the object), in 'dist,ra,dec' format - eg. --x1=\"5443,342.4221,11.3223\" [pc,deg,deg] (for use with --type=plane)");
-	opts.option_arg("x2", "Coordinates of the 2nd point in the plane (for use with --type=plane)");
-	opts.option_arg("x3", "Coordinates of the 3rd point in the plane (for use with --type=plane)");
-	opts.option_arg("x0", "Coordinates of the origin point (for use with --type=plane). This point will become (0,0,0) point in plane coordinates.");
-	opts.option_arg("earthonaxis", "If nonzero, the x axis will be constructed by projecting the x1->x2 direction to vector pointing from the galactic center to Earth. (for use with --type=plane)", "0");
-	opts.option_arg("delta", "Halfthickness of the plane to bin (for use with --type=plane)");
+	opts.option("x1", "Coordinates of the 1st point in the plane (the object), in 'dist,ra,dec' format - eg. --x1=\"5443,342.4221,11.3223\" [pc,deg,deg] (for use with --type=plane)").param_required();
+	opts.option("x2", "Coordinates of the 2nd point in the plane (for use with --type=plane)").param_required();
+	opts.option("x3", "Coordinates of the 3rd point in the plane (for use with --type=plane)").param_required();
+	opts.option("x0", "Coordinates of the origin point (for use with --type=plane). This point will become (0,0,0) point in plane coordinates.").param_required();
+	opts.option("earthonaxis", "If nonzero, the x axis will be constructed by projecting the x1->x2 direction to vector pointing from the galactic center to Earth. (for use with --type=plane)").def_val("0").param_required();
+	opts.option("delta", "Halfthickness of the plane to bin (for use with --type=plane)").param_required();
 
-	opts.option_arg("phi0", "Zero point of galactocentric phi angle, in degrees (for use with --type=cyl)", "0");
+	opts.option("phi0", "Zero point of galactocentric phi angle, in degrees (for use with --type=cyl)").def_val("0").param_required();
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	/////// Start your application code here
 	pair<double, double> x1, x2, x3, x0;
@@ -140,7 +131,7 @@ try
 		}
 		else
 		{
-			die("Unknown option " + opts["type"] + "\n\n" + opts.usage());
+			die("Unknown option " + opts["type"] + "\n");
 		}
 	}
 

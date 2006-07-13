@@ -38,9 +38,10 @@ int main(int argc, char **argv)
 //	test_intervals(); return 0;
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: raytrace_main.cpp,v 1.2 2006/07/13 23:27:30 mjuric Exp $");
 
 	Options opts(
+		argv[0],
 		"\
 	Bla bla",
 		version,
@@ -54,13 +55,7 @@ try
 	opts.argument("run", "Run number or a file which contains runs to flatten");
 	opts.argument("dx", "Sampling scale [pc/pixel]");
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	/////// Now start with the real busyness //////
 	

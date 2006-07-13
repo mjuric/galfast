@@ -60,8 +60,9 @@ main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: dm.cpp,v 1.11 2006/07/13 23:27:30 mjuric Exp $");
 	Options opts(
+		argv[0],
 		"Create the unique object catalog.",
 		version, Authorship::majuric
 	);
@@ -90,31 +91,28 @@ try
 	container(cattypes) = "fits", "text";
 	int info_fitsid = 0;
 
-	{ // setup arguments and options
-		using namespace peyton::system::opt;
+	opts.argument("inputCatalog", "Input catalog file"); //, Option::optional);
 
-		opts.argument("inputCatalog", "Input catalog file"); //, Option::optional);
+	opts.option("stage").bind(stage).desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters.");
+	opts.option("type").bind(cattype).desc("Type of the input catalog (valid choices are 'fits' and 'text'");
 
-		opts.option("stage", binding(stage), desc("Execute a stage of matching algorithm. Can be one of " + allstages + ". Special value 'all' causes all stages to be executed in sequence, value 'none' executes nothing and prints a summary of parameters."));
-		opts.option("type", binding(cattype), desc("Type of the input catalog (valid choices are 'fits' and 'text'"));
+	opts.option("group-dir").bind(group_dir).desc("Directory where the group table and index will be stored");
+	opts.option("group-table-file").bind(lutfn).desc("Name of the group table file");
+	opts.option("group-index-file").bind(indexfn).desc("Name of the group index file");
 
-		opts.option("group-dir", binding(group_dir), desc("Directory where the group table and index will be stored"));
-		opts.option("group-table-file", binding(lutfn), desc("Name of the group table file"));
-		opts.option("group-index-file", binding(indexfn), desc("Name of the group index file"));
+	opts.option("tmp-dir").bind(tmp_dir).desc("Directory where the temporary lookup file, used while creating the object catalog, will be stored.");
+	opts.option("tmp-lookup-prefix").bind(tmp_prefix).desc("Prefix of temporary lookup files.");
 
-		opts.option("tmp-dir", binding(tmp_dir), desc("Directory where the temporary lookup file, used while creating the object catalog, will be stored."));
-		opts.option("tmp-lookup-prefix", binding(tmp_prefix), desc("Prefix of temporary lookup files."));
+	opts.option("fits-files-pattern").bind(fitsfilepat).desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)");
 
-		opts.option("fits-files-pattern", binding(fitsfilepat), desc("sscanf-formatted shell pattern to resolve path to files of a run (used with --type=fits)"));
+	opts.option("object-dir").bind(object_dir).desc("Directory where the output object catalog files will be stored.");
+	opts.option("object-catalog-prefix").bind(object_prefix).desc("Prefix of output object catalog files.");
 
-		opts.option("object-dir", binding(object_dir), desc("Directory where the output object catalog files will be stored."));
-		opts.option("object-catalog-prefix", binding(object_prefix), desc("Prefix of output object catalog files."));
+	opts.option("info-fitsid").bind(info_fitsid).desc("fitsID of the observation for which to get the info (use with --stage=info).");
 
-		opts.option("info-fitsid", binding(info_fitsid), desc("fitsID of the observation for which to get the info (use with --stage=info)."));
-	}
-
+	
 	try {
-		opts.parse(argc, argv);
+		parse_options(opts, argc, argv);
 		if(opts.found("inputCatalog")) { inputCatalog = opts["inputCatalog"]; }
 
 		if(find(stages.begin(), stages.end(), stage) == stages.end())
@@ -124,7 +122,7 @@ try
 		if(inputCatalog != "-" && !Filename(inputCatalog).exists())
 			{ THROW(EOptions, "Input catalog file '" + inputCatalog + "' does not exist or is inaccessible"); }
 	} catch(EOptions &e) {
-		cout << opts.usage(argv);
+		opts.usage(cerr);
 		e.print();
 		exit(-1);
 	}
@@ -200,7 +198,7 @@ try
 
 	if(stage == "help")
 	{
-		cout << opts.usage(argv);
+		opts.help(cerr);
 		return -1;
 	}
 #if 0

@@ -23,8 +23,6 @@ sub trim(\$)
 sub filter
 {
 	my $PI = 3.14159;
-	
-	return 1;
 
 	my ($r, $rphi, $z) = @_;
 	my $phi = ($r != 0 ? $rphi/$r : 0) - $PI;
@@ -42,8 +40,8 @@ sub filter
 	# This used to be the filter for astro-ph version of photom. paralax
 	##if(13000 < $r && $r < 19000 && 0 < $z && $z < 5000) { return 0; }
 	##if(16000 < $r && $r < 19000 && 0 < $z && $z < 7000) { return 0; }
-	if(14000 < $r && $r < 22000 && 0 < $z && $z < 7000) { return 0; }
-	if(16000 < $r && $r < 22000 && 0 < $z && $z < 10000) { return 0; }
+	###if(14000 < $r && $r < 22000 && 0 < $z && $z < 7000) { return 0; }
+	###if(16000 < $r && $r < 22000 && 0 < $z && $z < 10000) { return 0; }
 
 	# Close by (just for testing, the fitter should apply this cut)
 	#if(abs($z) < 1000) { return 0; }

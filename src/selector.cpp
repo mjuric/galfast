@@ -227,7 +227,8 @@ public:
 	{
 		pair<float, float> range;
 		sdss_color color;
-	} m_color;
+	};
+	vector<m_color_t> m_color_vec;
 	struct m_sigma_t
 	{
 		pair<float, float> range;
@@ -471,7 +472,7 @@ public:
 	ostream &out;
 	std::string filename;	// filename of the output stream (or the description, if it's not a file)
 	int nselected;	// number of records selected
-	std::map<int, int> nrejected;
+	std::map<int, std::map<int, int> > nrejected;
 
 	bool running;
 public:
@@ -780,6 +781,7 @@ bool selector::select(mobject m)
 {
 	bool selected = true;
 	int lastfilter = 0;
+	int lastfilterinstance = 0;
 
 	//print_mobject(cout, m);
 
@@ -849,10 +851,15 @@ bool selector::select(mobject m)
 	}
 	FILTER(F_COLOR)
 	{
-		float c = m.field(m_color.color);
-		selected = between(c, (pair<float,float>)m_color.range);
-/*		if(c > 1 && selected)
-			std::cerr << m_color.range.first << " " << m_color.range.second << " " << c << "\n";*/
+		FOREACH(m_color_vec)
+		{
+			m_color_t &m_color = *i;
+			float c = m.field(m_color.color);
+			selected = between(c, (pair<float,float>)m_color.range);
+/*			if(c > 1 && selected)
+				std::cerr << m_color.range.first << " " << m_color.range.second << " " << c << "\n";*/
+			if(!selected) { lastfilterinstance = i - m_color_vec.begin(); break; }
+		}
 	}
 	FILTER(F_SIGMA)
 	{
@@ -920,8 +927,8 @@ bool selector::select(mobject m)
 		if(lastfilter)
 		{
 			// record which filter deselected this object
-			if(nrejected.count(lastfilter)) { nrejected[lastfilter]++; }
-			else nrejected[lastfilter] = 0;
+			if(nrejected.count(lastfilter)) { nrejected[lastfilter][lastfilterinstance]++; }
+			else nrejected[lastfilter][lastfilterinstance] = 0;
 		}
 		return false;
 	}
@@ -1709,9 +1716,13 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		std::string color;
 		double c1, c2;
 		ss >> color >> c1 >> c2; ASSERT(!ss.fail());
+		m_color_t m_color;
 		m_color.color.set(color);
 		m_color.range = make_pair(c1, c2);
+
+		m_color_vec.push_back(m_color);
 		filters |= F_COLOR;
+
 		out << "# color filter active\n";
 		out << m_color;
 		out << "#\n";
@@ -1891,7 +1902,10 @@ void driver::run()
 		std::cerr << (*j).s->filename << " : " << (*j).s->nselected << " records selected.\n";
 		FOREACH((*j).s->nrejected)
 		{
-			std::cerr << "\t" << (*i).second << " rejected due to " << filterName((*i).first) << "\n";
+			FOREACHj(k, (*i).second)
+			{
+				std::cerr << "\t" << (*k).second << " rejected due to " << filterName((*i).first) << ", instance " << (*k).first << "\n";
+			}
 		}
 	}
 }
@@ -1958,32 +1972,21 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.16 2006/07/13 23:27:30 mjuric Exp $");
 	Options opts(
-		"Query the unique object & observation database using our own selection language.",
+		argv[0],
+		"Unique object & observation database query tool.",
 		version, Authorship::majuric
 	);
 
-	std::string
-		obj_cat_fn = "uniq_objects.dmm",
-		obs_cat_fn = "uniq_observations.dmm",
-		query_fn = "-";
+	std::string obj_cat_fn, obs_cat_fn, query_fn;
 
-	try { // setup arguments and options
-		using namespace peyton::system::opt;
-		opts.argument("queryFile", "Input query file, will use STDIN if not specified.", Option::optional);
+	opts.argument("queryFile").bind(query_fn).optional().def_val("-").desc("Query specification file or - for stdin");
+	opts.option("s").bind(obj_cat_fn).param_required().def_val("uniq_objects.dmm").addname("objCat").desc("Object catalog");
+	opts.option("o").bind(obs_cat_fn).param_required().def_val("uniq_observations.dmm").addname("obsCat").desc("Observation catalog");
+	opts.add_standard_options();
 
-		opts.option("objCat", binding(obj_cat_fn), shortname('s'), desc("Filename of object catalog (DMM file)"));
-		opts.option("obsCat", binding(obs_cat_fn), shortname('o'), desc("Filename of observation catalog (DMM file)"));
-
-		opts.parse(argc, argv);
-		
-		if(opts.found("queryFile")) { query_fn = opts["queryFile"]; }
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	// open the "database"
 	driver db(obj_cat_fn, obs_cat_fn);

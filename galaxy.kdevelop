@@ -19,8 +19,8 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/simulate.x</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <activetarget>src/fitter.x</activetarget>
+      <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>

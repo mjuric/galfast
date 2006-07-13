@@ -61,7 +61,7 @@
 		
 		exit(0);
 	}
-	
+#if 0	
 	void test4(int argc, char **argv)
 	{
 		//
@@ -89,6 +89,7 @@
 		}
 		exit(0);
 	}
+#endif
 
 #if 0
 			magick::LogTransfer <typeof(counts)> trans(counts);

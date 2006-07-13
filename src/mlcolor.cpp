@@ -37,9 +37,10 @@ int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: mlcolor.cpp,v 1.3 2006/07/13 23:27:30 mjuric Exp $");
 
 	Options opts(
+		argv[0],
 		"\
 	Bla bla",
 		version,
@@ -49,13 +50,7 @@ try
 	opts.argument("toColor", "Which color is the output (then, the other one must be specified on input). Valid values are 'ri' and 'gr'");
 	opts.argument("color");
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 #if 0
 	/////// Now start with the real busyness //////
 	float color = opts["color"];

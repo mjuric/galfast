@@ -348,7 +348,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 			if(modelname == "mean1.20")
 			{
 				if(pix.N < 5) { continue; }
-				if(pix.z < 0) { continue; }
+//				if(pix.z < 0) { continue; }
 				double phi = deg(atan2(pix.z,pix.r-8000));
 //				std::cerr << phi << "\n";
 				if(between(phi, 0, 21.13223943)) { continue; }
@@ -357,6 +357,17 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, -42.71778654, 0)) continue;
 				if(pix.r < 7277.44 && pix.z > 0) continue;
 				if(pix.r > 8800 && pix.z > 0) continue;
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 18) && pix.z > 0) continue;
+
+				if(pix.r < 7500 && pix.z > 0) { continue; }
+#endif
 			}
 			if(modelname == "mean1.10")
 			{
@@ -372,6 +383,18 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, -42.71778654, 0)) continue;
 				if(pix.r < 7277.44 && pix.z > 0) continue;
 				if(pix.r > 8800 && pix.z > 0) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 18) && pix.z > 0) continue;
+
+				if(pix.r < 7500 && pix.z > 0) { continue; }
+#endif
 			}
 			if(modelname == "mean1.00")
 			{
@@ -391,6 +414,18 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 
 				if(between(phi, 146.9277825, 180)) continue;
 				if(pix.r < 6523.71 && pix.z > 0) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 18) && pix.z > 0) continue;
+
+				if(pix.r < 7500 && pix.z > 0) { continue; }
+#endif
 			}
 			if(modelname == "mean0.90")
 			{
@@ -405,10 +440,17 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, -180, -141.2091266)) continue;
 				if(between(phi, -42.71778654, 0)) continue;
 				
+#if 0
 				// r=9.5 overdensity cutout
 				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
 				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 18) && pix.z > 0) continue;
 
+				if(pix.r < 7500 && pix.z > 0) { continue; }
+#endif
 				// bottom overdensity
 				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -1125.87)) continue;
 
@@ -438,7 +480,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
 				if(between(phi2, -90, 18) && pix.z > 0) continue;
 
-				if(pix.r < 8000 && pix.z > 0) { continue; }
+				if(pix.r < 7500 && pix.z > 0) { continue; }
 #endif
 				// bottom overdensity
 				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -1125.87)) continue;
@@ -508,6 +550,77 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				// left error?
 				if(between(phi, 146.9277825, 180)) continue;
 				if(pix.r < 6299.89 && pix.z > 0) continue;
+
+				// remove halo
+				if(sqr(pix.r/1000 - 8) > sqr(2.5) && pix.r > 8000) continue;
+			}
+			if(modelname == "mean0.55")
+			{
+				// remove the overdensity
+//-//				if(pix.z > 0 && pix.r > 8500) { continue; }
+				if(pix.N < 5) { continue; }
+//				if(pix.z < 0) { continue; }
+				double phi = deg(atan2(pix.z,pix.r-8000));
+//				std::cerr << phi << "\n";
+				if(between(phi, 0, 21.13223943)) { continue; }
+				if(between(phi, -135.6400888, -121.3379493)) { continue; }
+				if(between(phi, -180, -141.2091266)) continue;
+				if(between(phi, -42.71778654, 0)) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 14.6) && pix.z > 0) continue;
+
+				if(pix.r < 8000 && pix.z > 0) { continue; }
+#endif
+				// bottom overdensity
+				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -1125.87)) continue;
+
+				// left error?
+				if(between(phi, 146.9277825, 180)) continue;
+				if(pix.r < 6299.89 && pix.z > 0) continue;
+
+				// remove halo
+				if(sqr(pix.r/1000 - 8) > sqr(2.5) && pix.r > 8000) continue;
+			}
+ 			if(modelname == "mean0.35")
+			{
+				// remove the overdensity
+//-//				if(pix.z > 0 && pix.r > 8500) { continue; }
+				if(pix.N < 5) { continue; }
+//				if(pix.z < 0) { continue; }
+				double phi = deg(atan2(pix.z,pix.r-8000));
+//				std::cerr << phi << "\n";
+				if(between(phi, 0, 21.13223943)) { continue; }
+				if(between(phi, -135.6400888, -121.3379493)) { continue; }
+				if(between(phi, -180, -141.2091266)) continue;
+				if(between(phi, -42.71778654, 0)) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=6.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 14.6) && pix.z > 0) continue;
+
+				if(pix.r < 8000 && pix.z > 0) { continue; }
+#endif
+				// bottom overdensity
+				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -1125.87)) continue;
+
+				// left error?
+				if(between(phi, 146.9277825, 180)) continue;
+				if(pix.r < 6299.89 && pix.z > 0) continue;
+
+				// remove halo
+				if(sqr(pix.r/1000 - 8) > sqr(2.5) && pix.r > 8000) continue;
 			}
 			if(modelname == "mean0.10")
 			{
@@ -540,10 +653,10 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, 146.9277825, 180)) continue;
 				if(pix.r < 6299.89 && pix.z > 0) continue;
 			}
-			if(modelname == "mean0.35")
+/*			if(modelname == "mean0.35")
 			{
 				if(between(pix.r, 5000, 8000) && between(pix.z, 0, 2500)) { continue; }
-			}
+			}*/
 		}
 		else if(how == "halo")
 		{
@@ -613,6 +726,40 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 #endif
 				// bottom overdensity
 				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -2000.87)) continue;
+
+				// left error?
+				if(between(phi, 146.9277825, 180)) continue;
+				if(pix.r < 6299.89 && pix.z > 0) continue;
+
+				if(!(abs(pix.z) >= 300)) continue;
+			}
+			if(modelname == "mean0.55")
+			{
+				// remove the overdensity
+//-//				if(pix.z > 0 && pix.r > 8500) { continue; }
+				if(pix.N < 5) { continue; }
+//				if(pix.z < 0) { continue; }
+				double phi = deg(atan2(pix.z,pix.r-8000));
+//				std::cerr << phi << "\n";
+				if(between(phi, 0, 21.13223943)) { continue; }
+				if(between(phi, -135.6400888, -121.3379493)) { continue; }
+				if(between(phi, -180, -141.2091266)) continue;
+				if(between(phi, -42.71778654, 0)) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 14.6) && pix.z > 0 && pix.r < 10500) continue;
+
+				// r=6.5 overdensity cutout
+				if(pix.r < 8000 && pix.z > 0 && pix.z < 3000) { continue; }
+#endif
+				// bottom overdensity
+				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -1125.87)) continue;
 
 				// left error?
 				if(between(phi, 146.9277825, 180)) continue;
@@ -709,8 +856,8 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
 #else				
 				// r=9.5 overdensity cutout
-				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
-				if(between(phi2, -90, 14.6) && pix.z > 0 && pix.r < 10500) continue;
+			//	double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+			//	if(between(phi2, -90, 14.6) && pix.z > 0 && pix.r < 10500) continue;
 
 				// r=6.5 overdensity cutout
 				if(pix.r < 8000 && pix.z > 0 && pix.z < 3000) { continue; }
@@ -723,7 +870,49 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, 146.9277825, 180)) continue;
 				//if(pix.r < 6299.89 && pix.z > 0) continue;
 
-				if(!(abs(pix.z) >= 300)) continue;
+				// reject small runs beyond Virgo
+				//if(pix.r < 4000 && pix.z > 0) { continue; }
+
+				if(!(abs(pix.z) >= 1000)) continue;
+				
+			}
+			if(modelname == "mean0.30")
+			{
+				// remove the overdensity
+//-//				if(pix.z > 0 && pix.r > 8500) { continue; }
+				if(pix.N < 5) { continue; }
+//				if(pix.z < 0) { continue; }
+				double phi = deg(atan2(pix.z,pix.r-8000));
+//				std::cerr << phi << "\n";
+				if(between(phi, 0, 21.13223943)) { continue; }
+				if(between(phi, -135.6400888, -121.3379493)) { continue; }
+				if(between(phi, -180, -141.2091266)) continue;
+				if(between(phi, -42.71778654, 0)) continue;
+
+#if 0
+				// r=9.5 overdensity cutout
+				double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+				if(between(phi2, -90, 27.81) && pix.z > 0) continue;
+#else				
+				// r=9.5 overdensity cutout
+			//	double phi2 = deg(atan2(pix.z-750.139,pix.r-8639.45));
+			//	if(between(phi2, -90, 14.6) && pix.z > 0 && pix.r < 10500) continue;
+
+				// r=6.5 overdensity cutout
+				if(pix.r < 8000 && pix.z > 0 && pix.z < 3000) { continue; }
+#endif
+				// bottom overdensity
+				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -5000.87)) continue;
+				//if(pix.r > 7051.67 && pix.z < -3772.78) continue;
+
+				// left error?
+				if(between(phi, 146.9277825, 180)) continue;
+				//if(pix.r < 6299.89 && pix.z > 0) continue;
+
+				// reject small runs beyond Virgo
+				//if(pix.r < 4000 && pix.z > 0) { continue; }
+
+				if(!(abs(pix.z) >= 1000)) continue;
 				
 			}
 			if(modelname == "mean0.25")
@@ -758,9 +947,11 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				// left error?
 				if(between(phi, 146.9277825, 180)) continue;
 				//if(pix.r < 6299.89 && pix.z > 0) continue;
-				if(pix.r < 4000) continue;
 
-				if(!(abs(pix.z) >= 300)) continue;
+				// reject small runs beyond Virgo
+				//if(pix.r < 4000 && pix.z > 0) { continue; }
+
+				if(!(abs(pix.z) >= 1000)) continue;
 				
 			}
 			if(modelname == "mean0.15")
@@ -829,16 +1020,17 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi2, -90, 14.6) && pix.z > 0 && pix.r < 10500) continue;
 
 				// r=6.5 overdensity cutout
-				if(pix.r < 8000 && pix.z > 0 && pix.z < 3000) { continue; }
+				if(pix.r > 4000 && pix.r < 8000 && pix.z > 0 && pix.z < 3000) { continue; }
 #endif
 				// bottom overdensity
 				if(between(pix.r, 8680.06, 50000) && between(pix.z, -50000, -5000.87)) continue;
 				//if(pix.r > 7051.67 && pix.z < -3772.78) continue;
+//				if(pix.z < 0) { continue; }
 
 				// left error?
 				if(between(phi, 146.9277825, 180)) continue;
 				//if(pix.r < 6299.89 && pix.z > 0) continue;
-				if(pix.r < 4000) continue;
+				//if(pix.r < 4000) continue;
 
 				if(!(abs(pix.z) >= 300)) continue;
 				
@@ -883,9 +1075,10 @@ int main(int argc, char **argv)
 	return fit_ng(argc, argv);
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.10 2006/07/13 23:27:30 mjuric Exp $");
 
 	Options opts(
+		argv[0],
 		"Program for fitting r-z dataplanes of the Galaxy",
 		version,
 		Authorship::majuric
@@ -898,13 +1091,7 @@ try
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	/////// Start your application code here
 	std::string binsfile = opts["binsfile"];
@@ -1085,33 +1272,22 @@ int fit_ng(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$id$");
 
-	Options opts(
-		"Program for fitting r-z dataplanes of the Galaxy",
-		version,
-		Authorship::majuric
-	);
+	Options opts(argv[0], "SDSS Galactic model fitter", version, Authorship::majuric);
 
+	std::string binsfile, how;
 	//# add any arguments your program needs. eg:
-	opts.argument("binsfile", "File from which to read a list of rz-dataplanes to fit.");
-	opts.argument("how", "Which component should be fitted [thin, thick, halo]");
+	opts.argument("fitparams", "Parameter file (a ``.fit file'') with initial fit parameters (input).").bind(binsfile);
+	opts.argument("method", "Which component should be fitted [thin, thick, halo] (input)").bind(how);
+	opts.add_standard_options();
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 
-	try {
-		opts.parse(argc, argv);
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
+	parse_options(opts, argc, argv);
 
 	/////// Start your application code here
-	std::string binsfile = opts["binsfile"];
-	std::string how = opts["how"];
-
 	model_fitter m;
 	
 	m.r = make_pair(float(15), float(21.5));
@@ -1143,6 +1319,7 @@ try
 	cfg.get(m.epsabs, "epsabs", m.epsabs);
 	cfg.get(m.epsrel, "epsrel", m.epsrel);
 	cfg.get(print_fitter_progress, "print_fitter_progress", false);
+	m.ri = cfg["ri"];
 
 //	cout << "# name ri0 ri1 chi2/dof rho0 l h z0 err(rho0 l h z0)\n";
 
@@ -1151,12 +1328,12 @@ try
 	FOR(0, nfits)
 	{
 		// assing initial parameters
-		FOREACH(params)
+		FOREACHj(j, params)
 		{
-			param_t &p = (*i).second;
+			param_t &p = (*j).second;
 			double val = p.range.first + gsl_rng_uniform(r)*(p.range.second - p.range.first);
-			m.set_param((*i).first, val, p.fixed);
-			std::cerr << (*i).first << " = " << val << " (fixed = " << p.fixed << ")\n";
+			m.set_param((*j).first, val, p.fixed);
+			std::cerr << (*j).first << " = " << val << " (fixed = " << p.fixed << ")\n";
 		}
 // 		m.print(cout, model_fitter::HEADING);
 // 		cout << "\n";
@@ -1181,15 +1358,16 @@ try
 		} catch(EAny &e) {
 			e.print();
 			std::cerr << "Fit failed.";
+			exit(-1);
 			continue;
 		}
 		m.print(cerr);
 		cerr << "\n";
 		cerr << "norm_thick = " << m.norm_at_Rg() << "\n";
 		
-		FOREACH(m.culled)
+		FOREACHj(j, m.culled)
 		{
-			rzpixel &pix = *i;
+			rzpixel &pix = *j;
 			cerr << pix.r << " " << pix.z << " " << pix.N << " " << pix.V << "\n";
 		}
 
@@ -1203,9 +1381,9 @@ try
 		rzfitfile = rzfitfile.replace(pos, strlen(".cleaned"), ".fitted");
 		std::ofstream out(rzfitfile.c_str());
 		out << "# input file: " << rzfile << "\n";
-		FOREACH(m.map)
+		FOREACHj(j, m.map)
 		{
-			rzpixel &pix = *i;
+			rzpixel &pix = *j;
 			out << std::setw(10) << pix.r << " " << pix.z << " 0 0 0 " << pix.N << " " << pix.V << " " << pix.N / pix.V << "\n";
 		}
 		out.close();
@@ -1225,5 +1403,7 @@ try
 catch(EAny &e)
 {
 	e.print();
+	return -1;
 }
+	return 0;
 }

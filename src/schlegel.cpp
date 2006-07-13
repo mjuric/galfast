@@ -278,9 +278,10 @@ int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version);
+	VERSION_DATETIME(version, "$Id: schlegel.cpp,v 1.6 2006/07/13 23:27:30 mjuric Exp $");
 
 	Options opts(
+		argv[0],
 		"This program has not been described",
 		version,
 		Authorship::majuric
@@ -293,15 +294,9 @@ try
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 
-	try {
 #if !DEBUGMODE
-		opts.parse(argc, argv);
+	parse_options(opts, argc, argv);
 #endif
-	} catch(EOptions &e) {
-		cout << opts.usage(argv);
-		e.print();
-		exit(-1);
-	}
 
 	/////// Start your application code here
 	gsl_set_error_handler_off ();

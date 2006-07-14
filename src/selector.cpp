@@ -1972,25 +1972,29 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.16 2006/07/13 23:27:30 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.17 2006/07/14 00:04:00 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",
 		version, Authorship::majuric
 	);
 
-	std::string obj_cat_fn, obs_cat_fn, query_fn;
+	std::string obj_cat_fn = "uniq_objects.dmm",
+		obs_cat_fn = "uniq_observations.dmm",
+		query_fn = "-";
 
-	opts.argument("queryFile").bind(query_fn).optional().def_val("-").desc("Query specification file or - for stdin");
-	opts.option("s").bind(obj_cat_fn).param_required().def_val("uniq_objects.dmm").addname("objCat").desc("Object catalog");
-	opts.option("o").bind(obs_cat_fn).param_required().def_val("uniq_observations.dmm").addname("obsCat").desc("Observation catalog");
-	opts.add_standard_options();
+	opts.argument("queryFile").bind(query_fn).optional().desc("Query specification file or - for stdin");
+	opts.option("s").bind(obj_cat_fn).param_required().addname("objCat").desc("Object catalog");
+	opts.option("o").bind(obs_cat_fn).param_required().addname("obsCat").desc("Observation catalog");
 
 	parse_options(opts, argc, argv);
 
 	// open the "database"
 	driver db(obj_cat_fn, obs_cat_fn);
 
+	cerr << "Object catalog:       " << obj_cat_fn << "\n";
+	cerr << "Observations catalog: " << obs_cat_fn << "\n";
+	cerr << "Query file:           " << query_fn << "\n";
 
 
 	// load the query

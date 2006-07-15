@@ -151,9 +151,15 @@ public:
 		gml = rml + ml_gr;
 	}
 
-public:
-/*	plx_gri_locus() : mlri(*this) { Mrc[0] = 4.6; Mrc[1] = 7.9; Mrc[2] = -3.0; Mrc[3] = 0.69; }*/
+protected:
 	std::vector<double> Mrc;
+	bool plx_modified;
+
+public:
+	bool paralaxModified() const { return plx_modified; }
+	void setParalaxCoefficients(const std::vector<double> &Mcoef) { Mrc = Mcoef; plx_modified = true; }
+	const std::vector<double> &getParalaxCoefficients() { return Mrc; }
+	
 	plx_gri_locus_ng();
 
 	void distance_limits(double &Dmin, double &Dmax, float ri0, float ri1, float r_min, float r_max)

@@ -34,7 +34,7 @@ using namespace std;
 plx_gri_locus_ng paralax;
 
 plx_gri_locus_ng::plx_gri_locus_ng()
-: mlri(*this)
+: mlri(*this), plx_modified(false)
 {
 	// check if paralax relation was specified through an environment variable
 	EnvVar plx("PARALAX");
@@ -47,6 +47,7 @@ plx_gri_locus_ng::plx_gri_locus_ng()
 		{
 			Mrc.push_back(coef);
 		}
+		plx_modified = true;
 	} else {
 		Mrc.resize(5);
 		Mrc[0] = 3.2; Mrc[1] = 13.30; Mrc[2] = -11.50; Mrc[3] = 5.40; Mrc[4] = -0.65; // this is ZI's "kinematic" relation

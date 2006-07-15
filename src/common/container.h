@@ -46,9 +46,14 @@ template<typename C>
 container_aux<C> container(C &c) { return container_aux<C>(c); }
 
 
-
 template<typename C>
 std::string join(const std::string &separator, const C& c)
+{
+	return join(separator.c_str(), c);
+}
+
+template<typename C>
+std::string join(const char *separator, const C& c)
 {
 	std::ostringstream ss;
 	FOREACH(c)

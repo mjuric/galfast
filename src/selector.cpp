@@ -34,6 +34,7 @@
 #include "raytrace.h"
 #include "model.h"
 #include "conic_volume_map.h"
+#include "container.h"
 
 #include "gpc_cpp.h"
 
@@ -234,7 +235,7 @@ public:
 		pair<float, float> range;
 		sdss_color color;
 	} m_sigma;
-	//plx_gri_locus paralax;
+
 	struct m_cart_t
 	{
 		bool use[3];
@@ -644,8 +645,6 @@ void selector::start()
 		break;
 		}
 	case OM_CYLINDRICAL: {
-		std::cerr << "In selector::start()\n";
-	
 		double dx = om_cyl.dx;
 		int ndx = om_cyl.ndx;
 		pair<float, float> ri = om_cyl.ri, r = om_cyl.r;
@@ -657,7 +656,7 @@ void selector::start()
 		if(!Filename(fn).exists())
 		{
 			std::string cmd = io::format(
-				"~/projects/galaxy/optimized/src/bin_volume.x --type=cyl --phi0=%f "
+				"$BIN/bin_volume.x --type=cyl --phi0=%f "
 				"%6.3f %6.3f %5.3f %5.3f merged.bin %f %d %s"
 			) << phi0 << r.first << r.second << ri.first << ri.second << dx << ndx << fn;
 
@@ -699,7 +698,7 @@ void selector::start()
 		if(!Filename(fn).exists())
 		{
 			std::string cmd = io::format(
-				"~/projects/galaxy/optimized/src/bin_volume.x --type=plane "
+				"$BIN/bin_volume.x --type=plane "
 				"%6.3f %6.3f %5.3f %5.3f merged.bin %f %d \"%s\" "
 				"--coordsys=%s --x1=%f,%f,%f --x2=%f,%f,%f --x3=%f,%f,%f --x0=%f,%f,%f --delta=%f --earthonaxis=%d"
 			)
@@ -1840,17 +1839,32 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	}
 	else if(cmd == "paralax")
 	{
-		ss >> paralax.Mrc[0] >> paralax.Mrc[1] >> paralax.Mrc[2] >> paralax.Mrc[3] >> paralax.Mrc[4];
+		ASSERT(!paralax.paralaxModified())
+		{
+			std::cerr << "Paralax already changed but you're attempting to change it again.\n";
+		}
+		vector<double> Mr;
+		double coef;
+		while(ss >> coef) { Mr.push_back(coef); }
 		ASSERT(!ss.fail());
-		filters |= T_DISTANCE;
-		out << "# Paralax relation changed to:\n";
-		out << "#   Mr(i)  = " << join<double, 5>(", ", &paralax.Mrc[0]) << "\n";
-		out << "#\n";
+		paralax.setParalaxCoefficients(Mr);
 	}
 	else
 	{
 		cerr << "Error - unknown command: " << cmd << "\n";
 		exit(-1);
+	}
+
+	if(paralax.paralaxModified() && !(filters & T_DISTANCE))
+	{
+		// If paralax was changed in any way (eg., through PARALAX env.var.)
+		// force distance recalculation
+		//
+		filters |= T_DISTANCE;
+		out << "# Paralax relation changed to:\n";
+		out << "#   Mr(i)  = " << join(", ", paralax.getParalaxCoefficients()) << "\n";
+		out << "# Distances will be recalculated.\n";
+		out << "#\n";
 	}
 	out.flush();
 	return true;
@@ -1972,7 +1986,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.17 2006/07/14 00:04:00 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.18 2006/07/15 10:09:43 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",
@@ -1991,11 +2005,6 @@ try
 
 	// open the "database"
 	driver db(obj_cat_fn, obs_cat_fn);
-
-	cerr << "Object catalog:       " << obj_cat_fn << "\n";
-	cerr << "Observations catalog: " << obs_cat_fn << "\n";
-	cerr << "Query file:           " << query_fn << "\n";
-
 
 	// load the query
 	ifstream qf;

@@ -439,6 +439,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 				if(between(phi, -135.6400888, -121.3379493)) { continue; }
 				if(between(phi, -180, -141.2091266)) continue;
 				if(between(phi, -42.71778654, 0)) continue;
+				if(pix.r > 8800 && pix.z > 0) continue;
 				
 #if 0
 				// r=9.5 overdensity cutout
@@ -1075,7 +1076,7 @@ int main(int argc, char **argv)
 	return fit_ng(argc, argv);
 try
 {
-	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.10 2006/07/13 23:27:30 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.11 2006/07/16 00:46:27 mjuric Exp $");
 
 	Options opts(
 		argv[0],
@@ -1280,7 +1281,6 @@ try
 	//# add any arguments your program needs. eg:
 	opts.argument("fitparams", "Parameter file (a ``.fit file'') with initial fit parameters (input).").bind(binsfile);
 	opts.argument("method", "Which component should be fitted [thin, thick, halo] (input)").bind(how);
-	opts.add_standard_options();
 
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");

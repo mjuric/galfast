@@ -186,6 +186,18 @@ public:
 			return gsl_poly_eval(&Mrc[0], Mrc.size(), ri);
 /*		}*/
 	}
+	
+	// derivative of M_r absmag relation
+	double dMr(const float ri) const
+	{
+		double res = 0.;
+		for(int i = Mrc.size()-1; i > 0; i++)
+		{
+			res *= ri;
+			res += i * Mrc[i];
+		}
+		return res;
+	}
 
 	//
 	// define abstracts from photometric_paralax class

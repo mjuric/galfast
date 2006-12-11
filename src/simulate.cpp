@@ -847,7 +847,7 @@ inline double dr_dd(const direction &d)
 model_fitter m;
 double model_rho(const direction &d)
 {
-	double rho = m.rho(d.rcyl, d.z);
+	double rho = m.rho(d.rcyl, d.z, 0);
 	return rho;
 }
 
@@ -1326,7 +1326,7 @@ void simulate()
 // 	m.add_param("q", 1.5);
 // 	m.add_param("n", 3);
 
-	m.rho0 = 1;
+	m.rho0[0] = 1;
 	m.l = 3000;
 	m.h = 270;
 	m.z0 = 25;
@@ -2050,7 +2050,7 @@ int main(int argc, char **argv)
 try
 {
 	std::string argv0 = argv[0];
-	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.16 2006/07/10 19:17:48 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.17 2006/12/11 05:19:55 mjuric Exp $");
 	std::string progdesc = "simulate.x, a mock star catalog simulator.";
 
 	std::string cmd, input, output;
@@ -2068,11 +2068,11 @@ try
 	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
 	opts.add_standard_options();
 
-	Radians dx;
+	Radians dx = 4.;
 	sopts["pskymap"].reset(new Options(argv0 + " pskymap", progdesc + " Partitioned sky map generation subcommand.", version, Authorship::majuric));
 	sopts["pskymap"]->argument("footprint").bind(input).desc("Footprint polygon file (input)");
 	sopts["pskymap"]->argument("output").bind(output).desc("Partitioned sky map file (output)");
-	sopts["pskymap"]->argument("dx").bind(dx).optional().def_val("4").desc("Partitioned map linear pixel size (degrees)");
+	sopts["pskymap"]->argument("dx").bind(dx).optional().desc("Partitioned map linear pixel size (degrees)");
 	sopts["pskymap"]->add_standard_options();
 
 	sopts["footprint"].reset(new Options(argv0 + " footprint", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));

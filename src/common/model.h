@@ -44,34 +44,55 @@ struct rzpixel
 {
 	double r, rphi, z, N, V;
 	double rho, sigma;
+	int ri_bin;
 };
 
 struct disk_model
 {
 	static const double Rg = 8000.;
 	
-	static const size_t nparams = 10;
+	static const size_t nrho = 10;
+	static const size_t nparams = 10 + nrho;
 	static const char *param_name[nparams];
 	static const char *param_format[nparams];
 
+	//int disk;
+/*	void set_ri_bin(int k)
+	{
+		disk = ri2idx(k);
+	}*/
+	int ri2idx(int k) const
+	{
+		return k == 0 ? k : (nparams - nrho) + (k-1);
+	}
+
 	union {
 		double p[nparams];
-		struct { double rho0, l, h, z0, f, lt, ht, fh, q, n; };
+		double rho0[nparams];
+		struct
+		{
+			double rho0x, l, h, z0, f, lt, ht, fh, q, n;
+			double rho1, rho2, rho3, rho4, rho5, rho6, rho7, rho8, rho9, rho10;
+		};
 	};
 
 	disk_model() {}
 
-	// Model functions
-	double rho_thin(double r, double z)  const { return rho0 *     exp((Rg-r)/l  + (std::abs(z0) - std::abs(z + z0))/h); }
-	double rho_thick(double r, double z) const { return rho0 * f * exp((Rg-r)/lt + (std::abs(z0) - std::abs(z + z0))/ht); }
-	double rho_halo(double r, double z)  const { return rho0 * fh * pow(Rg/sqrt(halo_denom(r,z)),n); }
-	double rho(double r, double z)       const { return rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z); }
+// 	// Model functions
+	double rho_thin(double r, double z, int ri)  const { return rho0[ri2idx(ri)] *     exp((Rg-r)/l  + (std::abs(z0) - std::abs(z + z0))/h); }
+	double rho_thick(double r, double z, int ri) const { return rho0[ri2idx(ri)] * f * exp((Rg-r)/lt + (std::abs(z0) - std::abs(z + z0))/ht); }
+	double rho_halo(double r, double z, int ri)  const { return rho0[ri2idx(ri)] * fh * pow(Rg/sqrt(halo_denom(r,z)),n); }
+	double rho(double r, double z, int ri)       const { return rho_thin(r, z, ri) + rho_thick(r, z, ri) + rho_halo(r, z, ri); }
 
 	//double norm_at_Rg() const { return f*exp(Rg*(1./l - 1./lt)); }
-	double norm_at_Rg() const { return rho_thick(Rg, 0)/rho_thin(Rg, 0); }
+	double norm_at_Rg(int ri) const { return rho_thick(Rg, 0, ri)/rho_thin(Rg, 0, ri); }
 
 	// Derivatives of the model function
-	double drho0(double r, double z, double rhom) const { return 1./rho0 * rhom; }
+	double drho0(double r, double z, double rhom, int ri, int rij) const {
+		double tmp = ri == rij ? 1./rho0[ri2idx(ri)] * rhom : 0.;
+		//std::cerr << ri_bin << " " << tmp << "\n";
+		return tmp;
+	}
 	double dl(double r, double z, double rhothin) const { return r/peyton::sqr(l) * rhothin; }
 	double dh(double r, double z, double rhothin) const { return (-std::abs(z0)+std::abs(z+z0))/peyton::sqr(h) * rhothin; }
 	double dz0(double r, double z, double rhothin, double rhothick) const { return (peyton::sgn(z0)-peyton::sgn(z+z0))*(rhothin/h + rhothick/ht); }
@@ -154,7 +175,7 @@ public:
 	void residual_distribution(std::map<int, int> &hist, double binwidth);
 
 	enum {PRETTY, HEADING, LINE};
-	void print(std::ostream &out, int format = PRETTY);
+	void print(std::ostream &out, int format = PRETTY, int ri_bin = 0);
 };
 
 class spline

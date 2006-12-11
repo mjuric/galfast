@@ -19,15 +19,15 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/bin_volume.x</activetarget>
+      <activetarget>src/fitter.x</activetarget>
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/bin_volume.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/fitter.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3r/</customdirectory>
-      <programargs>--type=cyl --phi0=180.000000 15.000 21.500 0.650 0.700 merged.bin 2.000000 50 cache/cylindrical.15.000-21.500.0.650-0.700.dx=100.000.phi0=-180.bin</programargs>
+      <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
+      <programargs>-p mean.unified.fit thick</programargs>
       <autocompile>true</autocompile>
       <envvars/>
       <runarguments>
@@ -71,20 +71,20 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-nagc=/usr/local/nag/cllux07ddl --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace</configargs>
+        <configargs>--enable-debug=full --with-nagc=/usr/local/nag/cllux07ddl --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace --enable-pch</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags/>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ldflags></ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-Wno-deprecated</cflags>
-        <f77flags/>
+        <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>
       </debug>
     </configurations>

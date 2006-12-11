@@ -134,6 +134,9 @@ public:
 		obsv_mags.open("dm_starmags.dmm", "r");*/
 		arr.open(objectCat, "r");
 		obsv_mags.open(obsvCat, "r");
+
+		arr.setmaxwindows(2);
+		obsv_mags.setmaxwindows(2);
 	}
 
 	void run();
@@ -183,6 +186,7 @@ DEFINE_FILTER(F_CART,		0x8000);
 DEFINE_FILTER(F_SIGMA,		0x10000);
 DEFINE_FILTER(F_LIMIT,		0x20000);
 DEFINE_FILTER(T_GMIRROR,	0x40000);
+DEFINE_FILTER(T_MALMQUIST_CORRECTION,	0x80000);
 
 class selector
 {
@@ -223,6 +227,7 @@ public:
 	pair<float, float> m_gr;
 	pair<float, float> m_D;
 	Radians t_node, t_inc;
+	enum {Equatorial, Galactic} t_gc_coordsys;
 	pair<float, float> m_ml_gr;
 	struct m_color_t
 	{
@@ -370,6 +375,8 @@ public:
 	conic_volume_map om_conic;
 	bool om_conic_doserialize;
 	std::ofstream om_conic_bout;
+	
+	auto_ptr<galactic_model> mq;
 
 	struct om_cyl_t
 	{
@@ -478,7 +485,8 @@ public:
 	bool running;
 public:
 	selector(ostream &out_, driver &db_, std::string fn_)
-		: running(true), db(db_), nselected(0), filters(0), outputMode(OM_STARS), out(out_), filename(fn_), nsparsereject(0)
+		: running(true), db(db_), nselected(0), filters(0), outputMode(OM_STARS), out(out_), filename(fn_), nsparsereject(0),
+		  t_gc_coordsys(Equatorial)
 		{
 			ASSERT(!out.fail());
 		}
@@ -807,8 +815,27 @@ bool selector::select(mobject m)
 	}
 	TRANSFORM(T_COORD)
 	{
-		// rotate coordinate system in ra/dec
-		coordinates::equgcs(t_node, t_inc, lon, lat, lon, lat);
+		// rotate coordinate system in coordinate system requested
+		switch(t_gc_coordsys)
+		{
+		case Galactic:
+			// node and inclination are given wrt. galactic coordinate system
+			coordinates::galgcs(t_node, t_inc, lon, lat, lon, lat);
+			break;
+		case Equatorial:
+			// node and inclination are given wrt. equatorial coordinate system
+			Radians ra = lon, dec = lat;
+			//lon = rad(14.99);
+			//lat = rad(78.36);
+			//coordinates::galequ(lon, lat, ra, dec);
+			//std::cerr << deg(lon) << " " << deg(lat) << " " << deg(ra) << " " << deg(dec) << "\n";
+			coordinates::equgcs(t_node, t_inc, ra, dec, lon, lat);
+			//std::cerr << deg(lon) << " " << deg(lat) << "\n";
+			//exit(0);
+			break;
+		default:
+			ASSERT(0) { std::cerr << "Unknown coordinate system for 'transform' (" << t_gc_coordsys << ")\n"; }
+		}
 	}
 	TRANSFORM(T_DISTANCE)
 	{
@@ -818,7 +845,19 @@ bool selector::select(mobject m)
 		double D = stardist::D(m.ml_mag[1], Mr);
 		m.D = D;
 	}
+#if 1
+	TRANSFORM(T_MALMQUIST_CORRECTION)
+	{
+		// modify the distance to correct for Malmquist correction
+		double del2 = sqr(0.46*0.3);
+		double d1 = m.D * exp(del2);
+		V3 v1; v1.celestial(d1, l, b);
 
+		double frac = mq->rho(v1.x, v1.y, v1.z, 0.) / mq->rho(v.x, v.y, v.z, 0.);
+		double corr = exp(3.5 * del2) * frac;
+		m.D *= corr;
+	}
+#endif
 	// selection filters
 	FILTER(F_LIMIT)
 	{
@@ -1460,6 +1499,23 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		}
 		out << "#\n";
 	}
+	else if(cmd == "malmquist")
+	{
+		const char *errmsg = "malmquist <galaxy.conf>";
+		std::string modelfn;
+		ss >> modelfn;
+		ASSERT(!ss.fail());
+
+		std::ifstream in(modelfn.c_str());
+		ASSERT(!in.fail());
+		mq.reset(galactic_model::load(in));
+		ASSERT(mq.get() != NULL);
+
+		filters |= T_MALMQUIST_CORRECTION;
+
+		out << "# correcting Malmquist bias using " << modelfn << " as model.\n";
+		out << "#\n";
+	}
 	else if(cmd == "lambert")
 	{
 		outputMode = OM_MAP;
@@ -1831,10 +1887,17 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	{
 		double node, inc;
 		ss >> node >> inc; ASSERT(!ss.fail());
+
+		std::string coordsys;
+		if(!(ss >> coordsys)) { coordsys = "equ"; }
+		if(coordsys == "equ") { t_gc_coordsys = selector::Equatorial; }
+		else if(coordsys == "gal") { t_gc_coordsys = selector::Galactic; }
+		else { ASSERT(0) { std::cerr << "Unknown coordinate system [" << coordsys << "] for 'transform'\n"; } }
+
 		t_node = rad(node); t_inc = rad(inc);
 		filters |= T_COORD;
 		out << "# GC transformation active\n";
-		out << "# {node, inc}    = " << node << ", " << inc << "\n";
+		out << "# {node, inc, coord_system}    = " << node << ", " << inc << ", " << coordsys << "\n";
 		out << "#\n";
 	}
 	else if(cmd == "paralax")
@@ -1986,7 +2049,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.18 2006/07/15 10:09:43 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.19 2006/12/11 05:19:55 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",

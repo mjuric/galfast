@@ -26,6 +26,7 @@
 #include "analysis.h"
 #include "model.h"
 #include "projections.h"
+#include "container.h"
 
 #include <cmath>
 #include <string>
@@ -72,19 +73,26 @@ int model_df (const gsl_vector * v, void *params, gsl_matrix * J)
 
 spinner spin;
 bool print_fitter_progress = false;
-int print_state (size_t iter, gsl_multifit_fdfsolver * s, int dof)
+int print_state (size_t iter, gsl_multifit_fdfsolver * s, int dof, model_fitter &m)
 {
 	spin.tick();
 
 	if(!print_fitter_progress) { return 0; }
 
 	fprintf (stderr, "iter: %3u x = ", iter);
+	int fmt = 0;
 	FOR(0, dof)
 	{
-	  	fprintf(stderr, "%15.8f ", gsl_vector_get(s->x, i));
+		//fprintf(stderr, "%15.8f ", gsl_vector_get(s->x, i));
+		while(m.fixed[fmt]) fmt++;
+		std::string sfmt(m.param_format[fmt]); sfmt += " ";
+	  	fprintf(stderr, sfmt.c_str(), gsl_vector_get(s->x, i));
+		fmt++;
 	}
-	fprintf(stderr, "|f(x)| = %.8g\n", gsl_blas_dnrm2 (s->f));
-
+	//fprintf(stderr, "|f(x)| = %.8g\n", gsl_blas_dnrm2 (s->f));
+	double chi2 = sqr(gsl_blas_dnrm2 (s->f));
+	chi2 = chi2 / (m.ndata() - m.ndof());
+	fprintf(stderr, "chi^2/dof = %.8g\n", chi2);
 }
 
 int model_fitter::fit(int cullIter, const std::vector<double> &nsigma)
@@ -113,13 +121,15 @@ int model_fitter::fit(int cullIter, const std::vector<double> &nsigma)
 	f.params = (void *)this;
 	gsl_multifit_fdfsolver_set (s, &f, v);
 
+	//{ THROW(EAny, std::string(io::format("status = %s\n") << gsl_strerror (0))); }
+
 	// iterate
 	int status = GSL_CONTINUE;
-	for(int iter = 0; status == GSL_CONTINUE && iter < 50000; iter++)
+	for(int iter = 0; status == GSL_CONTINUE && iter < 10000; iter++)
 	{
 		status = gsl_multifit_fdfsolver_iterate (s);
 
-		print_state (iter, s, ndof);
+		print_state (iter, s, ndof, *this);
 		if (status && status != GSL_CONTINUE) { break; }; status = 0;
 		//if (status) { break; }
 
@@ -190,7 +200,7 @@ int model_fitter::fit(int cullIter, const std::vector<double> &nsigma)
 	gsl_vector_free(v);
 }
 
-void load_disk(vector<rzpixel> *data, const std::string &filename)
+void load_disk(vector<rzpixel> *data, const std::string &filename, int ri_bin = 0)
 {
 	data->clear();
 	text_input_or_die(in, filename);
@@ -209,6 +219,7 @@ void load_disk(vector<rzpixel> *data, const std::string &filename)
 	{
 		p.rho = p.N / p.V;
 		p.sigma = sqrt(p.N) / p.V;
+		p.ri_bin = ri_bin;
 		data->push_back(p);
 	}
 };
@@ -328,6 +339,7 @@ void clean_disk(vector<rzpixel> *data, const std::string &how, model_fitter &m, 
 
 			if(abs(pix.z) >= 2500) continue;
 			if(abs(pix.z) <= 75) continue;
+			if(abs(pix.z) >= 2500) continue;
 #if 1
 //			if(!(abs(pix.z) >= 200 && abs(pix.z) <= 3500)) continue;
 //			if(pix.z > 0 && deg(atan2(pix.z-500,pix.r-8000)) < 30. && pix.r < 10000) continue;
@@ -1076,7 +1088,7 @@ int main(int argc, char **argv)
 	return fit_ng(argc, argv);
 try
 {
-	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.11 2006/07/16 00:46:27 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.12 2006/12/11 05:19:55 mjuric Exp $");
 
 	Options opts(
 		argv[0],
@@ -1214,7 +1226,7 @@ try
 		m.fit(1, std::vector<double>(1, 10.));
 		m.print(cerr);
 		cerr << "\n";
-		cerr << "norm_thick = " << m.norm_at_Rg() << "\n";
+//		cerr << "norm_thick = " << m.norm_at_Rg() << "\n";
 // 		cerr << "rho(R=8kpc,Z=5kpc) = " << m.rho(8000,5000) << "\n";
 // 		cerr << "rho1(R=8kpc,Z=5kpc) = " << m.rho_thin(8000,5000) << "\n";
 // 		cerr << "rho2(R=8kpc,Z=5kpc) = " << m.rho_thick(8000,5000) << "\n";
@@ -1282,6 +1294,8 @@ try
 	opts.argument("fitparams", "Parameter file (a ``.fit file'') with initial fit parameters (input).").bind(binsfile);
 	opts.argument("method", "Which component should be fitted [thin, thick, halo] (input)").bind(how);
 
+	opts.option("p").addname("progress").value("true").param_none().bind(print_fitter_progress).desc("Show fitting progress indicator");
+	
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 
@@ -1294,9 +1308,29 @@ try
 
 	Config cfg(binsfile);
 	FOREACH(cfg) { std::cerr << (*i).first << " = " << (*i).second << "\n"; }
-	
+
+	gsl_rng *r;
+	int seed = 42;
+	r = gsl_rng_alloc (gsl_rng_default);
+	gsl_rng_set(r, seed);
+	int nfits = cfg["nfits"];
+	std::vector<std::string> rzfile = cfg["data"];
+	std::vector<std::string> modelname = cfg["name"];
+	std::string fitname = cfg["fit"];
+	int ncull = cfg["ncull"];
+	std::vector<double> nsigma = cfg["cullsigma"];
+	cfg.get(m.epsabs, "epsabs", m.epsabs);
+	cfg.get(m.epsrel, "epsrel", m.epsrel);
+	m.ri = cfg["ri"];
+
+	ASSERT(rzfile.size() == modelname.size())
+	{
+		std::cerr << "Number of model names has to equal the number of input datafiles\n";
+	}
+
+	// load parameters from configuration file
 	std::map<std::string, param_t> params;
-	FOR(0, m.nparams)
+	FOR(0, m.nparams - m.nrho + (rzfile.size()-1))
 	{
 		std::string param = m.param_name[i];
 		if(cfg.count(param))
@@ -1306,27 +1340,19 @@ try
 			ASSERT(0) { std::cerr << "Initial value for " << param << " not specified\n"; }
 		}
 	}
-
-	gsl_rng *r;
-	int seed = 42;
-	r = gsl_rng_alloc (gsl_rng_default);
-	gsl_rng_set(r, seed);
-	int nfits = cfg["nfits"];
-	std::string rzfile = cfg["data"];
-	std::string modelname = cfg["name"];
-	int ncull = cfg["ncull"];
-	std::vector<double> nsigma = cfg["cullsigma"];
-	cfg.get(m.epsabs, "epsabs", m.epsabs);
-	cfg.get(m.epsrel, "epsrel", m.epsrel);
-	cfg.get(print_fitter_progress, "print_fitter_progress", false);
-	m.ri = cfg["ri"];
+	// fix unused rho parameters
+	FOR(m.nparams - m.nrho + (rzfile.size()-1), m.nparams)
+	{
+		std::string param = m.param_name[i];
+		params[param] = parse_param("0 fixed");
+	}
 
 //	cout << "# name ri0 ri1 chi2/dof rho0 l h z0 err(rho0 l h z0)\n";
 
-	vector<rzpixel> data;
 	gsl_vector *v = gsl_vector_alloc(m.ndof());
 	FOR(0, nfits)
 	{
+		vector<rzpixel> data, alldata;
 		// assing initial parameters
 		FOREACHj(j, params)
 		{
@@ -1343,58 +1369,72 @@ try
 
 		paralax.distance_limits(m.d.first, m.d.second, m.ri.first, m.ri.second, m.r.first, m.r.second);
 
-		load_disk(&data, rzfile);
-		clean_disk(&data, how, m, modelname);
-		m.setdata(data);
+		FORj(j, 0, rzfile.size())
+		{
+			load_disk(&data, rzfile[j], j);
+			clean_disk(&data, how, m, modelname[j]);
+			alldata.insert(alldata.end(), data.begin(), data.end());
+		}
+		m.setdata(alldata);
+		cerr << "Total number of pixels = " << alldata.size() << "\n";
 
 //		m.param("l") = 1.;
 
 		cerr << "Limits (mag) (dist) = (" << m.r.first << ", " << m.r.second << ") (" << m.d.first << ", " << m.d.second << ")\n";
 		m.print(cerr);
-		cerr << "Fitting " << rzfile << " ";
+		cerr << "Fitting " << join(", ", rzfile) << " ";
 		try {
 			m.culled.clear();
 			m.fit(ncull, nsigma);
 		} catch(EAny &e) {
 			e.print();
 			std::cerr << "Fit failed.";
-			exit(-1);
+			if(nfits == 1) { exit(-1); }
+			--i;
 			continue;
 		}
 		m.print(cerr);
 		cerr << "\n";
-		cerr << "norm_thick = " << m.norm_at_Rg() << "\n";
-		
+		cerr << "norm_thick = " << m.norm_at_Rg(0) << "\n";
+
 		FOREACHj(j, m.culled)
 		{
 			rzpixel &pix = *j;
 			cerr << pix.r << " " << pix.z << " " << pix.N << " " << pix.V << "\n";
 		}
 
-		// remove "cleaned" from filename
-		std::string rzncfile(rzfile);
-		int pos = rzncfile.find(".cleaned");
-		rzncfile = rzncfile.replace(pos, strlen(".cleaned"), "");
-		
-		// dump the pixels used for fit into a new file
-		std::string rzfitfile(rzfile);
-		rzfitfile = rzfitfile.replace(pos, strlen(".cleaned"), ".fitted");
-		std::ofstream out(rzfitfile.c_str());
-		out << "# input file: " << rzfile << "\n";
-		FOREACHj(j, m.map)
+		FORj(j, 0, rzfile.size())
 		{
-			rzpixel &pix = *j;
-			out << std::setw(10) << pix.r << " " << pix.z << " 0 0 0 " << pix.N << " " << pix.V << " " << pix.N / pix.V << "\n";
+			// remove "cleaned" from filename
+			std::string rzncfile(rzfile[j]);
+			int pos = rzncfile.find(".cleaned");
+			rzncfile = rzncfile.replace(pos, strlen(".cleaned"), "");
+
+			// dump the pixels used for fit into a new file
+			std::string rzfitfile(rzfile[j]);
+			rzfitfile = rzfitfile.replace(pos, strlen(".cleaned"), ".fitted");
+			std::ofstream out(rzfitfile.c_str());
+			out << "# input file: " << rzfile[j] << "\n";
+			FORj(k, 0, m.map.size())
+			{
+				rzpixel &pix = m.map[k];
+				if(pix.ri_bin != j) { continue; }
+				out << std::setw(10) << pix.r << " " << pix.z << " 0 0 0 " << pix.N << " " << pix.V << " " << pix.N / pix.V << "\n";
+			}
+			out.close();
+
+			// fit/model names
+			std::string &fit = modelname[j];
+			std::string modfit = io::format("%s.%d") << fit << i;
+
+			// write out the fits
+			cout << setw(14) << modfit << setprecision(4) << setw(7) << m.ri.first << setw(7) << m.ri.second << setw(50) << rzncfile << setw(50) << rzfitfile;
+			cout << " " << setprecision(10) << m.chi2_per_dof << " ";
+			m.print(cout, model_fitter::LINE, j);
+			cout << " " << alldata.size() << " " << alldata.size() - m.map.size();
+			cout << "\n";
+			cout.flush();
 		}
-		out.close();
-
-		// model name
-		std::string modfit = io::format("%s.%d") << modelname << i;
-
-		cout << setw(14) << modfit << setw(7) << m.ri.first << setw(7) << m.ri.second << setw(50) << rzncfile << setw(50) << rzfitfile;
-		cout << " " << setprecision(10) << m.chi2_per_dof << " ";
-		m.print(cout, model_fitter::LINE);
-		cout << "\n";
 
 		m.set_parameters(v);
 	}

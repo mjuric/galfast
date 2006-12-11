@@ -1016,6 +1016,15 @@ sky_generator::sky_generator(std::istream &in)
 	// load various flags
 	int flag;
 	cfg.get(flag, "apply_photo_errors", 1); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
+	
+	// dump short status
+	std::cerr << "constant_photo_error = " << constant_photo_error << "\n";
+	std::cerr << "paralax_dispersion = " << paralax_dispersion << "\n";
+	std::cerr << "magerrs.use_median_beam_for_all = " << magerrs.use_median_beam_for_all << "\n";
+	std::cerr << "magerrs.empty() = " << magerrs.empty() << "\n";
+	std::cerr << "Flags: "
+		<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
+		<< "\n";
 }
 
 sky_generator::~sky_generator()

@@ -60,7 +60,7 @@ int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version, "$Id: bin_volume.cpp,v 1.4 2006/07/16 00:46:27 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: bin_volume.cpp,v 1.5 2006/12/11 05:19:55 mjuric Exp $");
 
 	Options opts(
 		argv[0],
@@ -103,7 +103,7 @@ try
 	parse_options(opts, argc, argv);
 
 	std::cerr << opts["phi0"] << "\n";
-	
+
 	/////// Start your application code here
 	pair<double, double> x1, x2, x3, x0;
 	double d1, d2, d3, d0;

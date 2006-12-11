@@ -41,8 +41,16 @@ using namespace std;
 
 /////////////
 
-const char *disk_model::param_name[disk_model::nparams] = { "rho0", "l", "h", "z0", "f", "lt", "ht", "fh", "q", "n" };
-const char *disk_model::param_format[disk_model::nparams] = { "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f", "%.9f" };
+const char *disk_model::param_name[disk_model::nparams] =
+{
+	"rho0", "l", "h", "z0", "f", "lt", "ht", "fh", "q", "n",
+	"rho1", "rho2", "rho3", "rho4", "rho5", "rho6", "rho7", "rho8", "rho9", "rho10", 
+};
+const char *disk_model::param_format[disk_model::nparams] = 
+{
+	"%.5f", "%.0f", "%.0f", "%.2f", "%.3f", "%.0f", "%.0f", "%.5f", "%.2f", "%.2f",
+	"%.5f", "%.5f", "%.5f", "%.5f", "%.5f", "%.5f", "%.5f", "%.5f", "%.5f", "%.5f"
+};
 
 /////////////
 
@@ -74,9 +82,12 @@ int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 	FOR(0, map.size())
 	{
 		const rzpixel &x = map[i];
-		double rhothin = rho_thin(x.r, x.z);
-		double rhothick = rho_thick(x.r, x.z);
-		double rhohalo = rho_halo(x.r, x.z);
+
+		int ri = x.ri_bin;
+
+		double rhothin = rho_thin(x.r, x.z, ri);
+		double rhothick = rho_thick(x.r, x.z, ri);
+		double rhohalo = rho_halo(x.r, x.z, ri);
 		double rhom = rhothick + rhothin + rhohalo;
 
 		if(f)
@@ -88,7 +99,7 @@ int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 		if(J)
 		{
 			DFINIT;
-			DFCALC(drho0(x.r, x.z, rhom));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 0));
 			DFCALC(dl(x.r, x.z, rhothin));
 			DFCALC(dh(x.r, x.z, rhothin));
 			DFCALC(dz0(x.r, x.z, rhothin, rhothick));
@@ -98,8 +109,32 @@ int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 			DFCALC(dfh(x.r, x.z, rhohalo));
 			DFCALC(dq(x.r, x.z, rhohalo));
 			DFCALC(dn(x.r, x.z, rhohalo));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 1));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 2));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 3));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 4));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 5));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 6));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 7));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 8));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 9));
+			DFCALC(drho0(x.r, x.z, rhom, ri, 10));
 		}
+
+#if 0
+		std::cerr << x.r << " " << x.z << " " << ri << " " << ri2idx(ri) << " " << rho0[ri2idx(ri)] << ":  ";
+		std::cerr << rhothin << " ";
+		std::cerr << rhothick << " ";
+		std::cerr << rhohalo << " ";
+		std::cerr << rhom << ": ";
+		FORj(j, 0, ndof())
+		{
+			std::cerr << gsl_matrix_get(J, i, j) << " ";
+		}
+		std::cerr << "\n";
+#endif
 	}
+//	exit(0);
 
 	return GSL_SUCCESS;
 }
@@ -114,7 +149,7 @@ void model_fitter::cull(double nSigma)
 	FOR(0, orig.size())
 	{
 		const rzpixel &x = orig[i];
-		double rhom = rho(x.r, x.z);
+		double rhom = rho(x.r, x.z, x.ri_bin);
 		if(abs(x.rho - rhom) <= nSigma*x.sigma)
 		{
 			map.push_back(x);
@@ -131,7 +166,7 @@ void model_fitter::residual_distribution(std::map<int, int> &hist, double binwid
 	FOR(0, map.size())
 	{
 		const rzpixel &x = map[i];
-		double rhom = rho(x.r, x.z);
+		double rhom = rho(x.r, x.z, x.ri_bin);
 		double r = abs(x.rho - rhom) / x.sigma;
 		int ir = (int)(r / binwidth);
 // 		std::cerr << r << " " << binwidth*ir << "\n";
@@ -141,8 +176,9 @@ void model_fitter::residual_distribution(std::map<int, int> &hist, double binwid
 	}
 }
 
-void model_fitter::print(ostream &out, int format)
+void model_fitter::print(ostream &out, int format, int ri_bin)
 {
+	int riidx = ri2idx(ri_bin);
 	switch(format)
 	{
 	case PRETTY:
@@ -188,14 +224,18 @@ void model_fitter::print(ostream &out, int format)
 		}
 		break;
 	case LINE:
-		FOR(0, nparams)
+		// parameters
+		FORj(k, 0, nparams - nrho)
 		{
+			int i = k == 0 ? riidx : k;
 			out << io::format(param_format[i]) << p[i];
 			if(i != nparams-1) { out << " "; }
 		}
-		out << "    ";
-		FOR(0, nparams)
+		out << "       ";
+		// errors
+		FORj(k, 0, nparams - nrho)
 		{
+			int i = k == 0 ? riidx : k;
 			out << io::format(param_format[i]) << sqrt(variance(i));
 			if(i != nparams-1) { out << " "; }
 		}
@@ -402,7 +442,7 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 {
 	FOREACH(cfg) { std::cerr << "BS model: " << (*i).first << " = " << (*i).second << "\n"; }
 
-	FOR(0, m.nparams)
+	FOR(0, m.nparams - m.nrho)
 	{
 		std::string param = m.param_name[i];
 		ASSERT(cfg.count(param)) { std::cerr << "Initial value for " << param << " not specified\n"; }
@@ -446,7 +486,7 @@ double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 	double r = sqrt(x*x + y*y);
 	double norm = lf.empty() ? 1. : lf(ri);
 //	norm = 1.;
-	return norm * m.rho(r, z);
+	return norm * m.rho(r, z, 0);
 }
 
 void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<double, double> rho0_ri)

@@ -508,6 +508,12 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 	std::cerr << "New int: " << lf.integral(rho0_ri.first, rho0_ri.second) / dr << "\n";
 	std::cerr << "lf(1.0): " << lf(1.0) << "\n";
 	std::cerr << "lf(1.1): " << lf(1.1) << "\n";
+#if 0
+	for(double ri=0; ri < 1.5; ri += 0.005)
+	{
+		std::cerr << ri << " " << lf(ri) << "\n";
+	}
+#endif
 }
 
 BLESS_POD(disk_model);

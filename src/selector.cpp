@@ -141,7 +141,7 @@ public:
 
 	void run();
 	int at() const { return att; }
-	selector *newSelector(const std::string &filename);
+	selector *newSelector(const std::string &filename, bool ignore);
 	
 	~driver();
 };
@@ -211,12 +211,18 @@ public:
 	#define F_LIMIT		0x20000
 	#define T_GMIRROR	0x40000*/
 	int filters;
-	
-	// supporting per-mobject fields
-	Radians lon, lat;	// transformed longitude, latitude (see T_COORD)
-	
+
 	Radians ra, dec, radius;	// for select_beam
-	Radians ra0, dec0, ra1, dec1;	// for select_rect
+	struct selrect // for select_rect
+	{
+		Radians ra0, dec0, ra1, dec1;
+		enum masktype {INCLUDE, EXCLUDE} op;
+		selrect(Radians ra0_, Radians dec0_, Radians ra1_, Radians dec1_, masktype op_ = INCLUDE)
+			: ra0(ra0_), dec0(dec0_), ra1(ra1_), dec1(dec1_), op(op_)
+		{ }
+	};
+	std::vector<selrect> m_selrect;
+
 	pair<float, float> m_ri;
 	pair<float, float> m_r;
 	pair<float, float> m_ml_ri;
@@ -419,7 +425,8 @@ public:
 			//	0.066666, 0.2,
 			dx = 0.0333333; dy = 0.1;
 			//x0 = -0.2; x1 = 2; y0 = 14; y1 = 22;
-			x0 = -100; x1 = 100; y0 = -100; y1 = 100;
+			//x0 = -100; x1 = 100; y0 = -100; y1 = 100;
+			x0 = -1./0.; x1 = +1./0.; y0 = -1./0.; y1 = +1./0.;
 		};
 	} om_cmd;
 
@@ -469,9 +476,40 @@ public:
 		om_hist_t() : x0(-1e10), x1(1e10), dx(.02), c("ri") {}
 	} om_hist;
 protected:
+	#define STAT_COUNT	0
+	#define STAT_MEAN	1
+	struct value_count
+	{
+		int n;
+		double val;
+
+		value_count() : n(0), val(0) {}
+
+		void add(const mobject &m, const mobject_details *mi, const sdss_color &map_field, const int map_statistic)
+		{
+			n++;
+			if(map_statistic == STAT_COUNT || !map_field) return;
+
+			val += m.field(map_field, mi);
+		}
+		
+		double value(const sdss_color &map_field, const int map_statistic)
+		{
+			switch(map_statistic)
+			{
+			case STAT_COUNT: return n;
+			case STAT_MEAN: return val / n;
+			}
+		}
+	};
+
 	lambert lambert_map;
-	typedef map<S2, int, less_S2> binnedmap;
+
+	typedef map<S2, value_count, less_S2> binnedmap;
 	binnedmap binned;
+	sdss_color map_field;
+	int map_statistic;
+
 	typedef map<S3, int, less_S3> volmap;
 	volmap volume;
 
@@ -486,7 +524,7 @@ public:
 public:
 	selector(ostream &out_, driver &db_, std::string fn_)
 		: running(true), db(db_), nselected(0), filters(0), outputMode(OM_STARS), out(out_), filename(fn_), nsparsereject(0),
-		  t_gc_coordsys(Equatorial)
+		  t_gc_coordsys(Equatorial), map_statistic(STAT_COUNT)
 		{
 			ASSERT(!out.fail());
 		}
@@ -500,7 +538,7 @@ public:
 	bool parse(const std::string &cmd, istream &ss);
 	void start();
 	bool select(mobject m);
-	void action(mobject m);
+	void action(mobject m, const mobject_details &mi);
 	void finish();
 };
 
@@ -770,12 +808,12 @@ int selector::select_beam(Radians ra_, Radians dec_, Radians radius_)
 	filters |= F_BEAM;
 }
 
-int selector::select_rect(Radians ra0_, Radians dec0_, Radians ra1_, Radians dec1_)
+/*int selector::select_rect(Radians ra0_, Radians dec0_, Radians ra1_, Radians dec1_)
 {
 	ra0 = ra0_; dec0 = dec0_; ra1 = ra1_; dec1 = dec1_;
 	filters |= F_RECT;
 }
-
+*/
 int selector::select_gal_rect(Radians l0_, Radians b0_, Radians l1_, Radians b1_)
 {
 	l0 = l0_; b0 = b0_; l1 = l1_; b1 = b1_;
@@ -786,19 +824,22 @@ int selector::select_gal_rect(Radians l0_, Radians b0_, Radians l1_, Radians b1_
 #define TRANSFORM(f) if(filters & f)
 bool selector::select(mobject m)
 {
+	mobject_details mi; 	// additional details about the object, or something
+				// accumulated during select() processing
+
 	bool selected = true;
 	int lastfilter = 0;
 	int lastfilterinstance = 0;
 
 	//print_mobject(cout, m);
 
-	lon = rad(m.ra);
-	lat = rad(m.dec);
+	mi.lon = rad(m.ra);
+	mi.lat = rad(m.dec);
 
 	// rectangular coordinates
 	V3 v;
 	Radians l, b;
-	coordinates::equgal(lon, lat, l, b);
+	coordinates::equgal(mi.lon, mi.lat, l, b);
 	v.celestial(m.D, l, b);
 	v.x = -v.x;
 	v.y = -v.y; // convert to earthcentric galactic
@@ -810,7 +851,7 @@ bool selector::select(mobject m)
 		l =  2*ctn::pi-l;
 		//if(l < 0) { l += 2*ctn::pi; }
 		// update lon/lat, XYZ
-		coordinates::galequ(l, b, lon, lat);
+		coordinates::galequ(l, b, mi.lon, mi.lat);
 		v.y = -v.y;
 	}
 	TRANSFORM(T_COORD)
@@ -820,16 +861,16 @@ bool selector::select(mobject m)
 		{
 		case Galactic:
 			// node and inclination are given wrt. galactic coordinate system
-			coordinates::galgcs(t_node, t_inc, lon, lat, lon, lat);
+			coordinates::galgcs(t_node, t_inc, mi.lon, mi.lat, mi.lon, mi.lat);
 			break;
 		case Equatorial:
 			// node and inclination are given wrt. equatorial coordinate system
-			Radians ra = lon, dec = lat;
+			Radians ra = mi.lon, dec = mi.lat;
 			//lon = rad(14.99);
 			//lat = rad(78.36);
 			//coordinates::galequ(lon, lat, ra, dec);
 			//std::cerr << deg(lon) << " " << deg(lat) << " " << deg(ra) << " " << deg(dec) << "\n";
-			coordinates::equgcs(t_node, t_inc, ra, dec, lon, lat);
+			coordinates::equgcs(t_node, t_inc, ra, dec, mi.lon, mi.lat);
 			//std::cerr << deg(lon) << " " << deg(lat) << "\n";
 			//exit(0);
 			break;
@@ -870,11 +911,15 @@ bool selector::select(mobject m)
 	}
 	FILTER(F_BEAM)
 	{
-		selected = coordinates::distance(lon, lat, ra, dec) < radius;
+		selected = coordinates::distance(mi.lon, mi.lat, ra, dec) < radius;
 	}
 	FILTER(F_RECT)
 	{
-		selected = coordinates::inBox(lon, lat, ra0, dec0, ra1, dec1);
+		FOREACH(m_selrect)
+		{
+			selected = coordinates::inBox(mi.lon, mi.lat, i->ra0, i->dec0, i->ra1, i->dec1);
+			if(!selected) break;
+		}
 	}
 	FILTER(F_GAL_RECT)
 	{
@@ -971,7 +1016,7 @@ bool selector::select(mobject m)
 		return false;
 	}
 
-	action(m);
+	action(m, mi);
 	nselected++;
 
 	return true;
@@ -979,7 +1024,7 @@ bool selector::select(mobject m)
 #undef FILTER
 #undef TRANSFORM
 
-void selector::action(mobject m)
+void selector::action(mobject m, const mobject_details &mi)
 {
 //	std::cerr << "In action\n";
 	
@@ -1039,14 +1084,15 @@ void selector::action(mobject m)
 			(int)(floor(y / om_lambert.dx))
 		);
 
-		if(binned.count(k) == 0) { binned[k] = 1; }
-		else { binned[k]++; }
+		binned[k].add(m, &mi, map_field, map_statistic);
+/*		if(binned.count(k) == 0) { binned[k] = 1; }
+		else { binned[k]++; }*/
 		
 		} break;
 	case OM_VOLMAP: {
 		V3 v;
 
-		v.celestial(m.D, lon, lat);
+		v.celestial(m.D, mi.lon, mi.lat);
 		S3 k = floor(v / brs.dx + 0.5);
 
 		if(brs.pixels.count(k) == 0)
@@ -1097,8 +1143,8 @@ void selector::action(mobject m)
 		} break;
 	case OM_CMD: {
 		double x, y;
-		x = m.field(om_cmd.cx);
-		y = m.field(om_cmd.cy);
+		x = m.field(om_cmd.cx, &mi);
+		y = m.field(om_cmd.cy, &mi);
 		//cerr << om_cmd.cx << " " << x << "\n";
 		if(!between(x, om_cmd.x0, om_cmd.x1)) break;
 		if(!between(y, om_cmd.y0, om_cmd.y1)) break;
@@ -1110,8 +1156,9 @@ void selector::action(mobject m)
 
 //		if(abs(x) > 40) { cerr << x << " " << y << " " << m << "\n"; }
 
-		if(binned.count(k) == 0) { binned[k] = 1; }
-		else { binned[k]++; }
+		binned[k].add(m, &mi, map_field, map_statistic);
+/*		if(binned.count(k) == 0) { binned[k] = 1; }
+		else { binned[k]++; }*/
 		
 		} break;
 	case OM_CATSTATS: {
@@ -1129,7 +1176,7 @@ void selector::action(mobject m)
 		}
 		}
 	case OM_HISTOGRAM: {
-		float x = m.field(om_hist.c);
+		float x = m.field(om_hist.c, &mi);
 		if(!between(x, om_hist.x0, om_hist.x1)) break;
 
 		int b = (int)floor(x / om_hist.dx + 0.5);
@@ -1195,7 +1242,7 @@ void selector::finish()
 	{
 		FOREACH(binned)
 		{
-			int v = (*i).second;
+			double v = (*i).second.value(map_field, map_statistic);
 			const S2 &k = (*i).first;
 
 			out << (0.5 + k.x)*om_lambert.dx << " " << (0.5 + k.y)*om_lambert.dx << " " << v << "\n";
@@ -1236,7 +1283,7 @@ void selector::finish()
 	{
 		FOREACH(binned)
 		{
-			int v = (*i).second;
+			double v = (*i).second.value(map_field, map_statistic);
 			const S2 &k = (*i).first;
 
 			out << (0.5 + k.x)*om_cmd.dx << " " << (0.5 + k.y)*om_cmd.dy << " " << v << "\n";
@@ -1398,8 +1445,17 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	else if(cmd == "rect")
 	{
 		double ra0, dec0, ra1, dec1;
+		string sop;
+		selrect::masktype op = selrect::INCLUDE;
 		ss >> ra0 >> dec0 >> ra1 >> dec1; ASSERT(!ss.fail());
-		select_rect(rad(ra0), rad(dec0), rad(ra1), rad(dec1));
+		if(ss >> sop)
+		{
+			if(sop == "include") { op = selrect::INCLUDE; }
+			else if(sop == "exclude") { op = selrect::EXCLUDE; }
+			else { ASSERT(0) { cerr << "Unknown rectangular mask operand [" << sop << "]\n"; } }
+		}
+		m_selrect.push_back(selrect(rad(ra0), rad(dec0), rad(ra1), rad(dec1), op));
+		filters |= F_RECT;
 		out << "# rect filter active\n";
 		out << "# (ra0, dec0)    = " << ra0 << " " << dec0 << "\n";
 		out << "# (ra1, dec1)    = " << ra1 << " " << dec1 << "\n";
@@ -1530,6 +1586,19 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	}
 	else if(set_param(ss, out, cmd, "lambert.l0", om_lambert.l0)) {}
 	else if(set_param(ss, out, cmd, "lambert.phi1", om_lambert.phi1)) {}
+	else if(cmd == "output")
+	{
+		std::string field, statistic;
+		ss >> statistic >> field;
+		ASSERT(!ss.fail());
+
+		map_field.set(field);
+			if(statistic == "count") { map_statistic = STAT_COUNT; }
+		else if(statistic == "mean")  { map_statistic = STAT_MEAN; }
+		else { ASSERT(0) { cerr << "Unknown statistic '" << statistic << "' required\n"; } }
+	
+		out << "# outputing " << statistic << " of " << field << "\n";
+	}
 	else if(cmd == "cmd")
 	{
 		// cmd [<xcolor|xmag> <ycolor|ymag> [dx dy [x0 x1 y0 y1]]]
@@ -1909,7 +1978,7 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		vector<double> Mr;
 		double coef;
 		while(ss >> coef) { Mr.push_back(coef); }
-		ASSERT(!ss.fail());
+		//ASSERT(!ss.fail());
 		paralax.setParalaxCoefficients(Mr);
 	}
 	else
@@ -1933,19 +2002,22 @@ bool selector::parse(const std::string &cmd, istream &ss)
 	return true;
 }
 
-selector *driver::newSelector(const std::string &filename)
+selector *driver::newSelector(const std::string &filename, bool ignore)
 {
 	selector_d s;
-	if(filename == "-")
+	if(filename == "-" || ignore)
 	{
-		s.s = new selector(cout, *this, "<STDOUT>");
+		s.s = new selector(cout, *this, filename);
 	} else {
 		s.out = new ofstream(filename.c_str());
 		ASSERT(!s.out->fail());
 		s.s = new selector(*s.out, *this, filename);
 	}
 
-	selectors.push_back(s);
+	if(!ignore)
+	{
+		selectors.push_back(s);
+	}
 
 	return s.s;
 }
@@ -2049,7 +2121,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.19 2006/12/11 05:19:55 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.20 2007/02/12 13:39:34 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",
@@ -2084,6 +2156,7 @@ try
 	string cmd;
 	char line[1000];
 	selector *s = NULL;
+	bool ignore = false;
 	while(!in.eof())
 	{
 		in.getline(line, sizeof(line));
@@ -2097,17 +2170,26 @@ try
 		{
 			std::string filename;
 			ss >> filename; ASSERT(!ss.fail());
-			s = db.newSelector(filename);
+			s = db.newSelector(filename, false);
+		}
+		else if(cmd == "inew") // read the configuration, but ignore the whole block
+		{
+			std::string filename;
+			ss >> filename; ASSERT(!ss.fail());
+			s = db.newSelector(filename, true);
+			ignore = true;
 		}
 		else
 		{
 			if(s == NULL)	// autocreate default selector
 			{
-				s = db.newSelector("-");
+				s = db.newSelector("-", false);
 			}
 			if(!s->parse(cmd, ss))
 			{
 				// this selector signaled it's finished with parsing
+				if(ignore) { delete s; }
+				ignore = false;
 				s = NULL;
 			}
 		}

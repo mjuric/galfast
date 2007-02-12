@@ -109,15 +109,20 @@ public:
 	#define COLOR_MR	-3
 	#define COLOR_MV	-4
 	#define COLOR_DRIP	-5
+	#define COLOR_RDM	-6	// distance modulus, r band
 
 	std::string name;
 
 	#define TYPE_COLORMAG	0
 	#define TYPE_SIGMA	-1
 	#define TYPE_FIELD	-2	// general accessor for any field of sdss_star
+	#define TYPE_UNDEFINED	-1000
 	int type;
 
 public:
+	sdss_color() : type(TYPE_UNDEFINED) {}
+	operator bool() const { return type != TYPE_UNDEFINED; }
+
 	static int bandIdx(const char c)
 	{
 		switch(c)
@@ -173,6 +178,7 @@ public:
 			first = second = bandIdx(color[0]);
 		}
 		else if(color == "p1s") { first = COLOR_P1S; second = 0; }
+		else if(color == "rdm") { first = COLOR_RDM; second = 0; }
 		else if(color == "p2s") { first = COLOR_P2S; second = 0; }
 		else if(color == "M_r") { first = COLOR_MR; second = 0; }
 		else if(color == "M_V") { first = COLOR_MV; second = 0; }
@@ -191,11 +197,13 @@ public:
 	inline void set(const std::string &color); /* defined below */
 
 	sdss_color(const std::string &color)
+	: type(TYPE_UNDEFINED) 
 	{
 		if(color.size()) { set(color); }
 	}
 
-	sdss_color(const char *color = NULL)
+	sdss_color(const char *color)
+	: type(TYPE_UNDEFINED) 
 	{
 		if(color != NULL) { set(color); }
 	}
@@ -254,6 +262,14 @@ struct observation : public obsv_mag
 
 class mobject;
 void print_mobject(std::ostream &out, const mobject &m);
+
+// supporting fields that are not physically stored on disk
+// but are sometimes calculated during processing and passed
+// along with a mobject to various routines
+struct mobject_details
+{
+	peyton::Radians lon, lat;	// transformed longitude, latitude (see T_COORD in selector.cpp)
+};
 
 struct mobject
 {
@@ -338,18 +354,20 @@ public:
 		ASSERT(0);
 	}
 
-	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC, FIELD_LOCUSDIST, FIELD_COLORLOGL, FIELD_DISTANCE};
+	enum {FIELD_UNKNOWN = 0, FIELD_RA, FIELD_DEC, FIELD_LOCUSDIST, FIELD_COLORLOGL, FIELD_DISTANCE, FIELD_LON, FIELD_LAT};
 	static int field_id(const std::string &name)
 	{
 		if(name == "ra") { return FIELD_RA; }
 		if(name == "dec") { return FIELD_DEC; }
+		if(name == "lon") { return FIELD_LON; }
+		if(name == "lat") { return FIELD_LAT; }
 		if(name == "locdist") { return FIELD_LOCUSDIST; }
 		if(name == "colorlogL") { return FIELD_COLORLOGL; }
 		if(name == "distance") { return FIELD_DISTANCE; }
 		return FIELD_UNKNOWN;
 	}
 
-	inline double field(const sdss_color &c) const
+	inline double field(const sdss_color &c, const mobject_details *mi = NULL) const
 	{
 		switch(c.type) {
 		case TYPE_SIGMA:    return sigma(c);
@@ -358,6 +376,8 @@ public:
 			switch(c.first) {
 			case FIELD_RA: return ra;
 			case FIELD_DEC: return dec;
+			case FIELD_LON: ASSERT(mi != NULL); return peyton::math::deg(mi->lon);
+			case FIELD_LAT: ASSERT(mi != NULL); return peyton::math::deg(mi->lat);
 #if 1
 			case FIELD_LOCUSDIST: return distance_from_locus(gr(), ri());
 #else
@@ -398,6 +418,7 @@ public:
 		{
 			case COLOR_P1S: return 0.910*u() - 0.495*g() - 0.415*r() - 1.280;
 			case COLOR_P2S: return -0.249*u() +0.794*g() - 0.555*r() + 0.234;
+			case COLOR_RDM: return 5*log10(D/10);
 			case COLOR_MR: return ml_r() - 5*log10(D/10);
 			case COLOR_MV: return (ml_r() - 5*log10(D/10)) + 0.44*ml_gr() - 0.02;
 			case COLOR_DRIP: 
@@ -459,7 +480,7 @@ void sdss_color::set(const std::string &color)
 		}
 	}
 
-//	ASSERT(0) { std::cerr << "Unknown color/field " << color << "\n"; };
+	//ASSERT(0) { std::cerr << "Unknown color/field " << color << "\n"; };
 }
 
 struct proc_obs_info

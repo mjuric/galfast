@@ -707,6 +707,14 @@ public:
 	std::set<ribin> colorbins;	/// color bins included in this skymap
 };
 
+class volume_bin_filter
+{
+public:
+	static volume_bin_filter* create(const std::string &name);
+	virtual const std::string name(bool pretty=false) = 0;
+	virtual bool accept(const double x, const double y, const double z) = 0; // v is in earthcentric galactic coordinate system
+};
+
 OSTREAM(const binned_runset &brs);
 
 #endif

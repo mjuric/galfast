@@ -1699,7 +1699,7 @@ double pixelate_volume(binned_run &br, const volume_map &vm, int n)
 
 void rhoray(int argc, char **argv)
 {
-	VERSION_DATETIME(version, "$Id: raytrace.cpp,v 1.9 2006/07/10 19:17:48 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: raytrace.cpp,v 1.10 2007/04/07 15:26:09 mjuric Exp $");
 
 	std::string argv0 = argv[0];
 	Options opts(
@@ -2036,6 +2036,8 @@ public:
 	// physical coordinates of the _center_ of current pixel
 	double x, y, z;
 
+	// bin filters
+	std::list<volume_bin_filter*> filters;
 public:
 	double dxfactor;
 	bool next()
@@ -2064,10 +2066,39 @@ public:
 	virtual bool prepareInterval() = 0;
 	virtual double action(float ddv) = 0;
 
+	int add_filter(const std::string &name)
+	{
+		std::auto_ptr<volume_bin_filter> f(volume_bin_filter::create(name));
+		if(!f.get()) { return 0; }
+
+		filters.push_back(f.release());
+		return 1;
+	}
+	int add_filters(const std::vector<std::string> &filter_names)
+	{
+		FOR(0, filter_names.size())
+		{
+			if(!add_filter(filter_names[i])) { return i; }
+		}
+		return filter_names.size();
+	}
+	~pixelize_volume()
+	{
+		FOREACH(filters) { delete *i; }
+	}
+
+	double call_action(float ddv)
+	{
+		FOREACH(filters) { if(!(*i)->accept(x, y, z)) { return 0; } };
+		return action(ddv);
+	}
 	/*
 		Bins the interval into pixels. For each pixel, sets (x, y, z) to coordinates
 		of its _center_ and calls action(ddv), where ddv is the volume covered within
 		that pixel.
+		
+		If there are any filters attached, calls accept() to decide whether to call
+		action();
 	*/
 	virtual double pixelate_interval()
 	{
@@ -2085,21 +2116,21 @@ public:
 			// last pixel
 			z = (i1  + 0.5)*dx;
 			const double ddv = (x1 - max(i1, x0)) * dv;
-			sum += action(ddv);
+			sum += call_action(ddv);
 
 			if(i0 <= i1)
 			{
 				// first pixel
 				z = ((i0 - 1) + 0.5)*dx;
 				const double ddv = (i0 - x0) * dv;
-				sum += action(ddv);
+				sum += call_action(ddv);
 	
 				// pixels in between
 				int kz;
 				for(kz = (short)i0; kz != i1; kz++)
 				{
 					z = (kz + 0.5)*dx;
-					sum += action(dv);
+					sum += call_action(dv);
 				}
 			}
 		}
@@ -2581,9 +2612,12 @@ int bin_plane_cut(
 	double d2, pair<double, double> p2,
 	double d3, pair<double, double> p3,
 	double d0, pair<double, double> p0,
-	double delta, bool earth_on_x_axis)
+	double delta, bool earth_on_x_axis,
+	const std::vector<std::string> &filters)
 {
 	plane_pixelize_volume binner(volfn, dx, ndx, r, ri);
+	binner.add_filters(filters);
+
 	setupPlaneTransformer(binner.pt, coordsys.size() ? coordsys : "equ", d1, p1, d2, p2, d3, p3, d0, p0, delta, earth_on_x_axis);
 	cout << binner.run() << "\n";
 	binner.br.loaded = true;
@@ -2598,6 +2632,39 @@ int bin_plane_cut(
 }
 #endif
 
+class filter_non_virgo : public volume_bin_filter // accept only non-Virgo overdensity pixels
+{
+public:
+	const double s, c, xlim, rmin2;
+	filter_non_virgo() :
+		s(sin(rad(-30.))), c(cos(rad(-30.))),
+		xlim(V3(-8000, 0, 0).rotate2d(-ctn::pi/6.).x),
+		rmin2(sqr(3000))
+	{}
+
+	virtual bool accept(const double x, const double y, const double z)
+	{
+		V3 v(x, y, z);
+//		V3 v(-7000, 0, z);
+		v.rotate2d(-ctn::pi/6.);
+		bool accept = !(v.y > 0 && v.x > xlim && dot(v,v) > rmin2);
+//		if(!accept)
+//		cerr << x << " " << y << " " << z << " : " << accept << " : " << xlim;
+//		cerr << v.x << " " << v.y << " " << v.z << " : " << accept << "\n";
+		return accept;
+	}
+
+	virtual const std::string name(bool pretty=false)
+	{
+		return "non_virgo";
+	}
+};
+
+volume_bin_filter* volume_bin_filter::create(const std::string &name)
+{
+	if(name == "non_virgo") { return new filter_non_virgo(); }
+	ASSERT(0) { cerr << "Filter [" + name + "] unknown\n"; }
+}
 
 class cylindrical_pixelize_volume : public bin3d_pixelize_volume
 {
@@ -2632,10 +2699,13 @@ int bin_cylindrical(
 	const std::string &outfile, const std::string &volfn, 
 	double dx, int ndx,
 	pair<float, float> r, pair<float, float> ri,
-	Radians phi0
+	Radians phi0,
+	const std::vector<std::string> &filters
 )
 {
 	cylindrical_pixelize_volume binner(volfn, dx, ndx, r, ri, phi0);
+	binner.add_filters(filters);
+
 	cerr << "phi0 = " << deg(phi0) << "\n";
 	cout << binner.run() << "\n";
 	binner.br.loaded = true;

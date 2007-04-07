@@ -167,26 +167,27 @@ struct nameSetter { nameSetter(int val, const char *name) { filterName(val) = na
 	static const int filt = val; \
 	nameSetter ns_##filt(val, #filt);
 
-DEFINE_FILTER(F_BEAM,		0x01);
-DEFINE_FILTER(F_RECT,		0x02);
-DEFINE_FILTER(F_RI,		0x04);
-DEFINE_FILTER(F_R,		0x08);
-DEFINE_FILTER(F_ML_RI,		0x10);
-DEFINE_FILTER(F_ML_R,		0x20);
-DEFINE_FILTER(F_GAL_RECT,	0x40);
-DEFINE_FILTER(F_SPARSE,		0x80);
-DEFINE_FILTER(F_RUN,		0x100);
-DEFINE_FILTER(F_GR,		0x200);
-DEFINE_FILTER(F_D,		0x400);
-DEFINE_FILTER(T_COORD,		0x800);
-DEFINE_FILTER(F_ML_GR,		0x1000);
-DEFINE_FILTER(F_COLOR,		0x2000);
-DEFINE_FILTER(T_DISTANCE,	0x4000);
-DEFINE_FILTER(F_CART,		0x8000);
-DEFINE_FILTER(F_SIGMA,		0x10000);
-DEFINE_FILTER(F_LIMIT,		0x20000);
-DEFINE_FILTER(T_GMIRROR,	0x40000);
+DEFINE_FILTER(F_BEAM,			0x01);
+DEFINE_FILTER(F_RECT,			0x02);
+DEFINE_FILTER(F_RI,			0x04);
+DEFINE_FILTER(F_R,			0x08);
+DEFINE_FILTER(F_ML_RI,			0x10);
+DEFINE_FILTER(F_ML_R,			0x20);
+DEFINE_FILTER(F_GAL_RECT,		0x40);
+DEFINE_FILTER(F_SPARSE,			0x80);
+DEFINE_FILTER(F_RUN,			0x100);
+DEFINE_FILTER(F_GR,			0x200);
+DEFINE_FILTER(F_D,			0x400);
+DEFINE_FILTER(T_COORD,			0x800);
+DEFINE_FILTER(F_ML_GR,			0x1000);
+DEFINE_FILTER(F_COLOR,			0x2000);
+DEFINE_FILTER(T_DISTANCE,		0x4000);
+DEFINE_FILTER(F_CART,			0x8000);
+DEFINE_FILTER(F_SIGMA,			0x10000);
+DEFINE_FILTER(F_LIMIT,			0x20000);
+DEFINE_FILTER(T_GMIRROR,		0x40000);
 DEFINE_FILTER(T_MALMQUIST_CORRECTION,	0x80000);
+DEFINE_FILTER(F_VOLFILTERS,		0x10000);
 
 class selector
 {
@@ -255,6 +256,8 @@ public:
 		m_cart_t() { use[0] = use[1] = use[2] = false; }
 	} m_cart;
 	int nread, nlimit;
+
+	std::list<volume_bin_filter*> volfilters;
 
 	driver &db;
 public:
@@ -528,6 +531,10 @@ public:
 		{
 			ASSERT(!out.fail());
 		}
+	~selector()
+		{
+			FOREACH(volfilters) { delete *i; }
+		}
 
 	int select_beam(Radians ra, Radians dec, Radians radius);
 	int select_rect(Radians ra0, Radians dec0, Radians ra1, Radians dec1);
@@ -695,16 +702,29 @@ void selector::start()
 		int ndx = om_cyl.ndx;
 		pair<float, float> ri = om_cyl.ri, r = om_cyl.r;
 		float phi0 = deg(om_cyl.phi0);
+		std::string svolfilters, svolfilterscmd;
 
-		std::string fn = io::format("cache/cylindrical.%6.3f-%6.3f.%5.3f-%5.3f.dx=%6.3f.phi0=%03.0f.bin")
-			<< r.first << r.second << ri.first << ri.second << dx*ndx << phi0;
+		if(filters & F_VOLFILTERS)
+		{
+			FOREACH(volfilters)
+			{
+				svolfilters += '.';
+				svolfilters += (*i)->name(true);
+				
+				svolfilterscmd += " --filter=";
+				svolfilterscmd += (*i)->name();
+			}
+		}
+
+		std::string fn = io::format("cache/cylindrical.%6.3f-%6.3f.%5.3f-%5.3f.dx=%6.3f.phi0=%03.0f%s.bin")
+			<< r.first << r.second << ri.first << ri.second << dx*ndx << phi0 << svolfilters;
 
 		if(!Filename(fn).exists())
 		{
 			std::string cmd = io::format(
-				"$BIN/bin_volume.x --type=cyl --phi0=%f "
+				"$BIN/bin_volume.x --type=cyl --phi0=%f%s "
 				"%6.3f %6.3f %5.3f %5.3f merged.bin %f %d %s"
-			) << phi0 << r.first << r.second << ri.first << ri.second << dx << ndx << fn;
+			) << phi0 << svolfilterscmd << r.first << r.second << ri.first << ri.second << dx << ndx << fn;
 
 			out << "# Generating volume map file using: " << cmd << "\n";
 			cerr << "Calling external command:\n  " << cmd << "\n- - - - - - - -\n";
@@ -997,6 +1017,14 @@ bool selector::select(mobject m)
 			if(rm[sm.fitsId] == run) { selected = true; break; }
 		}
 	}
+	FILTER(F_VOLFILTERS)
+	{
+		selected = true;
+		FOREACH(volfilters)
+		{
+			if(!(*i)->accept(v.x, v.y, v.z)) { selected = false; break; }
+		}
+	}
 	
 	// Note: thisone has to be _last_
 	FILTER(F_SPARSE)
@@ -1047,6 +1075,8 @@ void selector::action(mobject m, const mobject_details &mi)
 	//	out << setw(10) << m.color(sdss_color("p1s")) << " ";
 	//	out << setw(10) << m.color(sdss_color("p2s"));
 	//	out << setw(12) << " " << v;
+		char buf[30]; sprintf(buf, "%6.3f", m.Ar);
+		out << buf << " ";
  		out << "\n";
 		break;
 	case OM_OBSV:
@@ -1702,6 +1732,24 @@ bool selector::parse(const std::string &cmd, istream &ss)
 		out << om_hist << "\n";
 		out << "#\n";
 	}
+	else if(cmd == "volfilter")
+	{
+		// Syntax: volfilter <filter_name>
+		std::string name;
+		ss >> name;
+		ASSERT(!ss.fail());
+		
+		std::auto_ptr<volume_bin_filter> f(volume_bin_filter::create(name));
+		ASSERT(f.get()) {
+			std::cerr << "Filter [" << name << "] unknown!\n";
+		}
+		
+		out << "# using volume filter: " << f->name(true) << "\n";
+		out << "#\n";
+
+		volfilters.push_back(f.release());
+		filters |= F_VOLFILTERS;
+	}
 	else if(cmd == "cylindrical")
 	{
 		// Syntax: cylindrical ri0 ri1 r0 r1 dx ndx [phi0]
@@ -1753,7 +1801,7 @@ bool selector::parse(const std::string &cmd, istream &ss)
 			out << "# Import of [" << fn << "] complete.\n";
 		}
 		out << "#\n";
-}
+	}
 	else if(cmd == "planecut")
 	{
 		//
@@ -2121,7 +2169,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.20 2007/02/12 13:39:34 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.21 2007/04/07 15:26:09 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",

@@ -19,7 +19,7 @@
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/selector.x</activetarget>
+      <activetarget>src/bin_volume.x</activetarget>
       <useconfiguration>optimized</useconfiguration>
     </general>
     <run>

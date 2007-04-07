@@ -9,7 +9,7 @@
 #PBS -l nodes=1:ppn=1
 #PBS -j oe
 
-if(`hostname` == 'caladan.astro.Princeton.EDU' ) then
+if(`hostname` == 'c105008.campus.ias.edu' ) then
 	echo "Caladan settings."
 	setenv WORKSPACE /home/mjuric/projects/galaxy/workspace
 	setenv CONF_SDSS $WORKSPACE/$RUNSET/conf.sdss

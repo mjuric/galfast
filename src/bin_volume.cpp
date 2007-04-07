@@ -48,19 +48,22 @@ int bin_plane_cut(
 	double d2, pair<double, double> p2,
 	double d3, pair<double, double> p3,
 	double d0, pair<double, double> p0,
-	double delta, bool earth_on_x_axis);
+	double delta, bool earth_on_x_axis,
+	const std::vector<std::string> &filters
+	);
 int bin_cylindrical(
 	const std::string &outfile, const std::string &volfn, 
 	double dx, int ndx,
 	pair<float, float> r, pair<float, float> ri,
-	Radians phi0
+	Radians phi0,
+	const std::vector<std::string> &filters
 );
 
 int main(int argc, char **argv)
 {
 try
 {
-	VERSION_DATETIME(version, "$Id: bin_volume.cpp,v 1.5 2006/12/11 05:19:55 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: bin_volume.cpp,v 1.6 2007/04/07 15:26:09 mjuric Exp $");
 
 	Options opts(
 		argv[0],
@@ -82,7 +85,7 @@ try
 	// add any options your program might need. eg:
 	// opts.option("meshFactor", "meshFactor", 0, "--", Option::required, "4", "Resolution decrease between radial steps");
 	bool justinfo = false;
-	opts.option("just-info").bind(justinfo).param_none().desc("Just print the information about what will be done, do no actual work. Works only for some subcommands.");
+	opts.option("just-info").bind(justinfo).value("true").param_none().desc("Just print the information about what will be done, do no actual work. Works only for some subcommands.");
 
 	opts.option("type", "Type of binning to perform ('gc', 'plane' and 'cyl' are defined)").param_required();
 	opts.option("coordsys", "Coordinate system used for x0...xn ('equ' is the default, 'gal' and 'galcart' are available)").param_required();
@@ -99,6 +102,8 @@ try
 	opts.option("delta", "Halfthickness of the plane to bin (for use with --type=plane)").param_required();
 
 	opts.option("phi0", "Zero point of galactocentric phi angle, in degrees (for use with --type=cyl)").def_val("0").param_required();
+
+	opts.option("filter", "Take into account only the voxels accepted by <filter> (currently only works for --type=cyl)").param_required();
 
 	parse_options(opts, argc, argv);
 
@@ -160,6 +165,14 @@ try
 	}
 	else
 	{
+		std::vector<std::string> filters;
+		if(opts.found("filter"))
+		{
+			ASSERT(opts["type"] == "cyl" || opts["type"] == "plane"); // for now, only cyl and plane modes has the infrastructure for this
+			filters.push_back(opts["filter"]);
+			cerr << "Using filter(s): " << filters[0] << "\n";
+		}
+
 		if(opts["type"] == "gc")
 		{
 			cerr << "Binning GC volume to [" << opts["uniqMapFn"] << "]\n";
@@ -177,7 +190,8 @@ try
 				make_pair((float)opts["r0"], (float)opts["r1"]), 
 				make_pair((float)opts["ri0"], (float)opts["ri1"]),
 				opts["coordsys"], d1, x1, d2, x2, d3, x3, d0, x0, opts["delta"],
-				opts["earthonaxis"]
+				opts["earthonaxis"],
+				filters
 			);
 		}
 		else if(opts["type"] == "cyl")
@@ -186,7 +200,8 @@ try
 			bin_cylindrical(opts["uniqMapFn"], opts["run"], opts["dx"], opts["ndx"],
 				make_pair((float)opts["r0"], (float)opts["r1"]), 
 				make_pair((float)opts["ri0"], (float)opts["ri1"]),
-				rad(opts["phi0"])
+				rad(opts["phi0"]),
+				filters
 			);
 		}
 		else

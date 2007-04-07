@@ -883,7 +883,7 @@ bool selector::select(mobject m)
 			// node and inclination are given wrt. galactic coordinate system
 			coordinates::galgcs(t_node, t_inc, mi.lon, mi.lat, mi.lon, mi.lat);
 			break;
-		case Equatorial:
+		case Equatorial: {
 			// node and inclination are given wrt. equatorial coordinate system
 			Radians ra = mi.lon, dec = mi.lat;
 			//lon = rad(14.99);
@@ -893,7 +893,7 @@ bool selector::select(mobject m)
 			coordinates::equgcs(t_node, t_inc, ra, dec, mi.lon, mi.lat);
 			//std::cerr << deg(lon) << " " << deg(lat) << "\n";
 			//exit(0);
-			break;
+			} break;
 		default:
 			ASSERT(0) { std::cerr << "Unknown coordinate system for 'transform' (" << t_gc_coordsys << ")\n"; }
 		}
@@ -2169,7 +2169,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.21 2007/04/07 15:26:09 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.22 2007/04/07 15:45:26 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",

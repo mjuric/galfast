@@ -1542,7 +1542,8 @@ void testIntersection(const std::string &prefix)
 	//x = 0.280607; y = -0.387462;
 	x = 1.05179; y = 0.807653;
 
-	cerr << "Inside: " << in_polygon((gpc_vertex const&)make_pair(x, y), sky) << "\n";
+	pair<double, double> tmp(x, y);
+	cerr << "Inside: " << in_polygon((gpc_vertex const&)tmp, sky) << "\n";
 //exit(0);
 	// monte-carlo tests
 	double begin = seconds();
@@ -1569,7 +1570,8 @@ void testIntersection(const std::string &prefix)
 			if(b < 0) { continue; }
 
 			proj.convert(l, b, x, y);
-			if(!in_polygon((gpc_vertex const&)make_pair(x, y), sky))
+			pair<double, double> tmp(x, y);
+			if(!in_polygon((gpc_vertex const&)tmp, sky))
 			{
 				cerr << "-";
 // 				cerr << "Test failed for:\n";
@@ -2050,7 +2052,7 @@ int main(int argc, char **argv)
 try
 {
 	std::string argv0 = argv[0];
-	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.17 2006/12/11 05:19:55 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.18 2007/04/07 15:45:26 mjuric Exp $");
 	std::string progdesc = "simulate.x, a mock star catalog simulator.";
 
 	std::string cmd, input, output;

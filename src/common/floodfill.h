@@ -43,7 +43,7 @@ public:
 
 	void reset() { volume.clear(); q = std::queue<T>(); }
 
-	inline void FloodFill::flood(const T &v_initial)
+	inline void flood(const T &v_initial)
 	{
 		// flood search volume
 		q.push(v_initial);

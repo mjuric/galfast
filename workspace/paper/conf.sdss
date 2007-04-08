@@ -1,0 +1,8 @@
+#
+# SDSS configuration
+# Specified to libpeyton code through CONF_SDSS environment variable
+#
+
+runlist file = /home/mjuric/projects/galaxy/workspace/paper/run_geometry.txt
+time.toffset = -27.04
+observatory.code = 645

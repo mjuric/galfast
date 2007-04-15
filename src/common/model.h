@@ -124,8 +124,8 @@ struct model_fitter : public disk_model
 	std::vector<rzpixel> culled;		/// culled data (culled = orig - map)
 public:
 	void setdata(const std::vector<rzpixel> &data) { orig = map = data; }
-	std::pair<float, float> ri, r;
-	std::pair<double, double> d;
+	std::vector<std::pair<float, float> > ri, r;
+	std::vector<std::pair<double, double> > d;
 	int ndata() { return map.size(); }
 
 	model_fitter(const model_fitter& m)

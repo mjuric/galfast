@@ -974,7 +974,7 @@ sky_generator::sky_generator(std::istream &in)
 	// number of stars to read
 	cfg.get(nstars,	"nstars", 	0);
 	cfg.get(Ar,	"Ar", 		0.);	// extinction
-	
+
 	// random number generator
 	int seed;
 	cfg.get(seed,	"seed", 	42);
@@ -1086,7 +1086,8 @@ void sky_generator::montecarlo(star_output_function &out)
 	FOR(1, pdfs.size()) { modelCPDF[i] /= norm; }
 	
 	// generate the data in smaller batches (to conserve memory)
-	static const int Kbatch = 15000000;
+	static const int Kbatch = 20000000;
+//	static const int Kbatch = 10000;
 
 	int K = 0, Ngen = 0;
 	while(K < Ktotal)
@@ -1270,7 +1271,7 @@ void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::
 void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf)
 {
 	std::cerr << "Observing... ";
-	spinner spin;
+	ticker tick(10000);
 	std::vector<std::pair<observation, obsv_id> > obsvs;
 	FORj(j, 0, stars.size())
 	{
@@ -1280,7 +1281,8 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		observation obsv;
 
 		// set extinction
-		obsv.Ar = .1;
+		obsv.Ar = Ar;
+//		std::cerr << "Ar = " << Ar << "\n";
 
 		// position
 		Radians l, b;
@@ -1295,6 +1297,12 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		double Mr = paralax.Mr(s.ri);
 		double D = stardist::D(s.m, Mr);
 
+		float binaryFraction = 0.;
+		if(binaryFraction)
+		{
+			// NOT FINISHED!!
+		}
+		
 		bool subdwarfs = false;
 		if(subdwarfs)
 		{
@@ -1340,8 +1348,10 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		r = s.m;
 		u = z = r;
 		i = r - s.ri;
+/*		std::cerr << "r, i, r-i" << r << " " << i << " " << s.ri << "\n";*/
 		double gr = paralax.gr(s.ri);
 		g = r + gr;
+// 		std::cerr << "gr ri = " << gr << " " << s.ri << "\n";
 
 		// add extinction and
 		// store _extinction uncorrected_ magnitudes to obsv_mag
@@ -1368,6 +1378,14 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 			// mix in magnitude errors
 			FOR(0, 5) { obsv.mag[i] += gsl_ran_gaussian(rng, obsv.magErr[i]); }
 		}
+		else
+		{
+			FOR(0, 5) { obsv.magErr[i] = 0; }
+		}
+
+// 		std::cerr << "magerrs = ";
+// 		FOR(0, 5) { std::cerr << obsv.magErr[i] << " "; }
+// 		std::cerr << "\n";
 
 		// "observe" the object and store it to object and observation database
 		obsvs.clear();
@@ -1375,9 +1393,9 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		sf.output(obsv.ra, obsv.dec, obsv.Ar, obsvs);
 
 		// user interface stuff
-		spin.tick();
+		tick.tick();
 	}
-	spin.stop();
+	tick.close();
 	std::cerr << "\n";
 }
 

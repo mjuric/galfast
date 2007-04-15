@@ -167,8 +167,8 @@ void model_fitter::residual_distribution(std::map<int, int> &hist, double binwid
 	{
 		const rzpixel &x = map[i];
 		double rhom = rho(x.r, x.z, x.ri_bin);
-		double r = abs(x.rho - rhom) / x.sigma;
-		int ir = (int)(r / binwidth);
+		double r = (x.rho - rhom) / x.sigma;
+		int ir = (int)floor((r+0.5*binwidth) / binwidth);
 // 		std::cerr << r << " " << binwidth*ir << "\n";
 
 		if(hist.find(ir) == hist.end()) hist[ir] = 1;
@@ -182,7 +182,7 @@ void model_fitter::print(ostream &out, int format, int ri_bin)
 	switch(format)
 	{
 	case PRETTY:
-		out << io::format("%15s = (%.3f, %.3f)") << "ri" << ri.first << ri.second << "\n";
+		out << io::format("%15s = (%.3f, %.3f)") << "ri" << ri[ri_bin].first << ri[ri_bin].second << "\n";
 		out << io::format("%15s = %d") << "n(DOF)" << ndof() << "\n";
 		out << io::format("%15s = %.5g") << "chi^2/dof" << chi2_per_dof << "\n";
 		out << io::format("%15s = %.5g") << "eps{abs,rel}" << epsabs << " " << epsrel << "\n";

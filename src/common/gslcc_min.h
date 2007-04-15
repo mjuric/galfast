@@ -49,7 +49,7 @@ namespace gsl {
 //				std::cerr << "Error: " << xmin << " " << xmax << " " << xguess << "\n";
 //			}
 			status = gsl_min_fminimizer_set(s, this, xguess, xmin, xmax);
-//			if(status) { std::cerr << xguess << "\n"; }
+			if(status) { std::cerr << "xguess=" << xguess << "\n"; }
 			GSLTHROW(status);
 
 			int iter = 0;

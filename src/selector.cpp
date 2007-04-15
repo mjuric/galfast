@@ -2169,7 +2169,7 @@ try
 {
 	gsl_set_error_handler_off ();
 	
-	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.22 2007/04/07 15:45:26 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: selector.cpp,v 1.23 2007/04/15 12:09:52 mjuric Exp $");
 	Options opts(
 		argv[0],
 		"Unique object & observation database query tool.",
@@ -2198,9 +2198,10 @@ try
 
 	// some information
 	cerr << "Object catalog:       " << obj_cat_fn << "\n";
+	cerr << "Objects in catalog:   " << db.arr.size() << "\n";
 	cerr << "Observations catalog: " << obs_cat_fn << "\n";
 	cerr << "Query file:           " << query_fn << "\n";
-	
+
 	string cmd;
 	char line[1000];
 	selector *s = NULL;

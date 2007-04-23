@@ -1262,6 +1262,34 @@ void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::
 	out << ra << " " << dec << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
 }
 
+// Quick hack -- a position-independent luminosity function for binaries
+void sky_generator::draw_companion(float &g, float &r, float &i, Radians l, Radians b, double dm /*distance modulus*/)
+{
+#if 1
+	// HACK: just load a position-independent luminosity function from lumfun.txt
+	static cumulative_dist lf; // luminosity function
+	if(lf.empty())
+	{
+		// luminosity function
+		text_input_or_die(lfin, "lumfun.txt")
+		std::vector<double> ri, phi;
+		load(lfin, ri, 0, phi, 1);
+		// convert to cumulative distribution, from [0,1]
+		FOR(1, phi.size()) { phi[i] += phi[i-1]; }
+		FOR(0, phi.size()) { phi[i] = (phi[i] - phi.front()) / (phi.back() - phi.front()); }
+		lf.construct(ri, phi);
+	}
+	float ri = lf(gsl_rng_uniform(rng));
+#else
+	float u = gsl_rng_uniform(rng);
+	float ri = 0.1 + u*1.3; // HACK: draw r-i uniformly in 0.1-1.3 range
+#endif
+
+	r = paralax.Mr(ri) + dm;
+	i = r - ri;
+	g = r + paralax.gr(ri);
+}
+
 #define DBG_MAGCHECK 0
 
 #if DBG_MAGCHECK
@@ -1280,9 +1308,12 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		obsv_id oid;
 		observation obsv;
 
+		#if !DBG_MAGCHECK
+		float u, g, r, i, z;
+		#endif
+
 		// set extinction
 		obsv.Ar = Ar;
-//		std::cerr << "Ar = " << Ar << "\n";
 
 		// position
 		Radians l, b;
@@ -1290,22 +1321,52 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		coordinates::galequ(l, b, obsv.ra, obsv.dec);
 		obsv.ra = deg(obsv.ra); obsv.dec = deg(obsv.dec);
 
-		//
-		// Things affecting the absolute magnitude of the star
-		//
-		
-		double Mr = paralax.Mr(s.ri);
-		double D = stardist::D(s.m, Mr);
+		// calculate magnitudes, absolute magnitudes and distance
+		const double Mr = paralax.Mr(s.ri);
+		const double D = stardist::D(s.m, Mr);
+		u = s.m;
+		g = s.m + paralax.gr(s.ri);
+		r = s.m;
+		i = s.m - s.ri;
+		z = s.m;
 
-		float binaryFraction = 0.;
-		if(binaryFraction)
+		//
+		// Physical things affecting the object's magnitudes and colors
+		//
+
+		float binaryFraction = 0.20;
+		if(binaryFraction && (gsl_rng_uniform(rng) <= binaryFraction))
 		{
-			// NOT FINISHED!!
+			// this star has a binary companion -- add it
+
+			// - draw the companion from the luminosity function
+			float gb, rb, ib;
+			draw_companion(gb, rb, ib, l, b, r - Mr);
+
+#if DBG_PRINT_BINARIES
+			std::cout << r - Mr << "   ";
+			std::cout << g << " " << r << " " << i << "   ";
+			std::cout << gb << " " << rb << " " << ib << "   ";
+#endif
+			// calculate joint magnitudes
+			g = -2.5*log10(pow(10., -0.4*g) + pow(10., -0.4*gb));
+			r = -2.5*log10(pow(10., -0.4*r) + pow(10., -0.4*rb));
+			i = -2.5*log10(pow(10., -0.4*i) + pow(10., -0.4*ib));
+
+#if DBG_PRINT_BINARIES
+			std::cout << g << " " << r << " " << i << "\n";
+#endif
+		} else {
+//			ASSERT(0);
 		}
-		
+		// ignore stars fainter than flux limit (HACK)
+		if(r > 22.5) { continue; }
+
 		bool subdwarfs = false;
 		if(subdwarfs)
 		{
+			ASSERT(0); // the logic of this code has to be rechecked, in light of algorithm changes here
+
 			// calculate galactic coordinates
 			V3 v; v.celestial(l, b, D);
 			v.x = Rg - v.x;
@@ -1315,10 +1376,14 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 			double f;
 			if(v.z < 500) { f = 0; }
 			else if(v.z < 2500) { f = (v.z - 500.) / 2000.; }
-			else { v.z = 1; }
+			else { f = 1; }
 
-			// adjust the absolute magnitude accordingly
-			Mr += f;
+			// adjust the absolute magnitudes accordingly
+			u += f;
+			g += f;
+			r += f;
+			i += f;
+			z += f;
 		}
 
 		if(paralax_dispersion)
@@ -1329,29 +1394,18 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 			// absolute magnitude Mr' = Mr + dMr, while _keeping_ the same color and
 			// distance. The observer therefore sees the star to be dimmer/brighter than
 			// a star with absmag Mr (==> change of magnitude).
+			// Note: this is an oversimplification, as some colors do change (we should implement this)
 			double dMr = gsl_ran_gaussian(rng, paralax_dispersion);
-			Mr += dMr;
+			u += dMr;
+			g += dMr;
+			r += dMr;
+			i += dMr;
+			z += dMr;
 		}
 
-		s.m = stardist::m(D, Mr);
-
-		
-		
 		//
 		// Things happening at observation ("in the telescope")
 		//
-		
-		// calculate magnitudes and convert to flux
-	#if !DBG_MAGCHECK
-		float u, g, r, i, z;
-	#endif
-		r = s.m;
-		u = z = r;
-		i = r - s.ri;
-/*		std::cerr << "r, i, r-i" << r << " " << i << " " << s.ri << "\n";*/
-		double gr = paralax.gr(s.ri);
-		g = r + gr;
-// 		std::cerr << "gr ri = " << gr << " " << s.ri << "\n";
 
 		// add extinction and
 		// store _extinction uncorrected_ magnitudes to obsv_mag

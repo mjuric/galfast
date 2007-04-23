@@ -16,6 +16,7 @@ while($_ = <BINS>)
 	$r0 = sprintf("%5.3f", $r0);
 	$r1 = sprintf("%5.3f", $r1);
 
+	print "#\n";
 	print "./median3d.pl median pure $runset/txt/cyl.$r0-$r1.$ri0-$ri1.txt > $runset/txt/avgcyl.$ri0-$ri1.median.txt\n";
 	print "./median3d.pl median cleaned $runset/txt/cyl.$r0-$r1.$ri0-$ri1.txt > $runset/txt/avgcyl.$ri0-$ri1.median.cleaned.txt\n";
 	print "./median3d.pl mean pure $runset/txt/cyl.$r0-$r1.$ri0-$ri1.txt > $runset/txt/avgcyl.$ri0-$ri1.mean.txt\n";

@@ -2,6 +2,8 @@
 
 sub usage { die("./median3d.pl <mean|median> <pure|cleaned> cyl.1.00-1.10.txt > rz.txt"); }
 
+$filter_mon = $ENV{'FILTER_MON'};
+
 scalar(@ARGV == 3) or usage();
 ($method, $type, $file) = @ARGV;
 $method eq "mean" or $method eq "median"  or usage();
@@ -38,10 +40,12 @@ sub filter
 
 	# Monoceros stream
 	# This used to be the filter for astro-ph version of photom. paralax
-	##if(13000 < $r && $r < 19000 && 0 < $z && $z < 5000) { return 0; }
-	##if(16000 < $r && $r < 19000 && 0 < $z && $z < 7000) { return 0; }
-	###if(14000 < $r && $r < 22000 && 0 < $z && $z < 7000) { return 0; }
-	###if(16000 < $r && $r < 22000 && 0 < $z && $z < 10000) { return 0; }
+	if($filter_mon) {
+		##if(13000 < $r && $r < 19000 && 0 < $z && $z < 5000) { return 0; }
+		##if(16000 < $r && $r < 19000 && 0 < $z && $z < 7000) { return 0; }
+		if(14000 < $r && $r < 24000 && 0 < $z && $z < 7000) { return 0; }
+		if(16000 < $r && $r < 24000 && 0 < $z && $z < 10000) { return 0; }
+	}
 
 	# Close by (just for testing, the fitter should apply this cut)
 	#if(abs($z) < 1000) { return 0; }
@@ -67,6 +71,12 @@ while($_ = <IN>)
 	#print "($x, $y, $z, $obs, $ovol, $n, $v)\n";
 	if($type eq "cleaned") { filter($x, $y, $z) or next; }
 
+	# BUGFIX/HACK: There are some bins that got rounding screwed up
+	$x = sprintf("%.0f", $x);
+	$y = sprintf("%.0f", $y);
+	$z = sprintf("%.0f", $z);
+
+	if($v == 0) { print STDERR "$n $v\n"; }
 	push @{$den{$x}{$z}}, {'den' => $n/$v, 'N' => $n, 'V' => $v};
 }
 

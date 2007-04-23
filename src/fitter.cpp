@@ -1327,7 +1327,7 @@ int main(int argc, char **argv)
 /*
 try
 {
-	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.13 2007/04/15 12:09:52 mjuric Exp $");
+	VERSION_DATETIME(version, "$Id: fitter.cpp,v 1.14 2007/04/23 21:13:31 mjuric Exp $");
 
 	Options opts(
 		argv[0],
@@ -1611,7 +1611,8 @@ try
 	gsl_vector *v = gsl_vector_alloc(m.ndof());
 	FOR(0, nfits)
 	{
-		vector<rzpixel> data, alldata;
+		vector<vector<rzpixel> > data(rzfile.size());
+		vector<rzpixel> alldata;
 		// assing initial parameters
 		FOREACHj(j, params)
 		{
@@ -1637,9 +1638,10 @@ try
 		// load data
 		FORj(j, 0, rzfile.size())
 		{
-			load_disk(&data, rzfile[j], j);
-			clean_disk(&data, how, m, modelname[j]);
-			alldata.insert(alldata.end(), data.begin(), data.end());
+			load_disk(&data[j], rzfile[j], j);
+			clean_disk(&data[j], how, m, modelname[j]);
+			//store_cleaned(&data[j], rzfile[j]);
+			alldata.insert(alldata.end(), data[j].begin(), data[j].end());
 		}
 		m.setdata(alldata);
 		cerr << "Total number of pixels = " << alldata.size() << "\n";

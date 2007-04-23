@@ -41,6 +41,7 @@ public:
 public:
 	double operator()(double prob);
 	void construct(const std::vector<double> &x, const std::vector<double> &y);
+	bool empty() const { return hist.empty(); }
 };
 
 //
@@ -168,6 +169,7 @@ public:
 protected:
 	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
 	void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
+	void draw_companion(float &gb, float &rb, float &ib, peyton::Radians l, peyton::Radians b, double dm /*distance modulus*/);
 };
 
 struct star_output_function

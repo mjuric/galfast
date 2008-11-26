@@ -56,6 +56,7 @@ plx_gri_locus_ng::plx_gri_locus_ng()
 	std::cerr << "# M_r(r-i) coef. =";
 	FOREACH(Mrc) { std::cerr << " " << *i; }
 	std::cerr << "\n";
+	std::cerr << "Mr(2) = " << Mr(2) << "\n";
 }
 
 void plx_gri_locus_ng::ml_grri::setprior(const std::string &priorfile)

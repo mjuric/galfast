@@ -483,6 +483,8 @@ double BahcallSoneira_model::absmag(double ri)
 
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
+	if(x*x + y*y + z*z > 1e10) { return 0; }
+
 	double r = sqrt(x*x + y*y);
 	double norm = lf.empty() ? 1. : lf(ri);
 //	norm = 1.;

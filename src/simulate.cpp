@@ -1942,30 +1942,52 @@ gpc_polygon make_polygon(const std::vector<double> &x, const std::vector<double>
 	return p;
 }
 
-void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, const lambert &proj)
+void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
 {
 	Radians dx = rad(.1); /* polygon sampling resolution in radians */
 
 	double x, y;
-	std::cerr << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg.\n";
+	std::cerr << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole) <<  ".\n";
 
-	std::vector<double> lx, ly;
-	dx /= r;
+	std::vector<double> lx, ly, hx, hy;
+	Radians dphi = dx / r;
 	lambert bproj(l, b);
-	for(double phi = 0; phi < 2. * ctn::pi; phi += dx)
+	cerr << r << " -> ";
+	bproj.convert(ctn::pi, ctn::pi/2. - r, x, y); r = y;
+	cerr << r << " " << x << " " << y << "\n";
+	if(rhole) {
+		cerr << rhole << " -> ";
+		bproj.convert(ctn::pi, ctn::pi/2. - rhole, x, y); rhole = y;
+		cerr << rhole << " " << x << " " << y << "\n";
+	}
+	for(double phi = 0; phi < 2. * ctn::pi; phi += dphi)
 	{
+		Radians lp, bp;
+
 		x = r * cos(phi);
 		y = r * sin(phi);
-
-		Radians lp, bp;
 		bproj.inverse(x, y, lp, bp);
 		proj.convert(lp, bp, x, y);
-
 		lx.push_back(x);
 		ly.push_back(y);
+
+		x = rhole * cos(phi);
+		y = rhole * sin(phi);
+		bproj.inverse(x, y, lp, bp);
+		proj.convert(lp, bp, x, y);
+		hx.push_back(x);
+		hy.push_back(y);
 	}
 
 	gpc_polygon sky = make_polygon(lx, ly);
+
+	if(rhole)
+	{
+		std::cerr << "Clipping the hole.\n";
+		gpc_polygon poly, hole = make_polygon(hx, hy);
+		gpc_polygon_clip(GPC_DIFF, &sky, &hole, &poly);
+		sky = poly;
+	}
 
 	int nvert = 0;
 	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
@@ -2208,13 +2230,14 @@ try
 		lambert proj(rad(l0), rad(b0));
 
 		// beam direction and radius
-		double l, b, r;
+		double l, b, r, rhole = 0;
 		ASSERT(cfg.count("footprint_beam"));
 		std::istringstream ss2(cfg["footprint_beam"]);
-		ss2 >> l >> b >> r;
+		ss2 >> l >> b >> r >> rhole;
 
-		std::cerr << "Projection pole (l, b) = " << deg(l0) << " " << deg(b0) << "\n";
-		makeBeamMap(output, rad(l), rad(b), rad(r), proj);
+		std::cerr << "Projection pole (l, b) = " << l0 << " " << b0 << "\n";
+		std::cerr << "Radius, hole radius    = " << r << " " << rhole << "\n";
+		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj);
 
 		return 0;
 	}

@@ -1180,7 +1180,9 @@ bool model_pdf::draw_position(star &s, gsl_rng *rng)
 
 	// check that the star is inside survey footprint, reject if it's not
 	gpc_polygon &poly = skymap.skymap[std::make_pair(X.X, Y.Y)].poly;
-	if(!in_polygon((gpc_vertex const&)std::make_pair(s.x, s.y), poly))
+	gpc_vertex vtmp = { s.x, s.y };
+	if(!in_polygon(vtmp, poly))
+//	if(!in_polygon((gpc_vertex const&)std::make_pair(s.x, s.y), poly))
 	{
 		return false;
 	}
@@ -1334,7 +1336,7 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 		// Physical things affecting the object's magnitudes and colors
 		//
 
-		float binaryFraction = 0.20;
+		float binaryFraction = 0.0;
 		if(binaryFraction && (gsl_rng_uniform(rng) <= binaryFraction))
 		{
 			// this star has a binary companion -- add it
@@ -1360,7 +1362,8 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 //			ASSERT(0);
 		}
 		// ignore stars fainter than flux limit (HACK)
-		if(r > 22.5) { continue; }
+//		if(r > 22.5) { continue; }
+//		if(r > 23.0 && r-i < 0.3) { continue; }
 
 		bool subdwarfs = false;
 		if(subdwarfs)

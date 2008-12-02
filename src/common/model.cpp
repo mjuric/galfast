@@ -453,8 +453,12 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		ASSERT(cfg.count("rho0_ri"));
-		rho0_ri = cfg["rho0_ri"];
+		if(cfg.count("rho0_ri") == 0)
+		{
+			rho0_ri = make_pair(0., 0.);
+		} else {
+			rho0_ri = cfg["rho0_ri"];
+		}
 
 		input_or_die(in, cfg["lumfunc"]);
 		load_luminosity_function(in, rho0_ri);
@@ -503,13 +507,17 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 
 	// make the LF dimensionless
 	double dr = rho0_ri.second - rho0_ri.first;
-	double stars_per_mag = lf.integral(rho0_ri.first, rho0_ri.second) / dr;
-	FOREACH(phi) { *i /= stars_per_mag; };
+	if(dr > 0) {
+		double stars_per_mag = lf.integral(rho0_ri.first, rho0_ri.second) / dr;
+		FOREACH(phi) { *i /= stars_per_mag; };
+	}
 	lf.construct(ri, phi);
+#if 0
 	std::cerr << "Norm.: " << 1./stars_per_mag << "\n";
 	std::cerr << "New int: " << lf.integral(rho0_ri.first, rho0_ri.second) / dr << "\n";
 	std::cerr << "lf(1.0): " << lf(1.0) << "\n";
 	std::cerr << "lf(1.1): " << lf(1.1) << "\n";
+#endif
 #if 0
 	for(double ri=0; ri < 1.5; ri += 0.005)
 	{

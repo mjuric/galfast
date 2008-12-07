@@ -1015,7 +1015,7 @@ sky_generator::sky_generator(std::istream &in)
 
 	// load various flags
 	int flag;
-	cfg.get(flag, "apply_photo_errors", 1); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
+	cfg.get(flag, "apply_photo_errors", 0); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
 	
 	// dump short status
 	std::cerr << "constant_photo_error = " << constant_photo_error << "\n";

@@ -1953,7 +1953,8 @@ void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians r
 	Radians dphi = dx / r;
 	lambert bproj(l, b);
 	cerr << r << " -> ";
-	bproj.convert(ctn::pi, ctn::pi/2. - r, x, y); r = y;
+	lambert pproj(rad(0), rad(90));
+	pproj.convert(ctn::pi, ctn::pi/2. - r, x, y); r = y;
 	cerr << r << " " << x << " " << y << "\n";
 	if(rhole) {
 		cerr << rhole << " -> ";

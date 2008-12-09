@@ -90,14 +90,25 @@ public:
 		}
 	}
 
+	bool isallspace(const std::string &s)
+	{
+		for(int i = 0; i != s.size(); i++)
+		{
+			if(!isspace(s[i])) { return false; }
+		}
+		return true;
+	}
+
 	itextstream &next()
 	{
 		nread = -1;
 		do {
 			getline(f, line);
-		} while(!ret_comments && (line[0] == '#' && !f.eof()));
+//			std::cerr << "LINE: [" << line << "] " << (bool)*this << "\n";
+//		} while(!ret_comments && (line[0] == '#' && !f.eof()));
+		} while(!f.eof() && ((line[0] == '#' && !ret_comments) || isallspace(line)));
 
-		if(f.eof()) return *this;
+		if(f.eof()) { return *this; }
 		if(line[0] == '#') { nread = 0; is_comment = true; return *this; }
 		else { is_comment = false; }
 
@@ -123,7 +134,7 @@ public:
 		return *this;
 	}
 
-	itextstream &next2()
+/*	itextstream &next2()
 	{
 		nread = -1;
 		do {
@@ -154,7 +165,7 @@ public:
 			nread++;
 		}
 		return *this;
-	}
+	}*/
 
 	operator bool() { return nread != -1; }
 	bool iscomment() { return is_comment; }

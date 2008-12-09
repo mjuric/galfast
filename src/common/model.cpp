@@ -354,29 +354,76 @@ BISTREAM2(spline &spl)
 
 ////////////////////////////////////////////////////
 
-double toy_homogenious_model::rho(double x, double y, double z, double ri)
+double ToyHomogeneous_model::rho(double x, double y, double z, double ri)
 {
 	return rho0;
 }
 
-double toy_homogenious_model::absmag(double ri)
+double ToyHomogeneous_model::absmag(double ri)
 {
-	//return plx.Mr(ri);
-	return 4;
+	return paralax.Mr(ri);
+}
+
+ToyHomogeneous_model::ToyHomogeneous_model(peyton::system::Config &cfg)
+{
+	cfg.get(rho0, "rho0", rho0);
+	std::cerr << "ToyHomogeneous model: rho0=" << rho0 << "\n";
+}
+
+peyton::io::obstream& ToyHomogeneous_model::serialize(peyton::io::obstream& out)
+{
+	std::string name("ToyHomogeneous");
+	out << name << rho0;
+
+	return out;
+}
+
+BISTREAM2(ToyHomogeneous_model &m)
+{
+	return in >> m.rho0;
 }
 
 ////////////////////////////////////////////////////
 
-double toy_geocentric_powerlaw_model::rho(double x, double y, double z, double ri)
+double ToyGeocentricPowerLaw_model::rho(double x, double y, double z, double ri)
 {
 	x -= Rg;
 	double d2 = sqr(x) + sqr(y) + sqr(z);
-	return rho0 * pow(d2, alpha/2.);
+	double norm = lf.empty() ? 1. : lf(ri);
+	return norm * rho0 * pow(d2, n/2.);
 }
 
-double toy_geocentric_powerlaw_model::absmag(double ri)
+double ToyGeocentricPowerLaw_model::absmag(double ri)
 {
-	return 4+2*ri;
+	return paralax.Mr(ri);
+}
+
+ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::system::Config &cfg)
+{
+	cfg.get(rho0,  "rho0",  rho0);
+	cfg.get(n, "n", n);
+
+	if(cfg.count("lumfunc"))
+	{
+		text_input_or_die(in, cfg["lumfunc"]);
+		vector<double> ri, phi;
+		::load(in, ri, 0, phi, 1);
+		lf.construct(ri, phi);
+	}
+
+	std::cerr << "ToyGeocentricPowerLaw model: rho0=" << rho0 << ", n=" << n << "\n";
+}
+
+peyton::io::obstream& ToyGeocentricPowerLaw_model::serialize(peyton::io::obstream& out)
+{
+	std::string name("ToyGeocentricPowerLaw");
+	out << name << rho0 << n << lf;
+
+	return out;
+}
+BISTREAM2(ToyGeocentricPowerLaw_model &m)
+{
+	return in >> m.rho0 >> m.n >> m.lf;
 }
 
 ////////////////////////////////////////////////////
@@ -473,12 +520,12 @@ BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
 {
 	load(cfg);
 }
-
+/*
 BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
 {
 	Config cfg(prefix);
 	load(cfg);
-}
+}*/
 
 double BahcallSoneira_model::absmag(double ri)
 {
@@ -539,6 +586,7 @@ BISTREAM2(BahcallSoneira_model &m)
 	return in >> m.m >> m.lf;
 }
 
+
 galactic_model *galactic_model::load(istream &cfgstrm)
 {
 	Config cfg;
@@ -550,14 +598,10 @@ galactic_model *galactic_model::load(istream &cfgstrm)
 	std::string model = cfg["model"];
 
 	if(model == "BahcallSoneira") { return new BahcallSoneira_model(cfg); }
+	if(model == "ToyHomogeneous") { return new ToyHomogeneous_model(cfg); }
+	if(model == "ToyGeocentricPowerLaw") { return new ToyGeocentricPowerLaw_model(cfg); }
 
 	ASSERT(0); return NULL;
-}
-
-peyton::io::obstream& galactic_model::serialize(peyton::io::obstream& out)
-{
-	ASSERT(0) { std::cerr << "This method must be overrided if you want to use serialization.\n"; }
-	return out;
 }
 
 galactic_model *galactic_model::unserialize(peyton::io::ibstream &in)
@@ -571,6 +615,24 @@ galactic_model *galactic_model::unserialize(peyton::io::ibstream &in)
 		in >> *m;
 		return m.release();
 	}
+	if(model == "ToyHomogeneous")
+	{
+		std::auto_ptr<ToyHomogeneous_model> m(new ToyHomogeneous_model);
+		in >> *m;
+		return m.release();
+	}
+	if(model == "ToyGeocentricPowerLaw")
+	{
+		std::auto_ptr<ToyGeocentricPowerLaw_model> m(new ToyGeocentricPowerLaw_model);
+		in >> *m;
+		return m.release();
+	}
 
 	ASSERT(0); return NULL;
+}
+
+peyton::io::obstream& galactic_model::serialize(peyton::io::obstream& out)
+{
+	ASSERT(0) { std::cerr << "This method must be overrided if you want to use serialization.\n"; }
+	return out;
 }

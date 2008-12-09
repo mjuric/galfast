@@ -1489,6 +1489,17 @@ void star_output_to_dmm::close()
 	starmags.close();
 }
 
+void pdfinfo(std::ostream &out, const std::string &pdffile)
+{
+	std::ifstream iin(pdffile.c_str()); ASSERT(iin) { std::cerr << "Could not open " << pdffile << "\n"; }
+	io::ibstream in(iin);
+
+	model_pdf pdf;
+	if(!(in >> pdf)) { ASSERT(0) { std::cerr << "Error loading " << pdffile << "\n"; }; }
+
+	out << "nstars\t" << pdf.N << "\n";
+}
+
 #if 0
 
 #include <boost/numeric/ublas/banded.hpp>

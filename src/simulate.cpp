@@ -2069,6 +2069,7 @@ void test_lapack();
 
 #include "simulate.h"
 void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
+void pdfinfo(std::ostream &out, const std::string &pdffile);
 
 int main(int argc, char **argv)
 {
@@ -2087,6 +2088,7 @@ try
 		"    pskymap - \tconstruct a partitioned sky map given a set of runs on the sky\n"
 		"       beam - \tcalculate footprint of a single conical beam\n"
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
+		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
 		);
 	opts.stop_after_final_arg = true;
@@ -2117,6 +2119,11 @@ try
 	sopts["pdf"]->argument("conf").bind(input).desc("CPDF (\"sky\") configuration file (input)");
 	sopts["pdf"]->argument("output").bind(output).desc("CPDF file (output) ");
 	sopts["pdf"]->add_standard_options();
+
+	std::string pdffile;
+	sopts["pdfinfo"].reset(new Options(argv0 + " pdfinfo", progdesc + " Print information about a .pdf.bin file.", version, Authorship::majuric));
+	sopts["pdfinfo"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
+	sopts["pdfinfo"]->add_standard_options();
 
 	bool simpleOutput = false;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
@@ -2164,8 +2171,8 @@ try
 	virgo_model(); return 0;
 	vrml_foot("north"); return 0;
 #endif
-	//toy_homogenious_model model(1.);
-	//toy_geocentric_powerlaw_model model(1., 0.);
+	//ToyHomogeneous_model model(1.);
+	//ToyGeocentricPowerLaw_model model(1., 0.);
 	//toy_geo_plaw_abspoly_model model("north");
 
 	if(cmd == "pskymap")
@@ -2184,7 +2191,14 @@ try
 
 		return 0;
 	}
+	else if(cmd == "pdfinfo")
+	{
+		// ./simulate.x pdfinfo sky.bin.pdf
+		pdfinfo(cout, pdffile);
+		return 0;
+	}
 
+	std::cerr << "cmd=" << cmd << "\n";
 	ifstream in(input.c_str()); ASSERT(in);
 	if(cmd == "footprint")
 	{

@@ -230,7 +230,9 @@ public:
 	virtual double absmag(double ri) = 0;
 	virtual double rho(double x, double y, double z, double ri) = 0;
 
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);	// needed for serialization
+	galactic_model() {};				// needed for serialization
+	galactic_model(peyton::system::Config &cfg);	// needed for automatic loading
 
 	static galactic_model *load(std::istream &cfg);
 	static galactic_model *unserialize(peyton::io::ibstream &in);
@@ -246,7 +248,7 @@ public:
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);
-	BahcallSoneira_model(const std::string &prefix);
+//	BahcallSoneira_model(const std::string &prefix);
 	virtual double absmag(double ri);
 	virtual double rho(double x, double y, double z, double ri);
 	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
@@ -255,25 +257,32 @@ protected:
 	void load_luminosity_function(std::istream &in, std::pair<double, double> rho0_ri);
 };
 
-class toy_homogenious_model : public galactic_model
+class ToyHomogeneous_model : public galactic_model
 {
 public:
 	double rho0;
 public:
-	toy_homogenious_model(double rho0_) : rho0(rho0_) {}
-	double absmag(double ri);
-	double rho(double x, double y, double z, double ri);
+	ToyHomogeneous_model(double rho0_ = 1.) : rho0(rho0_) {}
+	ToyHomogeneous_model(peyton::system::Config &cfg);
+public:
+	virtual double absmag(double ri);
+	virtual double rho(double x, double y, double z, double ri);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
 };
 
 // geocentric powerlaw model with a constant paralax relation
-class toy_geocentric_powerlaw_model : public galactic_model
+class ToyGeocentricPowerLaw_model : public galactic_model
 {
 public:
-	double rho0, alpha;
+	double rho0, n;
+	spline lf;		/// local luminosity function (if given)
 public:
-	toy_geocentric_powerlaw_model(double rho0_, double alpha_) : rho0(rho0_), alpha(alpha_) {}
+	ToyGeocentricPowerLaw_model(double rho0_ = 1., double n_ = -3.) : rho0(rho0_), n(n_) {}
+	ToyGeocentricPowerLaw_model(peyton::system::Config &cfg);
+public:
 	double absmag(double ri);
 	double rho(double x, double y, double z, double ri);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
 };
 
 // geocentric powerlaw model with a polynomial Mr(ri) paralax relation

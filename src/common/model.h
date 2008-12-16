@@ -216,18 +216,6 @@ public:
 BOSTREAM2(const spline &spl);
 BISTREAM2(spline &spl);
 
-/*class model_factory
-{
-public:
-	std::vector<std::pair<std::pair<float, float>, disk_model> > models;
-	spline lf;		// luminosity function
-	//plx_gri_locus plx;	// paralax relation
-public:
-	model_factory(const std::string &models = "");
-	void load(const std::string &models);
-	disk_model *get(float ri, double dri);
-};
-*/
 inline OSTREAM(const float x[3]) { return out << x[0] << " " << x[1] << " " << x[2]; }
 inline ISTREAM(float x[3]) { return in >> x[0] >> x[1] >> x[2]; }
 
@@ -581,214 +569,8 @@ inline ISTREAM(sstruct::factory_t &ss) { return ss.unserialize(in); }
 class galactic_model
 {
 public:
-#if 0
-	class tag2	// This is an abstract class. These are _never_ meant to be constructed directly.
-	{
-		public:
-			typedef   void (*t_serialize1)(const void *, peyton::io::obstream &);
-			typedef   void (*t_serialize2)(const void *, std::ostream &);
-			typedef void (*t_unserialize1)(void *, peyton::io::ibstream &);
-			typedef void (*t_unserialize2)(void *, std::istream &);
-			struct tagdef {
-				std::string tagID;
-				t_serialize1 serialize1;
-				t_serialize2 serialize2;
-				t_unserialize1 unserialize1;
-				t_unserialize2 unserialize2;
-				size_t size;
-				size_t index;
-				size_t *index_var;
-
-				tagdef(const std::string &tid = "") : tagID(tid), index_var(NULL) {}
-			};
-			static std::map<std::string, tagdef> alltags;
-			static std::map<size_t *,    tagdef> alltagsi;	// index variables->tagdef map
-			static std::map<int,         tagdef> tagdefs;	// index->tagdef map
-			static std::map<std::string, tagdef> tagmap;	// tagId->tagdef map
-			static size_t nextIndex;
-			static size_t tagSize;
-
-			static size_t BS_COMPONENT;
-			static size_t EXT_R;
-			static size_t VEL;
-			static size_t XYZ;
-
-			float &ext_r()		{ return get<float>(EXT_R); }
-			float *xyz()		{ return get<float[3]>(XYZ); }
-			float *vel()		{ return get<float*>(VEL); }
-			int &bs_component()	{ return get<int>(BS_COMPONENT); }
-
-			// tag definitions
-			template<typename T> static tagdef makeTag(const std::string &tagID, size_t &index_var)
-			{
-				tagdef td(tagID);
-				td.serialize1 = serialize1<T>;
-				td.serialize2 = serialize2<T>;
-				td.unserialize1 = unserialize1<T>;
-				td.unserialize2 = unserialize2<T>;
-				td.size = sizeof(T);
-				td.index = -1;
-				td.index_var = &index_var;
-				return td;
-			}
-			template<typename T> static void defineTag(const std::string &tagID, size_t &index_var)
-			{
-				alltagsi[&index_var] = alltags[tagID] = makeTag<T>(tagID, index_var);
-			}
-			static void defineAllTags()
-			{
-				defineTag<int>("model.BahcallSoneira.component", BS_COMPONENT);
-				defineTag<float>("extinction.r", EXT_R);
-				defineTag<float[3]>("vel", VEL);
-				defineTag<float[3]>("xyz", XYZ);
-			}
-
-			// registration of tags that are in use
-			static int useTag(const std::string &tagID)
-			{
-				ASSERT(alltags.count(tagID));
-				return addTag(alltags[tagID]);
-			}
-			static int useTag(size_t &index_var)
-			{
-				ASSERT(alltagsi.count(&index_var));
-				return addTag(alltagsi[&index_var]);
-			}
-			static int addTag(const tagdef &td0)
-			{
-				tagdef &td = tagmap[td0.tagID] = td0;
-
-				td.index = nextIndex;
-				nextIndex += td.size;
-
-				tagdefs[td.index] = td;
-				*td.index_var = td.index;
-
-				return td.index;
-			}
-
-			// tag lookup
-			static int tagIndex(const std::string &tagID)
-			{
-				ASSERT(tagmap.count(tagID));
-				return tagmap[tagID].index;
-			}
-			template<typename T> T& get(const size_t index)
-			{
-				ASSERT(tagdefs.count(index) && tagdefs[index].size == sizeof(T));
-				return *reinterpret_cast<T*>(reinterpret_cast<char*>(this+1) + index);
-			}
-
-			// in-use tags serialization/unserialization
-			static peyton::io::ibstream& unserialize_used_tag_list(peyton::io::ibstream& in)
-			{
-				std::string tagID;
-				size_t size;
-				FOREACH(tagdefs)
-				{
-					in >> tagID >> size;
-					if(!alltags.count(tagID)) { ASSERT(0) { std::cerr << "tagID = " << tagID << " not registered."; } }
-					tagdef &td = alltags[tagID];
-					ASSERT(size == td.size) { std::cerr << "tagID = " << tagID << "\n"; }
-					addTag(td);
-				}
-			}
-			static peyton::io::obstream& serialize_used_tag_list(peyton::io::obstream& out)
-			{
-				FOREACH(tagdefs) { out << *i; }
-			}
-		public:
-			peyton::io::obstream& serialize(peyton::io::obstream& out)
-			{
-				char *tags = reinterpret_cast<char*>(this+1);
-				out << (char)tagdefs.size();
-				FOREACH(tagdefs)
-				{
-					i->second.serialize1(tags + i->second.index, out);
-				}
-				return out;
-			};
-			peyton::io::ibstream& unserialize(peyton::io::ibstream& in)
-			{
-				char *tags = reinterpret_cast<char*>(this+1);
-				char count;
-				in >> count;
-				FOREACH(tagdefs)
-				{
-					i->second.unserialize1(tags + i->second.index, in);
-					count--;
-					if(!count) { break; }
-				}
-				return in;
-			};
-
-			virtual ~tag2() {};
-		public:
-			static tag2 *alloc()
-			{
-				tagSize = sizeof(tag2)+nextIndex;
-				void *p = new char[tagSize];
-				return new (p) tag2;
-			}
-			static tag2 *allocArray(size_t len)
-			{
-				tagSize = sizeof(tag2)+nextIndex;
-				char *p = new char[tagSize*len];
-				FOR(0, len) { new (&p[tagSize*i]) tag2; }
-				return reinterpret_cast<tag2*>(p);
-			}
-			static void freeArray(tag2 *data)
-			{
-				// BUG: No destructors are called!!
-				if(data == NULL) { return; }
-				delete [] reinterpret_cast<char*>(data);
-			}
-		protected:
-			tag2() {};
-			friend class galactic_model;
-	};
-
-	class tag2array
-	{
-	protected:
-		tag2 *data;
-	public:
-		tag2array() : data(NULL) {}
-		void resize(size_t len)
-		{
-			tag2::freeArray(data);
-			data = tag2::allocArray(len);
-		}
-		~tag2array()
-		{
-			tag2::freeArray(data);
-		}
-		tag2& operator[](size_t i)
-		{
-			return *reinterpret_cast<tag2*>(reinterpret_cast<char*>(data) + tag2::tagSize*i);
-		}
-	};
-#endif
-
-public:
-	class tag	// This is an abstract class. These are _never_ meant to be constructed directly.
-	{
-	public:
-		virtual peyton::io::obstream& serialize(peyton::io::obstream& out)  { return out; };
-		virtual peyton::io::ibstream& unserialize(peyton::io::ibstream& in) { return in; };
-		virtual std::ostream& serialize(std::ostream& out)  { return out; };
-		virtual std::istream& unserialize(std::istream& in) { return in; };
-		virtual ~tag() {};
-	protected:
-		tag() {};
-		friend class galactic_model;
-	};
-	// construct a single (or an array) of tag objects
-	virtual tag *tag_new() { return new tag; }
-	virtual tag *tag_new(size_t size) { return new tag[size]; }
 	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng) { return false; }
 	virtual bool setup_tags(sstruct::factory_t &factory) { return false; }
-
 public:
 	virtual double absmag(double ri) = 0;
 	virtual double rho(double x, double y, double z, double ri) = 0;
@@ -810,27 +592,10 @@ public:
 	spline lf;		/// dimensionless local luminosity function
 
 public:
-	class tag : galactic_model::tag 
-	{
-	public:
-		static const int THIN = 0, THICK = 1, HALO = 2;
-		int comp;
-	public:
-		virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
-		virtual peyton::io::ibstream& unserialize(peyton::io::ibstream& in);
-		virtual std::ostream& serialize(std::ostream& out);
-		virtual std::istream& unserialize(std::istream& in);
-		virtual ~tag() {};
-	protected:
-		tag() : comp(0) {};
-		friend class BahcallSoneira_model;
-	};
-	virtual galactic_model::tag *tag_new() { return new tag; }
-	virtual galactic_model::tag *tag_new(size_t size) { return new tag[size]; }
+	static const int THIN = 0, THICK = 1, HALO = 2;
 
 	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
 	virtual bool setup_tags(sstruct::factory_t &factory);
-
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);

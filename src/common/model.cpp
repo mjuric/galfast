@@ -554,9 +554,9 @@ bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, do
 	double pthick = (thin + thick) / rho;
 
 	double u = gsl_rng_uniform(rng);
-	if(u < pthin) { t.component() = tag::THIN; }
-	else if(u < pthick) { t.component() = tag::THICK; }
-	else { t.component() = tag::HALO; }
+	if(u < pthin) { t.component() = THIN; }
+	else if(u < pthick) { t.component() = THICK; }
+	else { t.component() = HALO; }
 
 	float *f = t.xyz(); f[0] = x; f[1] = y; f[2] = z;
 //	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
@@ -604,13 +604,6 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 	}
 #endif
 }
-
-BLESS_POD(BahcallSoneira_model::tag);
-peyton::io::obstream& BahcallSoneira_model::tag::serialize(peyton::io::obstream& out)  { return out << *this; };
-peyton::io::ibstream& BahcallSoneira_model::tag::unserialize(peyton::io::ibstream& in) { return in >> *this; };
-
-std::ostream& BahcallSoneira_model::tag::serialize(std::ostream& out)  { return out << comp; };
-std::istream& BahcallSoneira_model::tag::unserialize(std::istream& in) { return in >> comp; };
 
 BLESS_POD(disk_model);
 peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out)

@@ -2071,8 +2071,12 @@ void test_lapack();
 void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
+void test_tags();
 int main(int argc, char **argv)
 {
+	test_tags();
+	return 0;
+
 try
 {
 	std::string argv0 = argv[0];

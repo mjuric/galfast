@@ -532,6 +532,30 @@ double BahcallSoneira_model::absmag(double ri)
 	return paralax.Mr(ri);
 }
 
+bool BahcallSoneira_model::draw_tag(galactic_model::tag &t_, double x, double y, double z, double ri, gsl_rng *rng)
+{
+	tag &t = *static_cast<tag*>(&t_);
+
+	double r = sqrt(x*x + y*y);
+
+	double thin = m.rho_thin(r, z, 0);
+	double thick = m.rho_thick(r, z, 0);
+	double halo = m.rho_halo(r, z, 0);
+	double rho = thin+thick+halo;
+
+	double pthin  = thin / rho;
+	double pthick = (thin + thick) / rho;
+
+	double u = gsl_rng_uniform(rng);
+	if(u < pthin) { t.comp = tag::THIN; }
+	else if(u < pthick) { t.comp = tag::THICK; }
+	else { t.comp = tag::HALO; }
+
+//	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
+
+	return true;
+}
+
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
 	if(x*x + y*y + z*z > 1e10) { return 0; }
@@ -572,6 +596,13 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 	}
 #endif
 }
+
+BLESS_POD(BahcallSoneira_model::tag);
+peyton::io::obstream& BahcallSoneira_model::tag::serialize(peyton::io::obstream& out)  { return out << *this; };
+peyton::io::ibstream& BahcallSoneira_model::tag::unserialize(peyton::io::ibstream& in) { return in >> *this; };
+
+std::ostream& BahcallSoneira_model::tag::serialize(std::ostream& out)  { return out << comp; };
+std::istream& BahcallSoneira_model::tag::unserialize(std::istream& in) { return in >> comp; };
 
 BLESS_POD(disk_model);
 peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out)

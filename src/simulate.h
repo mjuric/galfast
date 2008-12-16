@@ -92,7 +92,8 @@ class model_pdf
 public:
 	struct star // storage structure for Monte Carlo generated stars
 	{
-		double x, y, ri, m;
+		double x, y;		// Lambert coordiates on the sky
+		double ri, m;		// color and apparent magnitude
 		int X(const partitioned_skymap &gsim) const { return (int)((x - gsim.x0)/gsim.dx); }
 		int Y(const partitioned_skymap &gsim) const { return (int)((y - gsim.y0)/gsim.dx); }
 		int RI(const model_pdf &gsim) const { return (int)((ri - gsim.ri0)/gsim.dri); }
@@ -132,6 +133,7 @@ public:
 
 	// accessors
 	const std::string &name() const { return pdfname; }
+	galactic_model &galmodel() { return *model.get(); }
 	
 protected:
 	double ri_mpdf(std::vector<double> &pdf, const double x, const double y);
@@ -169,6 +171,7 @@ public:
 protected:
 	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
 	void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
+	void observe2(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf);
 	void draw_companion(float &gb, float &rb, float &ib, peyton::Radians l, peyton::Radians b, double dm /*distance modulus*/);
 };
 
@@ -177,6 +180,7 @@ struct star_output_function
 	typedef peyton::Radians Radians;
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
+	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t) = 0;
 	virtual ~star_output_function() {}
 };
 
@@ -191,6 +195,7 @@ public:
 	void close();
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
+	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t);
 };
 
 struct star_output_to_textstream : star_output_function
@@ -201,6 +206,7 @@ public:
 	star_output_to_textstream(std::ostream &out_) : out(out_) {}
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
+	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t);
 };
 
 #endif // simulate_h__

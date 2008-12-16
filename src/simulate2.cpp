@@ -128,7 +128,7 @@ model_pdf::model_pdf(std::istream &in)
 	ASSERT(cfg.count("dri")); cfg.get(dri,	"dri",	0.01);
 	cfg.get(ri0,	"ri0",	0.0);
 	cfg.get(ri1,	"ri1",	1.5);
-	cfg.get(m0,	"r0",	14.); 
+	cfg.get(m0,	"r0",	14.);
 	cfg.get(m1,	"r1",	22.);
 	cfg.get(dm,	"dm",	0.1);
 
@@ -1153,7 +1153,8 @@ int sky_generator::montecarlo_batch(star_output_function &out, int K, const std:
 	FOR(0, pdfs.size())
 	{
 		pdfs[i]->draw_magnitudes(*stars[i], rng);
-		observe(*stars[i], pdfs[i]->proj, out);
+//		observe(*stars[i], pdfs[i]->proj, out);
+		observe2(*stars[i], pdfs[i]->galmodel(), pdfs[i]->proj, out);
 
 		std::cerr << "model " << pdfs[i]->name() << " : " << stars[i]->size() << " stars (" << 
 			100. * double(stars[i]->size()) / Kgen << "%)\n";
@@ -1257,6 +1258,14 @@ star_output_to_dmm::star_output_to_dmm(const std::string &objcat, const std::str
 	starmags.setmaxwindows(2);
 }
 
+void star_output_to_textstream::output(Radians l, Radians b, double ri, double r, galactic_model::tag &t)
+{
+	// simple ascii-text dump
+	out << deg(l) << " " << deg(b) << " " << ri << " " << r << " ";
+	t.serialize(out);
+	out << "\n";
+}
+
 void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
 {
 	// simple ascii-text dump
@@ -1297,6 +1306,291 @@ void sky_generator::draw_companion(float &g, float &r, float &i, Radians l, Radi
 #if DBG_MAGCHECK
 	float u, g, r, i, z;
 #endif
+
+#if 1
+void sky_generator::observe2(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf)
+{
+	std::cerr << "Writing... ";
+	ticker tick(10000);
+
+	std::auto_ptr<galactic_model::tag> tagptr(model.tag_new());
+	galactic_model::tag &t = *tagptr;
+
+	const static double Rg = coord_pack::Rg;
+	FORj(j, 0, stars.size())
+	{
+		const model_pdf::star &s = stars[j];
+
+		// position -- convert to l,b
+		Radians l, b;
+		proj.inverse(s.x, s.y, l, b);
+		double cl = cos(l), cb = cos(b), sl = sin(l), sb = sin(b);
+		coordinates::galequ(l, b, l, b);
+
+		// absolute magnitudes and distance
+		const double Mr = paralax.Mr(s.ri);
+		const double D = stardist::D(s.m, Mr);
+
+		// galactocentric x,y,z
+		double x = Rg - D*cl*cb;
+		double y =    - D*sl*cb;
+		double z =      D*sb;
+
+		// draw model-dependent tags
+		model.draw_tag(t, x, y, z, s.ri, rng);
+
+		// write out this star and its tags
+		sf.output(l, b, s.ri, s.m, t);
+
+		// user interface stuff
+		tick.tick();
+	}
+	tick.close();
+	std::cerr << "\n";
+}
+#endif
+#if 0
+struct xstar
+{
+	double x, y, z, ri;
+};
+
+void sky_generator::process(const xstar *stars, const galactic_model::tag *tags, int nstars)
+{
+	std::cerr << "Observing... ";
+	ticker tick(10000);
+	FORj(j, 0, nstars)
+	{
+		xstar s = stars[j];
+
+		// calculate magnitudes, absolute magnitudes and distance
+		const double Mr = paralax.Mr(s.ri);
+		const double r = ....
+
+		u = s.m;
+		g = s.m + paralax.gr(s.ri);
+		r = s.m;
+		i = s.m - s.ri;
+		z = s.m;
+	}
+}
+
+		//
+		// Physical things affecting the object's magnitudes and colors
+		//
+
+		float binaryFraction = 0.0;
+		if(binaryFraction && (gsl_rng_uniform(rng) <= binaryFraction))
+		{
+			// this star has a binary companion -- add it
+
+			// - draw the companion from the luminosity function
+			float gb, rb, ib;
+			draw_companion(gb, rb, ib, l, b, r - Mr);
+
+#if DBG_PRINT_BINARIES
+			std::cout << r - Mr << "   ";
+			std::cout << g << " " << r << " " << i << "   ";
+			std::cout << gb << " " << rb << " " << ib << "   ";
+#endif
+			// calculate joint magnitudes
+			g = -2.5*log10(pow(10., -0.4*g) + pow(10., -0.4*gb));
+			r = -2.5*log10(pow(10., -0.4*r) + pow(10., -0.4*rb));
+			i = -2.5*log10(pow(10., -0.4*i) + pow(10., -0.4*ib));
+
+#if DBG_PRINT_BINARIES
+			std::cout << g << " " << r << " " << i << "\n";
+#endif
+		} else {
+//			ASSERT(0);
+		}
+		// ignore stars fainter than flux limit (HACK)
+//		if(r > 22.5) { continue; }
+//		if(r > 23.0 && r-i < 0.3) { continue; }
+
+		bool subdwarfs = false;
+		if(subdwarfs)
+		{
+			ASSERT(0); // the logic of this code has to be rechecked, in light of algorithm changes here
+
+			// calculate galactic coordinates
+			V3 v; v.celestial(l, b, D);
+			v.x = Rg - v.x;
+			v.y *= -1;
+
+			// calculate "metalicity factor" based on location in the Galaxy
+			double f;
+			if(v.z < 500) { f = 0; }
+			else if(v.z < 2500) { f = (v.z - 500.) / 2000.; }
+			else { f = 1; }
+
+			// adjust the absolute magnitudes accordingly
+			u += f;
+			g += f;
+			r += f;
+			i += f;
+			z += f;
+		}
+
+		if(paralax_dispersion)
+		{
+			// mix in the photometric paralax uncertancy - here is how this goes:
+			// The star is at distance D. Give its' color, the normal absolute magnitude
+			// it would have is Mr. However, due to age & metalicity, the star has
+			// absolute magnitude Mr' = Mr + dMr, while _keeping_ the same color and
+			// distance. The observer therefore sees the star to be dimmer/brighter than
+			// a star with absmag Mr (==> change of magnitude).
+			// Note: this is an oversimplification, as some colors do change (we should implement this)
+			double dMr = gsl_ran_gaussian(rng, paralax_dispersion);
+			u += dMr;
+			g += dMr;
+			r += dMr;
+			i += dMr;
+			z += dMr;
+		}
+
+		//
+		// Things happening at observation ("in the telescope")
+		//
+
+		// add extinction and
+		// store _extinction uncorrected_ magnitudes to obsv_mag
+		obsv.mag[0] = g;
+		obsv.mag[1] = r;
+		obsv.mag[2] = i;
+		obsv.mag[3] = z;
+		obsv.mag[4] = u;
+		FOR(0, 5) { obsv.mag[(i+4)%5] += extinction(Ar, i); }
+
+		// calculate the magnitude of observational errors
+		if(flags & APPLY_PHOTO_ERRORS)
+		{
+			if(!magerrs.empty())
+			{
+				FOR(0, 5) { obsv.magErr[i] = magerrs(l, b, obsv.mag[i]); }
+			}
+
+			if(constant_photo_error)
+			{
+				FOR(0, 5) { obsv.magErr[i] = constant_photo_error; }
+			}
+
+			// mix in magnitude errors
+			FOR(0, 5) { obsv.mag[i] += gsl_ran_gaussian(rng, obsv.magErr[i]); }
+		}
+		else
+		{
+			FOR(0, 5) { obsv.magErr[i] = 0; }
+		}
+
+// 		std::cerr << "magerrs = ";
+// 		FOR(0, 5) { std::cerr << obsv.magErr[i] << " "; }
+// 		std::cerr << "\n";
+
+		// "observe" the object and store it to object and observation database
+		obsvs.clear();
+		obsvs.push_back(std::make_pair(obsv, oid));
+		sf.output(obsv.ra, obsv.dec, obsv.Ar, obsvs);
+
+		// user interface stuff
+		tick.tick();
+	}
+	tick.close();
+	std::cerr << "\n";
+}
+#endif
+
+#if 0
+std::map<std::string, sstruct::tagdef*> sstruct::factory::alltags;
+std::map<size_t *,    sstruct::tagdef*> sstruct::factory::alltagsi;	// index variables->sstruct::tagdef map
+std::map<int,         sstruct::tagdef*> sstruct::factory::tagdefs;	// index->sstruct::tagdef map
+//std::map<std::string, sstruct::tagdef> sstruct::tagmap;	// tagId->sstruct::tagdef map
+size_t sstruct::factory::nextIndex = 0;
+size_t sstruct::factory::tagSize = -1;
+#endif
+std::map<sstruct *, char *> sstruct::owner;
+
+/*size_t sstruct::BS_COMPONENT = -1;
+size_t sstruct::EXT_R = -1;
+size_t sstruct::VEL = -1;
+size_t sstruct::XYZ = -1;
+size_t sstruct::STAR_NAME = -1;*/
+
+sstruct::factory_t sstruct::factory;
+
+void test_tags()
+{
+	if(0) {
+		sstruct::factory.useTag("star_name");
+		sstruct::factory.useTag("xyz.galactic");
+		sstruct::factory.useTag("extinction.r");
+
+		std::cerr << sstruct::factory.ivars[0] << "\n";
+		std::cerr << sstruct::factory.ivars[1] << "\n";
+		std::cerr << sstruct::factory.ivars[2] << "\n";
+		std::cerr << sstruct::factory.ivars[3] << "\n";
+		std::cerr << sstruct::factory.ivars[4] << "\n";
+
+		if(1) {
+			sstruct *tag = sstruct::create();
+			sstruct::factory.useTag("extinction.r");
+
+			float &Ar = tag->ext_r();
+			float *xyz = tag->xyz();
+			std::string &starname = tag->starname();
+			starname = "Bla";
+
+			sstruct *tag2 = sstruct::create();
+			*tag2 = *tag;
+			starname = "Newyyy";
+
+			std::cerr << "Ar = " << Ar << "\n";
+			std::cerr << "xyz = " << xyz[0] << " " << xyz[1] << " " << xyz[3] << "\n";
+			std::cerr << "starname = " << starname << "\n";
+			std::cerr << "starname2 = " << tag2->starname() << "\n";
+
+			std::cerr << "Serializing tag list: "; sstruct::factory.serialize(std::cerr); std::cerr << "\n";
+			std::cerr << "Serializing 1: ";  tag->serialize(std::cerr); std::cerr << "\n";
+			std::cerr << "Serializing 2: "; tag2->serialize(std::cerr); std::cerr << "\n";
+
+			delete tag;
+			delete tag2;
+		} else {
+			sstruct *tags = sstruct::create(5);
+
+			FOR(0, 5)
+			{
+				sstruct *tag = &tags[i];
+
+				float &Ar = tag->ext_r();
+				float *xyz = tag->xyz();
+				tag->starname() = "Lipa moja";
+
+				std::cerr << i << "  Ar = " << Ar << "\n";
+				std::cerr << i << "  xyz = " << xyz[0] << " " << xyz[1] << " " << xyz[3] << "\n";
+				std::cerr << "starname = " << tag->starname() << "\n";
+			}
+			delete [] tags;
+		}
+	}
+	else
+	{
+		// Unserialize text file
+		std::ifstream in("out.txt");
+		sstruct::factory.unserialize(in);
+		sstruct::factory.useTag("velocity");
+
+		sstruct *tag = sstruct::create(100);
+		size_t cnt = 0;
+		while(tag[cnt].unserialize(in))
+		{
+			tag[cnt].serialize(std::cout);
+			std::cout << "\n";
+			cnt++;
+		}
+		delete [] tag;
+	}
+}
 
 void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf)
 {
@@ -1454,6 +1748,12 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 	}
 	tick.close();
 	std::cerr << "\n";
+}
+
+void star_output_to_dmm::output(Radians l, Radians b, double ri, double r, galactic_model::tag &t)
+{
+	std::cerr << "Output to DMM with galactic model tags not implemented. Aborting.";
+	ASSERT(0);
 }
 
 void star_output_to_dmm::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)

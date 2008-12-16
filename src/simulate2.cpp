@@ -1089,6 +1089,17 @@ void sky_generator::montecarlo(star_output_function &out)
 	static const int Kbatch = 20000000;
 //	static const int Kbatch = 10000;
 
+	// prepare output
+	sstruct::factory.useTag("lonlat[2]");
+	sstruct::factory.useTag("color");
+	sstruct::factory.useTag("mag");
+	FOR(0, pdfs.size())
+	{
+		pdfs[i]->galmodel().setup_tags(sstruct::factory);
+	}
+	out.output_header(sstruct::factory);
+
+	// do catalog generation
 	int K = 0, Ngen = 0;
 	while(K < Ktotal)
 	{
@@ -1258,12 +1269,18 @@ star_output_to_dmm::star_output_to_dmm(const std::string &objcat, const std::str
 	starmags.setmaxwindows(2);
 }
 
-void star_output_to_textstream::output(Radians l, Radians b, double ri, double r, galactic_model::tag &t)
+void star_output_to_textstream::output_header(const sstruct::factory_t &factory)
 {
 	// simple ascii-text dump
-	out << deg(l) << " " << deg(b) << " " << ri << " " << r << " ";
-	t.serialize(out);
-	out << "\n";
+	//out << "# l    b    ri     r  " << factory << "\n";
+	out << "# " << factory << "\n";
+}
+
+void star_output_to_textstream::output(sstruct &t)
+{
+	// simple ascii-text dump
+//	out << deg(l) << " " << deg(b) << " " << ri << " " << r << " " << t << "\n";
+	out << t << "\n";
 }
 
 void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
@@ -1313,8 +1330,8 @@ void sky_generator::observe2(const std::vector<model_pdf::star> &stars, galactic
 	std::cerr << "Writing... ";
 	ticker tick(10000);
 
-	std::auto_ptr<galactic_model::tag> tagptr(model.tag_new());
-	galactic_model::tag &t = *tagptr;
+	std::auto_ptr<sstruct> tagptr(sstruct::create());
+	sstruct &t = *tagptr;
 
 	const static double Rg = coord_pack::Rg;
 	FORj(j, 0, stars.size())
@@ -1340,7 +1357,10 @@ void sky_generator::observe2(const std::vector<model_pdf::star> &stars, galactic
 		model.draw_tag(t, x, y, z, s.ri, rng);
 
 		// write out this star and its tags
-		sf.output(l, b, s.ri, s.m, t);
+		t.lonlat()  = std::make_pair(deg(l), deg(b));
+		t.color()   = s.ri;
+		t.mag()     = s.m;
+		sf.output(t);
 
 		// user interface stuff
 		tick.tick();
@@ -1500,29 +1520,13 @@ void sky_generator::process(const xstar *stars, const galactic_model::tag *tags,
 }
 #endif
 
-#if 0
-std::map<std::string, sstruct::tagdef*> sstruct::factory::alltags;
-std::map<size_t *,    sstruct::tagdef*> sstruct::factory::alltagsi;	// index variables->sstruct::tagdef map
-std::map<int,         sstruct::tagdef*> sstruct::factory::tagdefs;	// index->sstruct::tagdef map
-//std::map<std::string, sstruct::tagdef> sstruct::tagmap;	// tagId->sstruct::tagdef map
-size_t sstruct::factory::nextIndex = 0;
-size_t sstruct::factory::tagSize = -1;
-#endif
 std::map<sstruct *, char *> sstruct::owner;
-
-/*size_t sstruct::BS_COMPONENT = -1;
-size_t sstruct::EXT_R = -1;
-size_t sstruct::VEL = -1;
-size_t sstruct::XYZ = -1;
-size_t sstruct::STAR_NAME = -1;*/
-
-sstruct::factory_t sstruct::factory;
 
 void test_tags()
 {
 	if(0) {
 		sstruct::factory.useTag("star_name");
-		sstruct::factory.useTag("xyz.galactic");
+		sstruct::factory.useTag("xyz[3]");
 		sstruct::factory.useTag("extinction.r");
 
 		std::cerr << sstruct::factory.ivars[0] << "\n";
@@ -1575,16 +1579,17 @@ void test_tags()
 	}
 	else
 	{
-		// Unserialize text file
+		// Unserialize text file and print it out to the screen
 		std::ifstream in("out.txt");
 		sstruct::factory.unserialize(in);
-		sstruct::factory.useTag("velocity");
+		sstruct::factory.useTag("vel[3]");
 
 		sstruct *tag = sstruct::create(100);
 		size_t cnt = 0;
-		while(tag[cnt].unserialize(in))
+		std::cout << sstruct::factory << "\n";
+		while(in >> tag[cnt])
 		{
-			tag[cnt].serialize(std::cout);
+			std::cout << tag[cnt];
 			std::cout << "\n";
 			cnt++;
 		}
@@ -1750,7 +1755,7 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 	std::cerr << "\n";
 }
 
-void star_output_to_dmm::output(Radians l, Radians b, double ri, double r, galactic_model::tag &t)
+void star_output_to_dmm::output(sstruct &t)
 {
 	std::cerr << "Output to DMM with galactic model tags not implemented. Aborting.";
 	ASSERT(0);

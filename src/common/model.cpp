@@ -532,10 +532,17 @@ double BahcallSoneira_model::absmag(double ri)
 	return paralax.Mr(ri);
 }
 
-bool BahcallSoneira_model::draw_tag(galactic_model::tag &t_, double x, double y, double z, double ri, gsl_rng *rng)
-{
-	tag &t = *static_cast<tag*>(&t_);
+sstruct::factory_t sstruct::factory;
 
+bool BahcallSoneira_model::setup_tags(sstruct::factory_t &factory)
+{
+	factory.useTag("comp");
+	factory.useTag("xyz[3]");
+	return true;
+}
+
+bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng)
+{
 	double r = sqrt(x*x + y*y);
 
 	double thin = m.rho_thin(r, z, 0);
@@ -547,10 +554,11 @@ bool BahcallSoneira_model::draw_tag(galactic_model::tag &t_, double x, double y,
 	double pthick = (thin + thick) / rho;
 
 	double u = gsl_rng_uniform(rng);
-	if(u < pthin) { t.comp = tag::THIN; }
-	else if(u < pthick) { t.comp = tag::THICK; }
-	else { t.comp = tag::HALO; }
+	if(u < pthin) { t.component() = tag::THIN; }
+	else if(u < pthick) { t.component() = tag::THICK; }
+	else { t.component() = tag::HALO; }
 
+	float *f = t.xyz(); f[0] = x; f[1] = y; f[2] = z;
 //	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
 
 	return true;

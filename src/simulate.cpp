@@ -2074,8 +2074,8 @@ void pdfinfo(std::ostream &out, const std::string &pdffile);
 void test_tags();
 int main(int argc, char **argv)
 {
-	test_tags();
-	return 0;
+//	test_tags();
+//	return 0;
 
 try
 {

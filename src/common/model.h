@@ -274,8 +274,8 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			size_t index;
 			size_t *index_var;
 
-			virtual void  serialize1(const void *, peyton::io::obstream &) = 0;
-			virtual void  serialize2(const void *, std::ostream &) = 0;
+			virtual void  serialize1(const void *, peyton::io::obstream &) const = 0;
+			virtual void  serialize2(const void *, std::ostream &) const = 0;
 			virtual void  unserialize1(void *, peyton::io::ibstream &) = 0;
 			virtual void  unserialize2(void *, std::istream &) = 0;
 			virtual void* constructor(void *) = 0;
@@ -289,8 +289,8 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		};
 		template<typename T> struct tagdefT : public tagdef
 		{
-			virtual void  serialize1(const void *val, peyton::io::obstream &out) { const T *v = reinterpret_cast<const T*>(val); out << *v; }
-			virtual void  serialize2(const void *val, std::ostream &out) { const T *v = reinterpret_cast<const T*>(val); out << *v; }
+			virtual void  serialize1(const void *val, peyton::io::obstream &out) const { const T *v = reinterpret_cast<const T*>(val); out << *v; }
+			virtual void  serialize2(const void *val, std::ostream &out) const { const T *v = reinterpret_cast<const T*>(val); out << *v; }
 			virtual void  unserialize1(void *val, peyton::io::ibstream &in)  { T *v = reinterpret_cast<T*>(val); in >> *v; }
 			virtual void  unserialize2(void *val, std::istream &in) { T *v = reinterpret_cast<T*>(val); in >> *v; }
 			virtual void* constructor(void *p)  { return new (p) T(); }
@@ -365,9 +365,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				FOREACH(tagdefs) { out << *i; }
 				return out;
 			}
-			std::ostream& serialize(std::ostream& out)
+			std::ostream& serialize(std::ostream& out) const
 			{
-				if(!tagdefs.empty()) { out << "# "; }
+				//if(!tagdefs.empty()) { out << "# "; }
 
 				bool first = true;
 				FOREACH(tagdefs) {
@@ -394,7 +394,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				// split tagID to tagID and size
 				streamTags.clear();
 				do {
-					std::cerr << "Tag: " << tagID << "\n";
+					//std::cerr << "Tag: " << tagID << "\n";
 					streamTags.push_back(useTag(tagID));
 				} while(ss >> tagID);
 				return in;
@@ -419,12 +419,15 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			factory_t()
 				: nextIndex(0), tagSize(-1)
 			{
-				std::cerr << "Factory: defining tags\n";
-				defineTag<int>("model.BahcallSoneira.component", ivars[0]);
+				//std::cerr << "Factory: defining tags\n";
+				defineTag<int>("comp", ivars[0]);
 				defineTag<float>("extinction.r", ivars[1]);
-				defineTag<boost::array<float, 3> >("velocity", ivars[2]);
-				defineTag<boost::array<float, 3> >("xyz.galactic", ivars[3]);
+				defineTag<boost::array<float, 3> >("vel[3]", ivars[2]);
+				defineTag<boost::array<float, 3> >("xyz[3]", ivars[3]);
 				defineTag<std::string>("star_name", ivars[4]);
+				defineTag<boost::array<double, 2> >("lonlat[2]", ivars[5]);
+				defineTag<float>("color", ivars[6]);
+				defineTag<float>("mag", ivars[7]);
 			}
 			~factory_t()
 			{
@@ -433,11 +436,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		};
 
 		// tag accessors -- WARNING: The indices here MUST match the indices in factory_t::factory_t()
-		int &bs_component()	{ return get<int>(factory.ivars[0]); }
+		int &component()	{ return get<int>(factory.ivars[0]); }
 		float &ext_r()		{ return get<float>(factory.ivars[1]); }
 		float *vel()		{ return get<float[3]>(factory.ivars[2]); }
 		float *xyz()		{ return get<float[3]>(factory.ivars[3]); }
 		std::string &starname()	{ return get<std::string>(factory.ivars[4]); }
+		std::pair<double, double> &lonlat() { return get<std::pair<double,double> >(factory.ivars[5]); }
+		float &color()		{ return get<float>(factory.ivars[6]); }
+		float &mag()		{ return get<float>(factory.ivars[7]); }
 
 		static factory_t factory;			// factory singleton
 		static std::map<sstruct *, char* > owner;	// list of objects that own their tags pointer
@@ -450,7 +456,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		}
 
 	public:
-		std::ostream& serialize(std::ostream& out)
+		std::ostream& serialize(std::ostream& out) const
 		{
 			bool first = true;
 			FOREACH(factory.tagdefs)
@@ -512,7 +518,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			if(factory.tagSize == 0) { t->tags = NULL; return t; }
 
 			t->tags = new char[factory.tagSize];
-			std::cerr << "Allocated " << (void*)t->tags << " as array (size=" << factory.tagSize << ").\n";
+			//std::cerr << "Allocated " << (void*)t->tags << " as array (size=" << factory.tagSize << ").\n";
 			owner[t] = t->tags;
 			// tag construction
 			FOREACH(factory.tagdefs)
@@ -532,7 +538,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			if(factory.tagSize == 0) { FOR(0, n) { t[i].tags = NULL; }; return t; }
 
 			char *tags = new char[factory.tagSize*n];
-			std::cerr << "Allocated " << (void*)tags << " as array (size=" << factory.tagSize*n << ").\n";
+			//std::cerr << "Allocated " << (void*)tags << " as array (size=" << factory.tagSize*n << ").\n";
 			for(int i=0; i != n; i++)
 			{
 				t[i].tags = tags + factory.tagSize*i;
@@ -542,7 +548,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				}
 			}
 			owner[t] = tags;
-			std::cerr << "Array " << (void*)tags << " bound to " << t << "\n";
+			//std::cerr << "Array " << (void*)tags << " bound to " << t << "\n";
 			return t;
 		}
 		~sstruct()
@@ -550,12 +556,12 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			// see if we're the owner of the tags memory, delete if we are
 			if(tags && owner.count(this))
 			{
-				std::cerr << "Calling destructors on " << (void*)tags << "\n";
+				//std::cerr << "Calling destructors on " << (void*)tags << "\n";
 				FOREACHj(j, factory.tagdefs)
 				{
 					j->second->destructor(tags + j->second->index);
 				}
-				std::cerr << "Deleting " << (void*)tags << " as array.\n";
+				//std::cerr << "Deleting " << (void*)tags << " as array.\n";
 				delete [] tags;
 				owner.erase(this);
 			}
@@ -563,10 +569,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 	protected:
 		sstruct()
 		{
-			std::cerr << "In constructor for " << this << "\n";
+			//std::cerr << "In constructor for " << this << "\n";
 		};
 		friend class galactic_model;
 };
+inline OSTREAM(const sstruct &ss) { return ss.serialize(out); }
+inline ISTREAM(sstruct &ss) { return ss.unserialize(in); }
+inline OSTREAM(const sstruct::factory_t &ss) { return ss.serialize(out); }
+inline ISTREAM(sstruct::factory_t &ss) { return ss.unserialize(in); }
 
 class galactic_model
 {
@@ -629,8 +639,8 @@ public:
 			{
 				defineTag<int>("model.BahcallSoneira.component", BS_COMPONENT);
 				defineTag<float>("extinction.r", EXT_R);
-				defineTag<float[3]>("velocity", VEL);
-				defineTag<float[3]>("xyz.galactic", XYZ);
+				defineTag<float[3]>("vel", VEL);
+				defineTag<float[3]>("xyz", XYZ);
 			}
 
 			// registration of tags that are in use
@@ -776,7 +786,8 @@ public:
 	// construct a single (or an array) of tag objects
 	virtual tag *tag_new() { return new tag; }
 	virtual tag *tag_new(size_t size) { return new tag[size]; }
-	virtual bool draw_tag(tag &t, double x, double y, double z, double ri, gsl_rng *rng) { return false; }
+	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng) { return false; }
+	virtual bool setup_tags(sstruct::factory_t &factory) { return false; }
 
 public:
 	virtual double absmag(double ri) = 0;
@@ -799,7 +810,7 @@ public:
 	spline lf;		/// dimensionless local luminosity function
 
 public:
-	class tag : galactic_model::tag
+	class tag : galactic_model::tag 
 	{
 	public:
 		static const int THIN = 0, THICK = 1, HALO = 2;
@@ -817,7 +828,8 @@ public:
 	virtual galactic_model::tag *tag_new() { return new tag; }
 	virtual galactic_model::tag *tag_new(size_t size) { return new tag[size]; }
 
-	virtual bool draw_tag(galactic_model::tag &t, double x, double y, double z, double ri, gsl_rng *rng);
+	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
+	virtual bool setup_tags(sstruct::factory_t &factory);
 
 public:
 	BahcallSoneira_model();

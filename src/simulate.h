@@ -180,7 +180,9 @@ struct star_output_function
 	typedef peyton::Radians Radians;
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
-	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t) = 0;
+	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t) = 0;
+	virtual void output(sstruct &t) = 0;
+	virtual void output_header(const sstruct::factory_t &factory) {};
 	virtual ~star_output_function() {}
 };
 
@@ -195,7 +197,8 @@ public:
 	void close();
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
-	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t);
+	virtual void output(sstruct &t);
+	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t);
 };
 
 struct star_output_to_textstream : star_output_function
@@ -206,7 +209,9 @@ public:
 	star_output_to_textstream(std::ostream &out_) : out(out_) {}
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
-	virtual void output(Radians l, Radians b, double ri, double r, galactic_model::tag &t);
+	virtual void output(sstruct &t);
+	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t);
+	virtual void output_header(const sstruct::factory_t &factory);
 };
 
 #endif // simulate_h__

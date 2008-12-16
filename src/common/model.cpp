@@ -533,6 +533,7 @@ double BahcallSoneira_model::absmag(double ri)
 }
 
 sstruct::factory_t sstruct::factory;
+std::map<sstruct *, char *> sstruct::owner;
 
 bool BahcallSoneira_model::setup_tags(sstruct::factory_t &factory)
 {

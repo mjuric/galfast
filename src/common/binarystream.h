@@ -1,5 +1,5 @@
-#ifndef __binarystream_h
-#define __binarystream_h
+#ifndef __binarystream_XXX_h
+#define __binarystream_XXX_h
 
 #include <iosfwd>
 #include <string>

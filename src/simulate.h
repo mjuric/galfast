@@ -149,16 +149,18 @@ protected:
 	std::vector<boost::shared_ptr<model_pdf> > pdfs;
 	std::vector<boost::shared_ptr<std::vector<model_pdf::star> > > stars;	// generated stars
 
+	int nstars;	///< number of stars to generate (read from config file)
+#if 0
 	conic_volume_map magerrs_cvm;
 	conic_volume_map_interpolator magerrs;
 	
-	int nstars;	///< number of stars to generate (read from config file)
 	double Ar;	///< extinction, conf["Ar"], default = 0
 protected:
 	double constant_photo_error;	///< photometric error to add to all magnitudes
 	double paralax_dispersion;	///< Gaussian dispersion of photometric paralax relation
 	int flags;
 	static const int APPLY_PHOTO_ERRORS		= 0x00000001;
+#endif
 public:
 	sky_generator(std::istream &in);
 
@@ -170,7 +172,7 @@ public:
 	~sky_generator();
 protected:
 	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
-	void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
+	//void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
 	void observe2(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf);
 	void draw_companion(float &gb, float &rb, float &ib, peyton::Radians l, peyton::Radians b, double dm /*distance modulus*/);
 };
@@ -213,5 +215,7 @@ public:
 	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t);
 	virtual void output_header(const sstruct::factory_t &factory);
 };
+
+void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output);
 
 #endif // simulate_h__

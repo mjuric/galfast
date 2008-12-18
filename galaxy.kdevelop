@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
-      <programargs></programargs>
+      <programargs>observe observe.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
@@ -55,8 +55,8 @@
         <fitter.x/>
         <locus_demo.x/>
       </runarguments>
-      <globaldebugarguments></globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/galaxy/debug/src</globalcwd>
+      <globaldebugarguments>observe observe.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
+      <globalcwd>/home/mjuric/projects/galaxy/workspace/job.ng</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -86,12 +86,12 @@
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir></topsourcedir>
+        <topsourcedir/>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags></ldflags>
-        <ccompilerbinary></ccompilerbinary>
-        <cxxcompilerbinary></cxxcompilerbinary>
-        <f77compilerbinary></f77compilerbinary>
+        <ldflags/>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
         <cflags>-Wno-deprecated</cflags>
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>

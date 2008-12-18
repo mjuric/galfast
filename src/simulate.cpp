@@ -530,7 +530,8 @@ try
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
-		);
+		"    observe - \tapply observational errors to a mock catalog\n"
+					   );
 	opts.stop_after_final_arg = true;
 	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
 	opts.add_standard_options();
@@ -574,6 +575,13 @@ try
 		"The output is stored by default in $(output)/uniq_objects.dmm and $(output)/uniq_observations.dmm DMM files.\n"
 		"If -s is specified, simple textual output is stored to file $(output).";
 	sopts["catalog"]->add_standard_options();
+
+	std::string catalog;
+	sopts["observe"].reset(new Options(argv0 + " observe", progdesc + " Apply observational errors.", version, Authorship::majuric));
+	sopts["observe"]->argument("conf").bind(input).desc("Observation (\"observe\") configuration file");
+	sopts["observe"]->argument("input").bind(catalog).desc("Input catalog file");
+	sopts["observe"]->argument("output").bind(output).desc("Output catalog file");
+	sopts["observe"]->add_standard_options();
 
 	//
 	// Parse
@@ -704,6 +712,16 @@ try
 			star_output_to_textstream cat_out(out);
 			skygen.montecarlo(cat_out);
 		}
+	}
+	else if(cmd == "observe")
+	{
+		// turn off GSL's error handler or else locusfitting routines
+		// may barf
+		gsl_set_error_handler_off();
+
+		// ./simulate.x observe observe.conf file.in.txt file.out.txt
+		observe_catalog(input, catalog, output);
+//		xxxxxxx
 	}
 	else
 	{

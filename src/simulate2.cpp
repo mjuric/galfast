@@ -915,13 +915,15 @@ peyton::io::ibstream &model_pdf::unserialize(peyton::io::ibstream &in)
 }
 
 sky_generator::sky_generator(std::istream &in)
-: rng(NULL), nstars(0), flags(0)
+: rng(NULL), nstars(0)
+#if 0
+		, flags(0)
+#endif
 {
 	Config cfg; cfg.load(in);
 
 	// number of stars to read
 	cfg.get(nstars,	"nstars", 	0);
-	cfg.get(Ar,	"Ar", 		0.);	// extinction
 
 	// random number generator
 	int seed;
@@ -943,6 +945,9 @@ sky_generator::sky_generator(std::istream &in)
 
 		add_pdf(pdf);
 	}
+
+#if 0
+	cfg.get(Ar,	"Ar", 		0.);	// extinction
 
 	// load magnitude error map
 	if(cfg.count("photo_error_map"))
@@ -973,6 +978,7 @@ sky_generator::sky_generator(std::istream &in)
 	std::cerr << "Flags: "
 		<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
 		<< "\n";
+#endif
 }
 
 sky_generator::~sky_generator()
@@ -1120,6 +1126,597 @@ int sky_generator::montecarlo_batch(star_output_function &out, int K, const std:
 	}
 
 	return Kgen;
+}
+
+class osink;
+class opipeline_stage
+{
+protected:
+	std::set<std::string> prov, req;
+
+	osink *nextlink;
+public:
+	void chain(osink *nl) { nextlink = nl; }
+	virtual int run(gsl_rng *rng) = 0;
+
+public:
+	virtual bool init(const Config &cfg) = 0;
+	const std::set<std::string> &provides() const { return prov; }
+	const std::set<std::string> &requires() const { return req; }
+
+	bool satisfied_with(const std::set<std::string> &haves);
+	bool provides_any_of(const std::set<std::string> &needs);
+	virtual int priority() { return 0; }
+
+public:
+	bool inits(const std::string &cfgstring) { return inits(cfgstring.c_str()); }
+	bool inits(const char *cfgstring)
+	{
+		std::istringstream ss(cfgstring);
+		Config cfg;
+		cfg.load(ss);
+		return init(cfg);
+	}
+
+	opipeline_stage() : nextlink(NULL)
+	{
+	}
+};
+
+bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
+{
+	FOREACH(req)
+	{
+		if(!haves.count(*i)) {
+			std::cerr << "Failed on: " << *i << "\n";
+			return false;
+		}
+	}
+	return true;
+}
+
+bool opipeline_stage::provides_any_of(const std::set<std::string> &needs)
+{
+	FOREACH(needs)
+	{
+		if(prov.count(*i)) { return true; }
+	}
+	return false;
+}
+
+class osink : public opipeline_stage
+{
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng) = 0;
+
+public:
+	virtual int run(gsl_rng *rng) { ASSERT(0); } // we should never reach this place
+
+public:
+	osink() : opipeline_stage()
+	{
+		req.insert("_source");
+	}
+};
+
+// add Fe/H information
+class os_FeH : public osink
+{
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+
+	os_FeH() : osink()
+	{
+		prov.insert("FeH");
+		req.insert("comp");
+		req.insert("XYZ[3]");
+	}
+};
+
+size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+	//	- all stars are main sequence
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		const int component = s.component();
+		float Z = s.XYZ()[2];
+		float &FeH = s.FeH();
+
+		// assign metallicity
+		static double A[]     = { 0.63, 0.37 };
+		static double sigma[] = { 0.20, 0.20,  0.30};
+		static double offs[]  = { 0.00, 0.14, -1.46};
+
+		static double Hmu = 0.5;
+		static double muInf = -0.82;
+		static double DeltaMu = 0.55;
+
+		switch(component)
+		{
+		case BahcallSoneira_model::THIN:
+		case BahcallSoneira_model::THICK: {
+			// choose the gaussian to draw from
+			double p = gsl_rng_uniform(rng)*(A[0]+A[1]);
+			int i = p < A[0] ? 0 : 1;
+
+			// calculate mean
+			double muD = muInf + DeltaMu*exp(-abs(Z/1000)/Hmu);		// Bond et al. A2
+			double aZ = muD - 0.067;
+
+			// draw
+			FeH = gsl_ran_gaussian(rng, sigma[i]);
+			FeH += aZ + offs[i];
+			} break;
+		case BahcallSoneira_model::HALO:
+			FeH = offs[2] + gsl_ran_gaussian(rng, sigma[2]);
+			break;
+		default:
+			ASSERT(0);
+		}
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_FeH::init(const Config &cfg)
+{
+	return true;
+}
+
+
+
+// add kinematic information
+class os_kin_TMIII : public osink
+{
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+
+	os_kin_TMIII() : osink()
+	{
+		prov.insert("vPhivRvZ[3]");
+		req.insert("comp");
+		req.insert("XYZ[3]");
+	}
+};
+
+void getDiskKinematics(float &vPhi, float &vR, float &vZ, const double Z, gsl_rng *rng)
+{
+	// given XYZ=($1-$3), in pc, generate vPhi, vR, vZ = ($4-$6) for DISK
+	// stars. The velocities are physical, i.e. in Galactic coordinate frame
+	// (km/s), and based on a vPhi model from Tomography II (astro-ph/0804.3850)
+	// with vR and vZ models from Tomography III
+
+	//// Phi component ////
+	// we assume that vPhi is a function of Z, as given in TomographyII
+	// the distribution shape of vPhi is a sum of 2 (fixed) gaussians
+	// with the 3:1 normalization ratio; the first Gaussian is offset
+	// by 23 km/s from vPhiMedian(Z) to more negative values, and the
+	// second Gaussian is offset by 11 km/s to more positive values;
+	double vPhiMedian = -225. + 20. + 19.2*pow(Z/1000, 1.25);   // =0 at Z=6.5 kpc
+	if(vPhiMedian > 0) { vPhiMedian = 0; }
+
+	// choose gaussian to draw from
+	static const double norm1 = 0.25;  // fraction of stars in the first gaussian
+	int i = (gsl_rng_uniform(rng) < norm1) ? 0 : 1;
+
+	// this is eq.13 from Tomography II, with a -220 offset coming from
+	// accounting for the vLSR (220 km/s), and 5 km/s from Solar peculiar
+	// motion (which was not included in TomographyII)
+	static const double offs[]  = { -23., +11. };
+	static const double sigPhi[] = { 12.0, 34.0 }; // the intrinsic widths of the Gaussians are sigPhi1 and sigPhi2,
+	vPhi = (vPhiMedian + offs[i]) + gsl_ran_gaussian(rng, sigPhi[i]);
+
+#if 0
+	// for dispersion gradient (to be added in quadrature)
+	define aPhi  0.0
+	define bPhi 10.0
+	define cPhi  1.0
+	set sigPhiZ = $aPhi + $bPhi * (Z/1000)**$cPhi
+	set sigPhi1z = sqrt($sigPhi1**2 + sigPhiZ**2)
+	set sigPhi2z = sqrt($sigPhi2**2 + sigPhiZ**2)
+#endif
+
+	//// R and Z components ////
+	// for R and Z, the distribution shape is Gaussian, with spatially
+	// invariant mean value, while the dispersions can increase with Z
+	static double vRmean = 0.0;
+	static double vZmean = 0.0;
+	// for dispersions:
+	static double aR = 35.0;
+	static double bR = 10.0;
+	static double cR =  1.0;
+	static double aZ = 20.0;
+	static double bZ = 10.0;
+	static double cZ =  1.0;
+	double sigR = aR + bR * pow(Z/1000, cR);
+	double sigZ = aZ + bZ * pow(Z/1000, cZ);
+
+	// and now generate vR and vZ
+	vR = vRmean + gsl_ran_gaussian(rng, sigR);
+	vZ = vZmean + gsl_ran_gaussian(rng, sigZ);
+}
+
+void getHaloKinematics(float &vPhi, float &vR, float &vZ, const double Z, gsl_rng *rng)
+{
+	// given XYZ=($1-$3), in pc, generate vPhi, vR, vZ = ($4-$6) for HALO
+	// stars. The velocities are physical, i.e. in Galactic coordinate frame
+	// (km/s), and based on a vPhi model from Tomography II (astro-ph/0804.3850)
+	// with vR and vZ models from Tomography III
+
+	// it is assumed that the halo kinematics are spatially invariant
+	static double sigPhi = 100.0;
+	static double sigR   = 110.0;
+	static double sigZ   =  90.0;
+	static double vPhimean = 0.0;
+	static double vRmean   = 0.0;
+	static double vZmean   = 0.0;
+
+	vPhi = vPhimean + gsl_ran_gaussian(rng, sigPhi);
+	vR = vRmean + gsl_ran_gaussian(rng, sigR);
+	vZ = vZmean + gsl_ran_gaussian(rng, sigZ);
+}
+
+size_t os_kin_TMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		const int component = s.component();
+		float Z = s.XYZ()[2];
+		float *v = s.vPhivRvZ();
+
+		switch(component)
+		{
+		case BahcallSoneira_model::THIN:
+		case BahcallSoneira_model::THICK:
+			getDiskKinematics(v[0], v[1], v[2], Z, rng);
+			break;
+		case BahcallSoneira_model::HALO:
+			getHaloKinematics(v[0], v[1], v[2], Z, rng);
+			break;
+		default:
+			ASSERT(0);
+		}
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_kin_TMIII::init(const Config &cfg)
+{
+	return true;
+}
+
+
+
+
+// convert input absolute/apparent magnitudes to ugriz colors
+class os_ugriz : public osink
+{
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+
+	os_ugriz() : osink()
+	{
+		prov.insert("ugriz[5]");
+		req.insert("FeH");
+	}
+};
+
+float MrFeH2gi(float Mr, float FeH)
+{
+	ASSERT(0);
+}
+float MrFeH2ug(float Mr, float FeH)
+{
+	ASSERT(0);
+}
+float gi2ri(float gi)
+{
+	ASSERT(0);
+}
+float ri2iz(float ri)
+{
+	ASSERT(0);
+}
+
+size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	- Fe/H exists in input
+	//	- paralax returns the absolute magnitude in SDSS r band
+	//	- all stars are main sequence
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// calculate magnitudes, absolute magnitudes and distance
+		const double Mr = paralax.Mr(s.color());
+		const double D = stardist::D(s.mag(), Mr);
+
+		const float FeH = s.FeH();
+
+		// construct SDSS colors given the absolute magnitude and metallicity
+		float gi = MrFeH2gi(Mr, FeH);
+		float ug = MrFeH2ug(Mr, FeH);
+		float ri = gi2ri(gi);
+		float iz = ri2iz(ri);
+
+		// convert colors to apparent magnitudes
+		float r  = s.mag();
+		float gr = gi - ri;
+		float *mags = s.sdss_mag();
+		mags[0] = ug + gr + r;
+		mags[1] = gr + r;
+		mags[2] = r;
+		mags[3] = r - ri;
+		mags[4] = r - ri - iz;
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_ugriz::init(const Config &cfg)
+{
+	return true;
+}
+
+
+
+// in/out ends of the chain
+class os_textout : public osink
+{
+protected:
+	std::ofstream out;
+	bool headerWritten;
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual int priority() { return 1000000; }	// ensure this stage has the least priority
+
+	os_textout() : osink(), headerWritten(false)
+	{
+	}
+};
+
+size_t os_textout::push(sstruct *&data, const size_t count, gsl_rng *rng)
+{
+	if(!headerWritten)
+	{
+		out << sstruct::factory;
+	}
+
+	size_t cnt = 0;
+	while(cnt < count && out << data[cnt]) { cnt++; }
+
+	if(!out) { ASSERT(0); abort(); }
+
+	delete [] data;
+	data = NULL;
+
+	return count;
+}
+
+bool os_textout::init(const Config &cfg)
+{
+	out.open(cfg["name"].c_str());
+	return out;
+}
+
+class osource : public opipeline_stage
+{
+public:
+	virtual int priority() { return -1000000; } // ensure highest priority for this stage
+
+public:
+	osource() : opipeline_stage()
+	{
+		prov.insert("_source");
+	}
+};
+
+class os_textin : public osource
+{
+protected:
+	std::ifstream in;
+
+public:
+	virtual bool init(const Config &cfg);
+	virtual int run(gsl_rng *rng);
+
+	os_textin() {};
+};
+
+bool os_textin::init(const Config &cfg)
+{
+	in.open(cfg["name"].c_str());
+	in >> sstruct::factory;
+	return in;
+}
+
+int os_textin::run(gsl_rng *rng)
+{
+	size_t block = 10000;
+
+	size_t total = 0;
+	do {
+		sstruct *data = sstruct::create(block);
+		size_t cnt = 0;
+		while(cnt < block && in >> data[cnt]) { cnt++; }
+		total += nextlink->push(data, cnt, rng);
+	} while(in);
+
+	return total;
+}
+
+class opipeline
+{
+public:
+	std::list<opipeline_stage *> stages;
+
+public:
+	void add(opipeline_stage *pipe) { stages.push_back(pipe); }
+	int run(gsl_rng *rng);
+};
+
+int opipeline::run(gsl_rng *rng)
+{
+	// construct the pipeline based on requirements and provisions
+	std::set<std::string> haves;
+	sstruct::factory.gettags(haves);
+
+	// form a priority queue of requested stages. The priorities ensure that _output stage
+	// will end up last (as well as allow some control of which stage executes first if
+	// multiple stages have all prerequisites satisfied)
+	std::set<std::pair<int, opipeline_stage *> > stages;
+	FOREACH(this->stages)
+	{
+		stages.insert(std::make_pair((*i)->priority(), *i));
+	}
+
+	std::list<opipeline_stage *> pipeline;
+	while(!stages.empty())
+	{
+		std::cerr << "haves: "; FOREACH(haves) { std::cerr << *i << " "; } std::cerr << "\n";
+		
+		bool foundOne = false;
+		FOREACH(stages)
+		{
+			opipeline_stage &s = *i->second;
+			if(!s.satisfied_with(haves)) { continue; }
+
+			// check for collisions
+			if(s.provides_any_of(haves))
+			{
+				ASSERT(s.provides_any_of(haves))
+				{
+					std::cerr << "Collision!\n";
+				}
+				abort();
+			}
+
+			// append to pipeline
+			pipeline.push_back(&s);
+			haves.insert(s.provides().begin(), s.provides().end());
+
+			// use tags which the stage will provide
+			FOREACHj(j, s.provides())
+			{
+				if(j->at(0) == '_') { continue; }
+				sstruct::factory.useTag(*j);
+			}
+
+			// erase from the list of pending stages
+			stages.erase(i);
+			foundOne = true;
+			break;
+		}
+		if(!foundOne)
+		{
+			ASSERT(0) { std::cerr << "Not satisfying all requirements!"; }
+			abort();
+		}
+	}
+
+	// chain the constructed pipeline
+	opipeline_stage *last, *source = NULL;
+	FOREACH(pipeline)
+	{
+		if(source == NULL) { last = source = *i; continue; }
+		osink *next = dynamic_cast<osink*>(*i);
+		ASSERT(next);
+		last->chain(next);
+		last = next;
+		std::cerr << "Chained: " << peyton::util::type_name(typeid(*last)) << "\n";
+	}
+
+	return source->run(rng);
+}
+
+void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output)
+{
+	int seed;
+	//cfg.get(seed,	"seed", 	42);
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(rng, seed);
+
+	// initialize pipeline stages
+	os_textin in;
+	in.inits("name = sky.cat.txt");
+
+	os_ugriz ugriz;
+	os_FeH FeH;
+	os_kin_TMIII kinematics;
+
+	os_textout out;
+	out.inits("name = sky.obs.txt");
+
+	// chain everything together
+	opipeline pipe;
+	pipe.add(&in);
+	pipe.add(&out);
+	pipe.add(&ugriz);
+	pipe.add(&FeH);
+	pipe.add(&kinematics);
+
+	// let freedom reign...
+	pipe.run(rng);
+
+#if 0
+	in.chain(&FeH);
+	FeH.chain(&kinematics);
+	kinematics.chain(&ugriz);
+	ugriz.chain(&out);
+#endif
+
+#if 0
+	cfg.get(Ar,	"Ar", 		0.);	// extinction
+
+	// load magnitude error map
+	if(cfg.count("photo_error_map"))
+	{
+		std::string fn = cfg["photo_error_map"];
+		std::ifstream iin(fn.c_str()); ASSERT(iin) { std::cerr << "Could not open magnitude error map " << fn << "\n"; }
+		io::ibstream in(iin);
+
+		if(!(in >> magerrs_cvm)) { ASSERT(in >> magerrs); }
+		magerrs.initialize(magerrs_cvm);
+		
+		cfg.get(magerrs.use_median_beam_for_all, "magerr_only_use_median", false);
+		if(magerrs.use_median_beam_for_all) { std::cerr << "Using median error only.\n"; }
+	}
+
+	cfg.get(constant_photo_error, "constant_photo_error", 0.);
+	cfg.get(paralax_dispersion, "paralax_dispersion", 0.);
+
+	// load various flags
+	int flag;
+	cfg.get(flag, "apply_photo_errors", 0); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
+	
+	// dump short status
+	std::cerr << "constant_photo_error = " << constant_photo_error << "\n";
+	std::cerr << "paralax_dispersion = " << paralax_dispersion << "\n";
+	std::cerr << "magerrs.use_median_beam_for_all = " << magerrs.use_median_beam_for_all << "\n";
+	std::cerr << "magerrs.empty() = " << magerrs.empty() << "\n";
+	std::cerr << "Flags: "
+		<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
+		<< "\n";
+#endif
 }
 
 bool model_pdf::draw_position(star &s, gsl_rng *rng)
@@ -1334,7 +1931,7 @@ void test_tags()
 			sstruct::factory.useTag("extinction.r");
 
 			float &Ar = tag->ext_r();
-			float *xyz = tag->xyz();
+			float *XYZ = tag->XYZ();
 			std::string &starname = tag->starname();
 			starname = "Bla";
 
@@ -1343,7 +1940,7 @@ void test_tags()
 			starname = "Newyyy";
 
 			std::cerr << "Ar = " << Ar << "\n";
-			std::cerr << "xyz = " << xyz[0] << " " << xyz[1] << " " << xyz[3] << "\n";
+			std::cerr << "XYZ = " << XYZ[0] << " " << XYZ[1] << " " << XYZ[3] << "\n";
 			std::cerr << "starname = " << starname << "\n";
 			std::cerr << "starname2 = " << tag2->starname() << "\n";
 
@@ -1361,11 +1958,11 @@ void test_tags()
 				sstruct *tag = &tags[i];
 
 				float &Ar = tag->ext_r();
-				float *xyz = tag->xyz();
+				float *XYZ = tag->XYZ();
 				tag->starname() = "Lipa moja";
 
 				std::cerr << i << "  Ar = " << Ar << "\n";
-				std::cerr << i << "  xyz = " << xyz[0] << " " << xyz[1] << " " << xyz[3] << "\n";
+				std::cerr << i << "  XYZ = " << XYZ[0] << " " << XYZ[1] << " " << XYZ[2] << "\n";
 				std::cerr << "starname = " << tag->starname() << "\n";
 			}
 			delete [] tags;
@@ -1391,6 +1988,7 @@ void test_tags()
 	}
 }
 
+#if 0
 void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf)
 {
 	std::cerr << "Observing... ";
@@ -1548,7 +2146,8 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 	tick.close();
 	std::cerr << "\n";
 }
-
+#endif
+				     
 void star_output_to_dmm::output(sstruct &t)
 {
 	std::cerr << "Output to DMM with galactic model tags not implemented. Aborting.";

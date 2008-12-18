@@ -353,6 +353,10 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				FOREACH(tagdefs) { out << *i; }
 				return out;
 			}
+			size_t gettags(std::set<std::string> &tags) const
+			{
+				FOREACH(tagdefs) { tags.insert(i->second->tagID); }
+			}
 			std::ostream& serialize(std::ostream& out) const
 			{
 				//if(!tagdefs.empty()) { out << "# "; }
@@ -411,11 +415,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineTag<int>("comp", ivars[0]);
 				defineTag<float>("extinction.r", ivars[1]);
 				defineTag<boost::array<float, 3> >("vel[3]", ivars[2]);
-				defineTag<boost::array<float, 3> >("xyz[3]", ivars[3]);
+				defineTag<boost::array<float, 3> >("XYZ[3]", ivars[3]);
 				defineTag<std::string>("star_name", ivars[4]);
 				defineTag<boost::array<double, 2> >("lonlat[2]", ivars[5]);
 				defineTag<float>("color", ivars[6]);
 				defineTag<float>("mag", ivars[7]);
+				defineTag<boost::array<float, 5> >("ugriz[5]", ivars[8]);
+				defineTag<float>("FeH", ivars[9]);
+				defineTag<boost::array<float, 3> >("vPhivRvZ[3]", ivars[10]);
 			}
 			~factory_t()
 			{
@@ -427,11 +434,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		int &component()	{ return get<int>(factory.ivars[0]); }
 		float &ext_r()		{ return get<float>(factory.ivars[1]); }
 		float *vel()		{ return get<float[3]>(factory.ivars[2]); }
-		float *xyz()		{ return get<float[3]>(factory.ivars[3]); }
+		float *XYZ()		{ return get<float[3]>(factory.ivars[3]); }
 		std::string &starname()	{ return get<std::string>(factory.ivars[4]); }
 		std::pair<double, double> &lonlat() { return get<std::pair<double,double> >(factory.ivars[5]); }
 		float &color()		{ return get<float>(factory.ivars[6]); }
 		float &mag()		{ return get<float>(factory.ivars[7]); }
+		float *sdss_mag()	{ return get<float[5]>(factory.ivars[8]); }
+		float &FeH()		{ return get<float>(factory.ivars[9]); }
+		float *vPhivRvZ()	{ return get<float[3]>(factory.ivars[10]); }
 
 		static factory_t factory;			// factory singleton
 		static std::map<sstruct *, char* > owner;	// list of objects that own their tags pointer

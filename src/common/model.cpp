@@ -559,7 +559,7 @@ bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, do
 	else if(u < pthick) { t.component() = THICK; }
 	else { t.component() = HALO; }
 
-	float *f = t.xyz(); f[0] = x; f[1] = y; f[2] = z;
+	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
 //	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
 
 	return true;

@@ -66,18 +66,20 @@ dnl Extract the path name from a --with-boost=PATH argument
 ],
       [
 	AC_MSG_RESULT(yes)
-	if test "$target_os" = "mingw32"; then
-	   boost_libsuff=mgw
-	else
-	   boost_libsuff=gcc
-	fi
+dnl	if test "$target_os" = "mingw32"; then
+dnl	   boost_libsuff=mgw
+dnl	else
+dnl	   boost_libsuff=gcc
+	   boost_libsuff=
+dnl	fi
 	boost_libsuff_r=$boost_libsuff-mt;
-	if test "x$enable_debug" = xyes ; then
-	    boost_libsuff=$boost_libsuff-d;
-	    boost_libsuff_r=$boost_libsuff_r-d;
-	fi
-	boost_libsuff=$boost_libsuff-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR
-	boost_libsuff_r=$boost_libsuff_r-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR
+dnl	if test "x$enable_debug" = xyes ; then
+dnl	    boost_libsuff=$boost_libsuff-d;
+dnl	    boost_libsuff_r=$boost_libsuff_r-d;
+dnl	fi
+dnl	boost_libsuff=$boost_libsuff-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR
+dnl	boost_libsuff_r=$boost_libsuff_r-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR
+dnl        AC_MSG_RESULT([Suffix: $boost_libsuff])
         ifelse([$2], , :, [$2])
       ],
       [
@@ -103,7 +105,7 @@ AC_DEFUN([RS_BOOST_THREAD],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS -D_REENTRANT"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_thread-$boost_libsuff_r"
+  LIBS="-lboost_thread$boost_libsuff_r"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/thread.hpp> 
@@ -146,7 +148,7 @@ AC_DEFUN([RS_BOOST_DATETIME],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_date_time-$boost_libsuff"
+  LIBS="-lboost_date_time$boost_libsuff"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/date_time/gregorian/gregorian.hpp> 
@@ -189,7 +191,7 @@ AC_DEFUN([RS_BOOST_REGEX],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_regex-$boost_libsuff"
+  LIBS="-lboost_regex$boost_libsuff"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/regex.hpp> 
@@ -235,7 +237,7 @@ AC_DEFUN([RS_BOOST_PROGRAM_OPTIONS],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_program_options-$boost_libsuff"
+  LIBS="-lboost_program_options$boost_libsuff"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/program_options.hpp> 
@@ -277,7 +279,7 @@ AC_DEFUN([RS_BOOST_IOSTREAMS],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_iostreams-$boost_libsuff"
+  LIBS="-lboost_iostreams$boost_libsuff"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/iostreams/device/file.hpp> 

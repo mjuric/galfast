@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "config.h"
+#define COMPILING_SIMULATE
  
 #include "model.h"
 #include "textstream.h"
@@ -359,28 +360,31 @@ double ToyHomogeneous_model::rho(double x, double y, double z, double ri)
 	return rho0;
 }
 
-double ToyHomogeneous_model::absmag(double ri)
-{
-	return paralax.Mr(ri);
-}
+// double ToyHomogeneous_model::absmag(double ri)
+// {
+// 	return paralax.Mr(ri);
+// }
 
 ToyHomogeneous_model::ToyHomogeneous_model(peyton::system::Config &cfg)
+	: galactic_model(cfg)
 {
 	cfg.get(rho0, "rho0", rho0);
-	std::cerr << "ToyHomogeneous model: rho0=" << rho0 << "\n";
+	DLOG(verb1) << "rho0 = " << rho0;
 }
 
-peyton::io::obstream& ToyHomogeneous_model::serialize(peyton::io::obstream& out)
+peyton::io::obstream& ToyHomogeneous_model::serialize(peyton::io::obstream& out) const
 {
-	std::string name("ToyHomogeneous");
-	out << name << rho0;
+	galactic_model::serialize(out);
+	out << rho0;
 
 	return out;
 }
 
-BISTREAM2(ToyHomogeneous_model &m)
+ToyHomogeneous_model::ToyHomogeneous_model(peyton::io::ibstream &in)
+	: galactic_model(in)
 {
-	return in >> m.rho0;
+	in >> rho0;
+	ASSERT(in);
 }
 
 ////////////////////////////////////////////////////
@@ -393,10 +397,10 @@ double ToyGeocentricPowerLaw_model::rho(double x, double y, double z, double ri)
 	return norm * rho0 * pow(d2, n/2.);
 }
 
-double ToyGeocentricPowerLaw_model::absmag(double ri)
-{
-	return paralax.Mr(ri);
-}
+// double ToyGeocentricPowerLaw_model::absmag(double ri)
+// {
+// 	return paralax.Mr(ri);
+// }
 
 ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::system::Config &cfg)
 {
@@ -411,23 +415,25 @@ ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::system::Config 
 		lf.construct(ri, phi);
 	}
 
-	std::cerr << "ToyGeocentricPowerLaw model: rho0=" << rho0 << ", n=" << n << "\n";
+	DLOG(verb1) << "rho0 = " << rho0 << ", n = " << n;
 }
 
-peyton::io::obstream& ToyGeocentricPowerLaw_model::serialize(peyton::io::obstream& out)
+peyton::io::obstream& ToyGeocentricPowerLaw_model::serialize(peyton::io::obstream& out) const
 {
-	std::string name("ToyGeocentricPowerLaw");
-	out << name << rho0 << n << lf;
+	galactic_model::serialize(out);
+	out << rho0 << n << lf;
 
 	return out;
 }
-BISTREAM2(ToyGeocentricPowerLaw_model &m)
+ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::io::ibstream &in)
+	: galactic_model(in)
 {
-	return in >> m.rho0 >> m.n >> m.lf;
+	in >> rho0 >> n >> lf;
+	ASSERT(in);
 }
 
 ////////////////////////////////////////////////////
-
+#if 0
 toy_geo_plaw_abspoly_model::toy_geo_plaw_abspoly_model(const std::string &prefix)
 {
 	Config conf(prefix + ".conf");
@@ -484,10 +490,11 @@ double toy_geo_plaw_abspoly_model::absmag(double ri)
 //	return 4+2*ri-3;
 	return gsl_poly_eval(&Mr_coef[0], Mr_coef.size(), ri);
 }
-
+#endif
+					     
 void BahcallSoneira_model::load(peyton::system::Config &cfg)
 {
-	FOREACH(cfg) { std::cerr << "BS model: " << (*i).first << " = " << (*i).second << "\n"; }
+	FOREACH(cfg) { MLOG(verb1) << (*i).first << " = " << (*i).second; }
 
 	FOR(0, m.nparams - m.nrho)
 	{
@@ -512,11 +519,12 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 	}
 }
 
-BahcallSoneira_model::BahcallSoneira_model()
-{
-}
+// BahcallSoneira_model::BahcallSoneira_model()
+// {
+// }
 
 BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
+	: galactic_model(cfg)
 {
 	load(cfg);
 }
@@ -527,10 +535,10 @@ BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
 	load(cfg);
 }*/
 
-double BahcallSoneira_model::absmag(double ri)
-{
-	return paralax.Mr(ri);
-}
+// double BahcallSoneira_model::absmag(double ri)
+// {
+// 	return paralax.Mr(ri);
+// }
 
 sstruct::factory_t sstruct::factory;
 std::map<sstruct *, char *> sstruct::owner;
@@ -538,7 +546,7 @@ std::map<sstruct *, char *> sstruct::owner;
 bool BahcallSoneira_model::setup_tags(sstruct::factory_t &factory)
 {
 	factory.useTag("comp");
-	factory.useTag("xyz[3]");
+	factory.useTag("XYZ[3]");
 	return true;
 }
 
@@ -607,16 +615,18 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 }
 
 BLESS_POD(disk_model);
-peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out)
+peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out) const
 {
-	std::string name("BahcallSoneira");
-	out << name << m << lf;
+	galactic_model::serialize(out);
+	out << m << lf;
 
 	return out;
 }
-BISTREAM2(BahcallSoneira_model &m)
+BahcallSoneira_model::BahcallSoneira_model(peyton::io::ibstream &in)
+	: galactic_model(in)
 {
-	return in >> m.m >> m.lf;
+	in >> m >> lf;
+	ASSERT(in);
 }
 
 
@@ -625,7 +635,7 @@ galactic_model *galactic_model::load(istream &cfgstrm)
 	Config cfg;
 	cfg.load(cfgstrm);
 
-	FOREACH(cfg) { std::cerr << (*i).first << " = " << (*i).second << "\n"; }	
+	FOREACH(cfg) { DLOG(verb1) << (*i).first << " = " << (*i).second; }
 	if(cfg.count("model") == 0) { ASSERT(0); return NULL; }
 
 	std::string model = cfg["model"];
@@ -644,28 +654,48 @@ galactic_model *galactic_model::unserialize(peyton::io::ibstream &in)
 
 	if(model == "BahcallSoneira")
 	{
-		std::auto_ptr<BahcallSoneira_model> m(new BahcallSoneira_model);
-		in >> *m;
+		std::auto_ptr<BahcallSoneira_model> m(new BahcallSoneira_model(in));
 		return m.release();
 	}
 	if(model == "ToyHomogeneous")
 	{
-		std::auto_ptr<ToyHomogeneous_model> m(new ToyHomogeneous_model);
-		in >> *m;
+		std::auto_ptr<ToyHomogeneous_model> m(new ToyHomogeneous_model(in));
 		return m.release();
 	}
 	if(model == "ToyGeocentricPowerLaw")
 	{
-		std::auto_ptr<ToyGeocentricPowerLaw_model> m(new ToyGeocentricPowerLaw_model);
-		in >> *m;
+		std::auto_ptr<ToyGeocentricPowerLaw_model> m(new ToyGeocentricPowerLaw_model(in));
 		return m.release();
 	}
 
 	ASSERT(0); return NULL;
 }
 
-peyton::io::obstream& galactic_model::serialize(peyton::io::obstream& out)
+peyton::io::obstream& galactic_model::serialize(peyton::io::obstream& out) const
 {
-	ASSERT(0) { std::cerr << "This method must be overrided if you want to use serialization.\n"; }
+	out << name();
+	out << m_band << m_color;
+	out << paralax_loaded << paralax;
 	return out;
+}
+
+galactic_model::galactic_model(peyton::io::ibstream &in)
+{
+	in >> m_band >> m_color;
+	in >> paralax_loaded >> paralax;
+	ASSERT(in);
+}
+
+galactic_model::galactic_model(peyton::system::Config &cfg)
+{
+	cfg.get(m_band,  "band",   "mag");
+	cfg.get(m_color, "color", "color");
+
+	// load paralax coefficients, if there are any
+	if(cfg.count("col2absmag_poly"))
+	{
+		std::vector<double> coeff = cfg["col2absmag_poly"];
+		paralax.setParalaxCoefficients(coeff);
+		paralax_loaded = true;
+	}
 }

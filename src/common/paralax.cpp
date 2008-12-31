@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+
 #include "paralax.h"
 #include "textstream.h"
 #include "analysis.h"
@@ -37,26 +39,43 @@ plx_gri_locus_ng::plx_gri_locus_ng()
 : mlri(*this), plx_modified(false)
 {
 	// check if paralax relation was specified through an environment variable
-	EnvVar plx("PARALAX");
-	if(plx)
+	EnvVar plxvar("PARALAX");
+	std::vector<double> tmp;
+	std::string plx;
+	if(plxvar)
 	{
-		std::cerr << "#++++ Taking paralax from $PARALAX env. var.\n";
-		istringstream in(plx.c_str());
-		double coef;
-		while(in >> coef)
-		{
-			Mrc.push_back(coef);
-		}
-		plx_modified = true;
-	} else {
-		Mrc.resize(5);
-		Mrc[0] = 3.2; Mrc[1] = 13.30; Mrc[2] = -11.50; Mrc[3] = 5.40; Mrc[4] = -0.65; // this is ZI's "kinematic" relation
-		// Mrc[0] = 4.0; Mrc[1] = 11.86; Mrc[2] = -10.74; Mrc[3] = 5.99; Mrc[4] = -1.2; // this was the relation from astro-ph draft
+		DLOG(verb1) << "++++ Taking paralax from $PARALAX env. var.";
+		plx = (std::string)plxvar;
 	}
-	std::cerr << "# M_r(r-i) coef. =";
-	FOREACH(Mrc) { std::cerr << " " << *i; }
-	std::cerr << "\n";
-	std::cerr << "Mr(2) = " << Mr(2) << "\n";
+	else
+	{
+		DLOG(verb1) << "++++ Using default paralax coefficients.";
+		plx = "3.2 13.30 -11.50 5.40 -0.65";
+	}
+
+	istringstream in(plx.c_str());
+	double coef;
+	while(in >> coef)
+	{
+		tmp.push_back(coef);
+	}
+	setParalaxCoefficients(tmp);
+}
+
+inline OSTREAM(const std::vector<double> &a)
+{
+	if(a.empty()) { return out; }
+	out << a[0];
+	FOR(1, a.size()) { out << " " << a[i]; }
+	return out;
+}
+
+void plx_gri_locus_ng::setParalaxCoefficients(const std::vector<double> &Mcoef)
+{
+	Mrc = Mcoef;
+	plx_modified = true;
+
+	DLOG(verb1) << "color-absmag coef. = " << Mcoef;
 }
 
 void plx_gri_locus_ng::ml_grri::setprior(const std::string &priorfile)

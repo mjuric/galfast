@@ -33,7 +33,8 @@ merge_maps_x_LDADD = $(top_builddir)/src/common/libcommon.a
 merge_maps_x_SOURCES =  merge_maps.cpp
 mlcolor_x_SOURCES =  mlcolor.cpp
 selector_x_SOURCES =  selector.cpp
-selector_x_LDADD = $(top_builddir)/src/common/libcommon.a
+selector_x_LDADD = $(top_builddir)/src/common/libcommon.a \
+	$(top_builddir)/src/gpc/libgpc.a
 model_x_SOURCES =  model.cpp
 explore_maps_x_SOURCES =  explore_maps.cpp
 explore_maps_x_LDADD = $(top_builddir)/src/common/libcommon.a
@@ -43,7 +44,7 @@ merge_volumes_x_LDADD = $(top_builddir)/src/common/libcommon.a
 fitscatread_x_SOURCES =  fitscatread.cpp
 fitscatread_x_LDADD = $(top_builddir)/src/common/libcommon.a
 mlcolor_x_LDADD = $(top_builddir)/src/common/libcommon.a
-simulate_x_SOURCES = simulate.cpp simulate2.cpp
+simulate_x_SOURCES = observe.cpp simulate.cpp simulate.h simulate2.cpp
 simulate_x_LDADD = $(top_builddir)/src/gpc/libgpc.a \
 	$(top_builddir)/src/common/libcommon.a
 locusfit_x_SOURCES =  locusfit.cpp

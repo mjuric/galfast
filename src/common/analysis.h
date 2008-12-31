@@ -2,6 +2,8 @@
 #define __analysis_h
 
 #include <astro/io/gzstream/fstream.h>
+#include <astro/system/fs.h>
+#include <astro/system/log.h>
 #include "textstream.h"
 #include <set>
 #include <valarray>
@@ -147,23 +149,47 @@ class ticker {
 public:
 	int tickk;
 	int step;
+	std::string title;
+
+	bool logticker;
+	time_t t0, dt;
 
 	typedef int value_type;
 public:
-	ticker(int step_) : tickk(-1) { open("", step_); }
-	ticker(const std::string &title, int step_) : tickk(-1) { open(title, step_); }
+	ticker(int step_) : tickk(-1), logticker(false) { open("", step_); }
+	ticker(const std::string &title, int step_) : tickk(-1), logticker(false) { open(title, step_); }
 	~ticker() { close(); }
 
-	void open(const std::string &title, int step_)
+	void open(const std::string &title_, int step_)
 	{
 		close();
-		
+
+		title = title_;
+
+		peyton::system::EnvVar lt("LOGGING");
+		logticker = lt && (std::string)lt == "1";
+
+		if(logticker)
+		{
+			peyton::system::EnvVar lt("TICKER_DT");
+			dt = lt ? atoi(lt.c_str()) : 10;
+			if(dt == 0) { dt = 10; }
+			t0 = time(NULL);
+		}
+
 		step = step_;
 		tickk = 0;
 
 		if(title.size())
 		{
-			std::cerr << title << "...\n";
+			if(!logticker)
+			{
+				std::cerr << title << "...\n";
+			}
+			else
+			{
+				MLOG(verb2) << title << "...";
+			}
 		}
 	}
 	
@@ -171,7 +197,14 @@ public:
 	{
 		if(tickk > 0)
 		{
-			std::cerr << " [" << tickk << "].\n";
+			if(!logticker)
+			{
+				std::cerr << " [" << tickk << "].\n";
+			}
+			else
+			{
+				MLOG(verb2) << title << " @ " << tickk << " done";
+			}
 		}
 		tickk = 0;
 	}
@@ -181,8 +214,20 @@ public:
 	void tick()
 	{
 		tickk++;
-		if(tickk % step == 0) { std::cerr << "#"; }
-		if(tickk % (step*50) == 0) { std::cerr << " [" << tickk << "]\n"; }
+		if(!logticker)
+		{
+			if(tickk % step == 0) { std::cerr << "#"; }
+			if(tickk % (step*50) == 0) { std::cerr << " [" << tickk << "]\n"; }
+		}
+		else
+		{
+			time_t t = time(NULL);
+			if(t - t0 >= dt)
+			{
+				MLOG(verb2) << title << " @ " << tickk;
+				t0 = t;
+			}
+		}
 	}
 
 	void push_back(const int &s) { tick(); }

@@ -49,7 +49,7 @@ protected:
 public:
 	RunMap(const std::string &runmap = "schlegel.cat.txt")
 	{
-		if(Filename(runmap).exists())
+		if(file_exists(runmap))
 		{
 			text_input_or_die(in, runmap);
 			in.skip(1); // skip over the header line
@@ -719,7 +719,7 @@ void selector::start()
 		std::string fn = io::format("cache/cylindrical.%6.3f-%6.3f.%5.3f-%5.3f.dx=%6.3f.phi0=%03.0f%s.bin")
 			<< r.first << r.second << ri.first << ri.second << dx*ndx << phi0 << svolfilters;
 
-		if(!Filename(fn).exists())
+		if(!file_exists(fn))
 		{
 			std::string cmd = io::format(
 				"$BIN/bin_volume.x --type=cyl --phi0=%f%s "
@@ -731,7 +731,7 @@ void selector::start()
 			shell(cmd);
 			cerr << "- - - - - - - -\n";
 		}
-		ASSERT(Filename(fn).exists());
+		ASSERT(file_exists(fn));
 
 		// load volume map and copy it into a binned runset
 		binned_run br;
@@ -761,7 +761,7 @@ void selector::start()
 			<< o.pt.t0[0] << o.pt.t0[1] << o.pt.t0[2] // earthcentric origin
 			<< deg(phi) << deg(theta) << deg(psi);
 
-		if(!Filename(fn).exists())
+		if(!file_exists(fn))
 		{
 			std::string cmd = io::format(
 				"$BIN/bin_volume.x --type=plane "
@@ -781,7 +781,7 @@ void selector::start()
 			shell(cmd);
 			cerr << "- - - - - - - -\n";
 		}
-		ASSERT(Filename(fn).exists());
+		ASSERT(file_exists(fn));
 
 		// load volume map created with 'bin_volume --type=plane' and
 		// copy it into a binned runset

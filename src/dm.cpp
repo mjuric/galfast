@@ -119,7 +119,7 @@ try
 			{ THROW(EOptions, "Argument to option --stage must be one of " + join(", ", stages) + "."); }
 		if(!cattypes.count(cattype))
 			{ THROW(EOptions, "Argument to option --cattype must be one of " + join(", ", cattypes) + "."); }
-		if(inputCatalog != "-" && !Filename(inputCatalog).exists())
+		if(inputCatalog != "-" && !file_exists(inputCatalog))
 			{ THROW(EOptions, "Input catalog file '" + inputCatalog + "' does not exist or is inaccessible"); }
 	} catch(EOptions &e) {
 		opts.usage(cerr);

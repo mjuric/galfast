@@ -18,6 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+
 #include <astro/system/options.h>
 #include <astro/math.h>
 #include <astro/io/format.h>

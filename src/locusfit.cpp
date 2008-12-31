@@ -2,6 +2,8 @@
 //--- libpeyton includes. Add any libpeyton includes _before_ including
 //--- astro/useall.h
 
+#include "config.h"
+
 #include <astro/system/options.h>
 #include <astro/math.h>
 #include <astro/io/format.h>
@@ -69,7 +71,7 @@ try
 	string priorfile = opts["prior"];
 	if(priorfile.size())
 	{
-		if(!Filename(priorfile).exists())
+		if(!file_exists(priorfile))
 		{
 			cerr << priorfile << " does not exist. Aborting.\n";
 			exit(-1);

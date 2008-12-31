@@ -9,6 +9,7 @@ AM_PROG_LIBTOOL
 
 AC_CHECK_LIB(m,main)
 AC_CHECK_LIB(z,main)
+AC_CHECK_LIB(dl,main)
 
 AC_CHECK_LIB(pthread,main)
 
@@ -73,7 +74,8 @@ fi
 
 
 LIBS="$LIBS $BOOST_LIBS"
+CPPFLAGS="-DDATADIR=\"\\\"\$(pkgdatadir)\\\"\" $CPPFLAGS"
 
-AC_OUTPUT(Makefile src/Makefile src/common/Makefile src/gpc/Makefile)
+AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile)
 
 # -L/usr/local/nag/cllux07ddl -lnurbsf -lmatrix -lmatrixN -lmatrixI -lGL -lGLU -llapack -lg2c -lnagc

@@ -95,6 +95,7 @@ typedef struct                      /* Tristrip set structure            */
 ===========================================================================
 */
 
+#ifdef MJURIC_IMPORT_GPC_IO
 void gpc_read_polygon        (FILE            *infile_ptr, 
                               int              read_hole_flags,
                               gpc_polygon     *polygon);
@@ -102,6 +103,7 @@ void gpc_read_polygon        (FILE            *infile_ptr,
 void gpc_write_polygon       (FILE            *outfile_ptr,
                               int              write_hole_flags,
                               gpc_polygon     *polygon);
+#endif
 
 void gpc_add_contour         (gpc_polygon     *polygon,
                               gpc_vertex_list *contour,

@@ -290,10 +290,10 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 		struct factory_t	// singleton used to initialize arrays
 		{
-			std::map<size_t *,    tagdef*> alltagsi;// index variables->tagdef map
-			std::map<int,         tagdef*> tagdefs;	// index->tagdef map
-			std::map<std::string, tagdef*> alltags;	// index name->tagdef map
-			std::vector<tagdef *> streamTags;		// list of tags to be unserialized
+			std::map<size_t *,    tagdef*> alltagsi;// index variables -> tagdef map
+			std::map<int,         tagdef*> tagdefs;	// pointer offset  -> tagdef map
+			std::map<std::string, tagdef*> alltags;	// tag name        -> tagdef map
+			std::vector<tagdef *> streamTags;	// list of tags to be unserialized
 			size_t nextIndex;
 			size_t tagSize;
 
@@ -408,6 +408,11 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 			size_t ivars[100]; // index variables
 
+			// some special (shared) ivars
+			static const size_t IVAR_COLOR = 6;	// index variable with "color" information
+			static const size_t IVAR_MAG = 7;	// index variable with magnitude information
+			static const size_t IVAR_ABSMAG = 11;	// index variable with absolute magnitude information
+
 			factory_t()
 				: nextIndex(0), tagSize(-1)
 			{
@@ -418,11 +423,21 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineTag<boost::array<float, 3> >("XYZ[3]", ivars[3]);
 				defineTag<std::string>("star_name", ivars[4]);
 				defineTag<boost::array<double, 2> >("lonlat[2]", ivars[5]);
-				defineTag<float>("color", ivars[6]);
-				defineTag<float>("mag", ivars[7]);
+
+				// colors
+				defineTag<float>("color", ivars[IVAR_COLOR]);	// generic
+				defineTag<float>("sdss_Mr", ivars[IVAR_COLOR]);	// absolute magnitude
+
+				// apparent magnitudes
+				defineTag<float>("mag", ivars[IVAR_MAG]);	// generic
+				defineTag<float>("sdss_r", ivars[IVAR_MAG]);	// SDSS R band
+
 				defineTag<boost::array<float, 5> >("ugriz[5]", ivars[8]);
 				defineTag<float>("FeH", ivars[9]);
 				defineTag<boost::array<float, 3> >("vPhivRvZ[3]", ivars[10]);
+
+				// absolute magnitude in IVAR_MAG band
+				defineTag<float>("absmag", ivars[IVAR_ABSMAG]); // absolute magnitude
 			}
 			~factory_t()
 			{
@@ -437,8 +452,11 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		float *XYZ()		{ return get<float[3]>(factory.ivars[3]); }
 		std::string &starname()	{ return get<std::string>(factory.ivars[4]); }
 		std::pair<double, double> &lonlat() { return get<std::pair<double,double> >(factory.ivars[5]); }
-		float &color()		{ return get<float>(factory.ivars[6]); }
-		float &mag()		{ return get<float>(factory.ivars[7]); }
+		float &color()		{ return get<float>(factory.ivars[factory_t::IVAR_COLOR]); }
+//		float &sdss_Mr()	{ return get<float>(factory.ivars[factory_t::IVAR_COLOR]); }
+		float &mag()		{ return get<float>(factory.ivars[factory_t::IVAR_MAG]); }
+		float &sdss_r()		{ return get<float>(factory.ivars[factory_t::IVAR_MAG]); }
+		float &absmag()		{ return get<float>(factory.ivars[factory_t::IVAR_ABSMAG]); }
 		float *sdss_mag()	{ return get<float[5]>(factory.ivars[8]); }
 		float &FeH()		{ return get<float>(factory.ivars[9]); }
 		float *vPhivRvZ()	{ return get<float[3]>(factory.ivars[10]); }
@@ -578,19 +596,35 @@ inline ISTREAM(sstruct::factory_t &ss) { return ss.unserialize(in); }
 
 class galactic_model
 {
+protected:
+	std::string m_band;	// apparent/absolute magnitude band (e.g., "sdss_r")
+	std::string m_color;	// the name of the color in ri -- note: the "color" here can be the absolute magnitude
+
+	plx_gri_locus_ng paralax;	// polynomial converting between the "color" and the absolute magnitude
+	bool paralax_loaded;		// whether polynomial coefficients were loaded
+public:
+	const std::string &band() const { return m_band; }
+	const std::string &color() const { return m_color; }
+
 public:
 	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng) { return false; }
 	virtual bool setup_tags(sstruct::factory_t &factory) { return false; }
+
 public:
-	virtual double absmag(double ri) = 0;
+	virtual double absmag(double ri) { ASSERT(paralax_loaded); return paralax.Mr(ri); }
 	virtual double rho(double x, double y, double z, double ri) = 0;
 
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);	// needed for serialization
-	galactic_model() {};				// needed for serialization
-	galactic_model(peyton::system::Config &cfg);	// needed for automatic loading
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;	// needed for serialization
+	virtual const std::string &name() const = 0;
 
+public:
 	static galactic_model *load(std::istream &cfg);
 	static galactic_model *unserialize(peyton::io::ibstream &in);
+
+protected:
+	galactic_model() : paralax_loaded(false) {};
+	galactic_model(peyton::system::Config &cfg);				// config file load constructor
+	galactic_model(peyton::io::ibstream &in);				// unserialization constructor
 };
 
 class BahcallSoneira_model : public galactic_model
@@ -606,13 +640,16 @@ public:
 
 	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
 	virtual bool setup_tags(sstruct::factory_t &factory);
+
+	virtual const std::string &name() const { static std::string s = "BahcallSoneira"; return s; }
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);
+	BahcallSoneira_model(peyton::io::ibstream &in);
 
-	virtual double absmag(double ri);
+//	virtual double absmag(double ri);
 	virtual double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
 protected:
 	void load(peyton::system::Config &cfg);
 	void load_luminosity_function(std::istream &in, std::pair<double, double> rho0_ri);
@@ -625,10 +662,13 @@ public:
 public:
 	ToyHomogeneous_model(double rho0_ = 1.) : rho0(rho0_) {}
 	ToyHomogeneous_model(peyton::system::Config &cfg);
+	ToyHomogeneous_model(peyton::io::ibstream &in);
+
+	virtual const std::string &name() const { static std::string s = "ToyHomogeneous"; return s; }
 public:
-	virtual double absmag(double ri);
+//	virtual double absmag(double ri);
 	virtual double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
 };
 
 // geocentric powerlaw model with a constant paralax relation
@@ -640,12 +680,16 @@ public:
 public:
 	ToyGeocentricPowerLaw_model(double rho0_ = 1., double n_ = -3.) : rho0(rho0_), n(n_) {}
 	ToyGeocentricPowerLaw_model(peyton::system::Config &cfg);
+	ToyGeocentricPowerLaw_model(peyton::io::ibstream &in);
+
+	virtual const std::string &name() const { static std::string s = "ToyGeocentricPowerLaw"; return s; }
 public:
-	double absmag(double ri);
+//	double absmag(double ri);
 	double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out);
+	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
 };
 
+#if 0
 // geocentric powerlaw model with a polynomial Mr(ri) paralax relation
 // reads its parameters from a config file, as keywords with prefix 'Mr_'
 // for Mr_coef, and keywords rho0 and alpha for the powerlaw params.
@@ -659,5 +703,5 @@ public:
 	double rho(double x, double y, double z, double ri);
 	double absmag(double ri);
 };
-
+#endif
 #endif

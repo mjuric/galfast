@@ -7,6 +7,7 @@
 #include <gsl/gsl_interp.h>
 #include <gsl/gsl_spline.h>
 
+#include <astro/io/binarystream.h>
 #include <astro/types.h>
 #include <astro/math.h>
 #include <astro/constants.h>
@@ -157,7 +158,7 @@ protected:
 
 public:
 	bool paralaxModified() const { return plx_modified; }
-	void setParalaxCoefficients(const std::vector<double> &Mcoef) { Mrc = Mcoef; plx_modified = true; }
+	void setParalaxCoefficients(const std::vector<double> &Mcoef);
 	const std::vector<double> &getParalaxCoefficients() { return Mrc; }
 	
 	plx_gri_locus_ng();
@@ -242,8 +243,21 @@ public:
 		}
 		return RI;
 	}
+
+	// serialization operators
+/*	peyton::io::obstream& operator<<(peyton::io:obstream &out) const { return out << Mrc << plx_modified; }
+	peyton::io::ibstream& operator>>(peyton::io:obstream &in)        { return  in >> Mrc >> plx_modified; }*/
+	friend inline BOSTREAM2(const plx_gri_locus_ng &plx) { return out << plx.Mrc << plx.plx_modified; }
+	friend inline BISTREAM2(plx_gri_locus_ng &plx) { return in >> plx.Mrc >> plx.plx_modified; }
+/*	friend inline BOSTREAM2(const plx_gri_locus_ng &plx);
+	friend inline BISTREAM2(plx_gri_locus_ng &plx);*/
 };
 
+// inline BOSTREAM2(const plx_gri_locus_ng &plx) { return out << plx.Mrc << plx.plx_modified; }
+// inline BISTREAM2(plx_gri_locus_ng &plx) { return in >> plx.Mrc >> plx.plx_modified; }
+
+#ifndef COMPILING_SIMULATE
 extern plx_gri_locus_ng paralax;
+#endif
 
 #endif

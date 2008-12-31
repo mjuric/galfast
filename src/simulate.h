@@ -100,29 +100,27 @@ public:
 	};
 
 public: // serialized object state
-	std::string pdfname;	// name of this model realization
+	double ri0, ri1;	// color limits -- NOTE: this should be converted to absolute magnitude
+	double dri;		// color resolution -- NOTE: this should be converted to absolute magnitude
+	double m0, m1;		// apparent magnitude limits
+	double dm;		// apparent magnitude resolution
 
-	double dri;		// model CMD resolution
-	double ri0, ri1;	// color limits
-	double m0, m1;		// magnitude limits
-	double dm;		// model CMD magnitude resolution
-
-	peyton::math::lambert proj;	// lambert projector object (by default, centered at north pole)
+	peyton::math::lambert proj;	// lambert projector object (loaded from .xgpc.txt file)
 	partitioned_skymap skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
 
 	XPDF xpdf; 			// marginal cumulative probability distribution function
 	double N; 			// Grand total - number of stars in the whole field
 
 protected: // temporary internal object state (NOT serialized)
-	std::string footprint;			// '*.gpc.txt' filename of polygonal sky footprint
 	std::auto_ptr<galactic_model> model;	// model from which to generate this PDF
+	std::string pdfname;	// name of this model realization (usually the .conf or .pdf.bin filename)
 
 public:
-	model_pdf();
-	model_pdf(std::istream &in);
+	model_pdf(const std::string &pdfname = "UNNAMED");
+	model_pdf(std::istream &in, const std::string &pdfname = "UNNAMED");
 
 	// PDF generation functions
-	void precalculate_mpdf();
+	void construct_mpdf(const std::string &footfn, const std::string &modelfn);
 	void magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri);
 	peyton::io::obstream &serialize(peyton::io::obstream &out) const;
 
@@ -162,7 +160,7 @@ protected:
 	static const int APPLY_PHOTO_ERRORS		= 0x00000001;
 #endif
 public:
-	sky_generator(std::istream &in);
+	sky_generator(std::istream &in, const std::string &pdfs);
 
 	void add_pdf(boost::shared_ptr<model_pdf> &pdf);
 	void add_pdf(model_pdf &pdf);
@@ -173,7 +171,7 @@ public:
 protected:
 	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
 	//void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
-	void observe2(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf);
+	void draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf);
 	void draw_companion(float &gb, float &rb, float &ib, peyton::Radians l, peyton::Radians b, double dm /*distance modulus*/);
 };
 

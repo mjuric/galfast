@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "config.h"
+#define COMPILING_SIMULATE
 
 #include <astro/io/binarystream.h>
 #include <astro/math/vector.h>
@@ -215,6 +216,7 @@ double seconds()
 	return double(tv.tv_sec) + double(tv.tv_usec)/1e6;
 }
 
+#if 0
 void testIntersection(const std::string &prefix)
 {
 	lambert proj(rad(90), rad(90));
@@ -283,6 +285,7 @@ void testIntersection(const std::string &prefix)
 	cerr << "time: " << seconds() - begin << "\n";
 	gpc_free_polygon(&allsky);
 }
+#endif
 
 gpc_polygon make_circle(double x0, double y0, double r, double dx)
 {
@@ -342,6 +345,7 @@ gpc_tristrip triangulatePoly(gpc_polygon sky)
 	return tri;
 }
 
+#if 0
 gpc_polygon loadSky(const std::string &prefix)
 {
 	gpc_polygon sky;
@@ -351,6 +355,7 @@ gpc_polygon loadSky(const std::string &prefix)
 
 	return sky;
 }
+#endif
 
 void sm_write(const std::string &fn, const gpc_polygon &p)
 {
@@ -384,20 +389,20 @@ gpc_polygon make_polygon(const std::vector<double> &x, const std::vector<double>
 	return p;
 }
 
-void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
+void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians rhole, const lambert &proj, bool smOutput)
 {
 	Radians dx = rad(.1); /* polygon sampling resolution in radians */
 
 	double x, y;
-	std::cerr << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole) <<  ".\n";
+	MLOG(verb1) << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole);
 
 	std::vector<double> lx, ly, hx, hy;
 	Radians dphi = dx / r;
 	lambert bproj(l, b);
-	cerr << r << " -> ";
+	Radians rprev(r);
 	lambert pproj(rad(0), rad(90));
 	pproj.convert(ctn::pi, ctn::pi/2. - r, x, y); r = y;
-	cerr << r << " " << x << " " << y << "\n";
+	DLOG(verb1) << rprev << " " << r << " " << x << " " << y;
 	if(rhole) {
 		cerr << rhole << " -> ";
 		pproj.convert(ctn::pi, ctn::pi/2. - rhole, x, y); rhole = y;
@@ -434,14 +439,20 @@ void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians r
 
 	int nvert = 0;
 	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
-	cerr << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
-	     << sky.num_contours << " contours, " << nvert << " vertices]\n";
+	MLOG(verb1) << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
+	     << sky.num_contours << " contours, " << nvert << " vertices]";
 
 	// store the footprint polygon
-	sm_write(output + ".foot.txt", sky);
-	FILE *ofp = fopen(output.c_str(), "w");
-	gpc_write_polygon(ofp, 1, &sky);
-	fclose(ofp);
+	if(smOutput)
+	{
+		sm_write(output, sky);
+		MLOG(verb1) << "Output stored in SM-readable format in " << output << " file.";
+	}
+	else
+	{
+		xgpc_write(output, sky, proj);
+		MLOG(verb1) << "Output stored in .xgpc format in " << output << " file.";
+	}
 
 	// free memory
 	gpc_free_polygon(&sky);
@@ -495,9 +506,10 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 
 	// store the footprint polygon
 	sm_write(output + ".foot.txt", sky);
-	FILE *ofp = fopen(output.c_str(), "w");
-	gpc_write_polygon(ofp, 1, &sky);
-	fclose(ofp);
+	xgpc_write(output, sky, proj);
+//	FILE *ofp = fopen(output.c_str(), "w");
+//	gpc_write_polygon(ofp, 1, &sky);
+//	fclose(ofp);
 
 	// free memory
 	gpc_free_polygon(&sky);
@@ -506,8 +518,10 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 
 #ifdef COMPILE_SIMULATE_X
 
+#define CFG_THROW(str) THROW(EAny, str)
+
 #include "simulate.h"
-void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
+//void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
 void test_tags();
@@ -525,7 +539,7 @@ try
 	opts.argument("cmd").bind(cmd).desc(
 		"What to make. Can be one of:\n"
 		"  footprint - \tcalculate footprint of a set of runs on the sky\n"
-		"    pskymap - \tconstruct a partitioned sky map given a set of runs on the sky\n"
+//		"    pskymap - \tconstruct a partitioned sky map given a set of runs on the sky\n"
 		"       beam - \tcalculate footprint of a single conical beam\n"
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
@@ -537,11 +551,13 @@ try
 	opts.add_standard_options();
 
 	Radians dx = 4.;
+#if 0
 	sopts["pskymap"].reset(new Options(argv0 + " pskymap", progdesc + " Partitioned sky map generation subcommand.", version, Authorship::majuric));
 	sopts["pskymap"]->argument("footprint").bind(input).desc("Footprint polygon file (input)");
 	sopts["pskymap"]->argument("output").bind(output).desc("Partitioned sky map file (output)");
 	sopts["pskymap"]->argument("dx").bind(dx).optional().desc("Partitioned map linear pixel size (degrees)");
 	sopts["pskymap"]->add_standard_options();
+#endif
 
 	sopts["footprint"].reset(new Options(argv0 + " footprint", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));
 	sopts["footprint"]->argument("conf").bind(input).desc("Footprint configuration file");
@@ -550,14 +566,18 @@ try
 		"Output filename is read from $footprint confvar.";
 	sopts["footprint"]->add_standard_options();
 
+	bool smOutput = false;
 	sopts["beam"].reset(new Options(argv0 + " beam", progdesc + " Conical beam footprint polygon generation subcommand.", version, Authorship::majuric));
 	sopts["beam"]->argument("conf").bind(input).desc("Footprint configuration file (input)");
-	sopts["beam"]->prolog = "The direction and width of the beam are read from $footprint_beam confvar.\n"
-		"The output is stored into file $footprint.";
+	sopts["beam"]->argument("output").bind(output).desc(".xgpc.txt footprint output file (output)");
+	sopts["beam"]->option("s").bind(smOutput).addname("sm_out").value("true").desc("Generate SM-readable output instead of .xgpc format");
 	sopts["beam"]->add_standard_options();
 
+	std::string footfn, modelfn;
 	sopts["pdf"].reset(new Options(argv0 + " pdf", progdesc + " Cumulative probability density function (CPDF) generation subcommand.", version, Authorship::majuric));
 	sopts["pdf"]->argument("conf").bind(input).desc("CPDF (\"sky\") configuration file (input)");
+	sopts["pdf"]->argument("footprint").bind(footfn).desc(".xgpc.txt footprint file (input) ");
+	sopts["pdf"]->argument("model").bind(modelfn).desc("model.XXX.conf model configuration file (input) ");
 	sopts["pdf"]->argument("output").bind(output).desc("CPDF file (output) ");
 	sopts["pdf"]->add_standard_options();
 
@@ -569,6 +589,7 @@ try
 	bool simpleOutput = false;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
 	sopts["catalog"]->argument("conf").bind(input).desc("Catalog (\"sim\") configuration file (input)");
+	sopts["catalog"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
 	sopts["catalog"]->argument("output").bind(output).desc("Generated catalog prefix (output)");
 	sopts["catalog"]->option("s").bind(simpleOutput).addname("simple").value("true").desc("Generate simple .txt output");
 	sopts["catalog"]->prolog = 
@@ -601,7 +622,7 @@ try
 	}
 
 	/////// Start your application code here
-
+#if 0
 	if(cmd == "pskymap")
 	{
 		partitioned_skymap sky;
@@ -612,28 +633,31 @@ try
 
 		return 0;
 	}
-	else if(cmd == "pdfinfo")
+	else
+#endif
+	if(cmd == "pdfinfo")
 	{
 		// ./simulate.x pdfinfo sky.bin.pdf
 		pdfinfo(cout, pdffile);
 		return 0;
 	}
 
-	std::cerr << "cmd=" << cmd << "\n";
-	ifstream in(input.c_str()); ASSERT(in);
+//	std::cerr << "cmd=" << cmd << "\n";
+	ifstream in(input.c_str());
+	if(!in) { THROW(EFile, "Error accessing " + input + "."); }
 	if(cmd == "footprint")
 	{
 		Config cfg; cfg.load(in);
 
 		// load run list
-		ASSERT(cfg.count("footprint_runs"));
+		if(!cfg.count("footprint_runs")) { CFG_THROW("Configuration key footprint_runs must be set"); }
 		std::string runsFn = cfg["footprint_runs"];
 		text_input_or_die(in, runsFn);
 		std::set<int> runs;
 		load(in, runs, 0);
 
 		// output filename
-		ASSERT(cfg.count("footprint"));
+		if(!cfg.count("footprint")) { CFG_THROW("Configuration key footprint_runs must be set"); }
 		output = cfg["footprint"];
 
 		// projection
@@ -654,10 +678,6 @@ try
 	{
 		Config cfg; cfg.load(in);
 
-		// output filename
-		ASSERT(cfg.count("footprint"));
-		output = cfg["footprint"];
-
 		// projection
 		std::string pole; double l0, b0;
 		cfg.get(pole,	"projection",	std::string("90 90"));
@@ -667,28 +687,30 @@ try
 
 		// beam direction and radius
 		double l, b, r, rhole = 0;
-		ASSERT(cfg.count("footprint_beam"));
+		if(!cfg.count("footprint_beam")) { CFG_THROW("Configuration key footprint_beam must be set"); }
 		std::istringstream ss2(cfg["footprint_beam"]);
 		ss2 >> l >> b >> r >> rhole;
 
-		std::cerr << "Projection pole (l, b) = " << l0 << " " << b0 << "\n";
-		std::cerr << "Radius, hole radius    = " << r << " " << rhole << "\n";
-		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj);
+		MLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
+		DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
+		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj, smOutput);
 
 		return 0;
 	}
 	if(cmd == "pdf")
 	{
 		// ./simulate.x pdf north.conf north.pdf.bin
-		model_pdf pdf(in);
-		std::ofstream oout(output.c_str()); ASSERT(oout);
+		model_pdf pdf(in, input);
+		std::ofstream oout(output.c_str());
+		if(!oout) { THROW(EFile, "Cannot access " + output + " for output."); }
 
-		pdf.precalculate_mpdf();
+		pdf.construct_mpdf(footfn, modelfn);
 
 		io::obstream out(oout);
 		out << pdf;
 
-		std::cout << io::binary::manifest << "\n";
+		DLOG(verb2) << io::binary::manifest;
+//		peyton::system::print_trace();
 	}
 	else if(cmd == "catalog")
 	{
@@ -697,7 +719,7 @@ try
 		gsl_set_error_handler_off();
 	
 		// ./simulate.x catalog sim.conf dmmwriter.conf
-		sky_generator skygen(in);
+		sky_generator skygen(in, pdffile);
 
 		if(!simpleOutput)
 		{
@@ -707,7 +729,7 @@ try
 		}
 		else
 		{
-			std::cerr << "Simple text file output.\n";
+			MLOG(verb1) << "Simple text file output to " << output << ".";
 			std::ofstream out(output.c_str());
 			star_output_to_textstream cat_out(out);
 			skygen.montecarlo(cat_out);
@@ -721,17 +743,17 @@ try
 
 		// ./simulate.x observe observe.conf file.in.txt file.out.txt
 		observe_catalog(input, catalog, output);
-//		xxxxxxx
 	}
 	else
 	{
-		ASSERT(0);
+		THROW(ENotImplemented, "Should not get to here. I'm really confused and aborting.");
 	}
 	return 0;
 }
 catch(EAny &e)
 {
 	e.print();
+	return -1;
 }
 }
 #else

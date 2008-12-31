@@ -32,6 +32,7 @@ extern "C"
 
 #include <astro/io/binarystream.h>
 #include <astro/math.h>
+#include "projections.h"
 
 BLESS_POD(gpc_vertex);
 
@@ -63,5 +64,8 @@ BISTREAM2(partitioned_skymap::pixel_t &m);
 
 BOSTREAM2(const partitioned_skymap &m);
 BISTREAM2(partitioned_skymap &m);
+
+void xgpc_write(const std::string &fn, const gpc_polygon &sky, const peyton::math::lambert &proj);
+gpc_polygon xgpc_read(const std::string &fn, peyton::math::lambert &proj, bool *hadProjection = NULL);
 
 #endif

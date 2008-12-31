@@ -20,8 +20,14 @@
 
 #include "config.h"
 
+#define MJURIC_IMPORT_GPC_IO
+
 #include "gpc_cpp.h"
+#include "projections.h"
 #include <cmath>
+
+#include <astro/exceptions.h>
+#include <astro/useall.h>
 
 using namespace std;
 
@@ -157,4 +163,56 @@ BOSTREAM2(const partitioned_skymap::pixel_t &m)
 BISTREAM2(partitioned_skymap::pixel_t &m)
 {
 	return in >> m.poly >> m.area;
+}
+
+// ASCII file serialization with projection information
+void xgpc_write(const std::string &fn, const gpc_polygon &sky, const peyton::math::lambert &proj)
+{
+	FILE *ofp = fopen(fn.c_str(), "w");
+	fprintf(ofp, "# lambert %.8f %.8f\n", deg(proj.l0), deg(proj.phi1));
+
+	gpc_write_polygon(ofp, 1, const_cast<gpc_polygon*>(&sky));
+
+	fclose(ofp);
+}
+
+gpc_polygon xgpc_read(const std::string &fn, peyton::math::lambert &proj, bool *hadProjection)
+{
+	FILE *fp = fopen(fn.c_str(), "r");
+	if(fp == NULL) { THROW(EIOException, "Could not open footprint file [" + fn + "]"); }
+
+	// check for projection information embedded in a first line comment
+	char c = getc(fp);
+	bool hp;
+	if(c != '#')
+	{
+		ungetc(c, fp);
+		hp = false;
+	}
+	else
+	{
+		double l0, b0;
+		if(fscanf(fp, " lambert %lf %lf", &l0, &b0) == 2)
+		{
+			proj = peyton::math::lambert(rad(l0), rad(b0));
+			hp = true;
+		}
+		else
+		{
+			hp = false;
+		}
+	}
+
+	if(hadProjection)
+		*hadProjection = hp;
+	else if(!hp) {
+		fclose(fp);
+		THROW(EAny, "The .xgpc file " + fn + "had no projection information. File corrupted?");
+	}
+
+	gpc_polygon sky;
+	gpc_read_polygon(fp, 1, &sky);
+
+	fclose(fp);
+	return sky;
 }

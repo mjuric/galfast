@@ -34,12 +34,15 @@ namespace math {
 	
 	class lambert
 	{
+	public:
 		Radians l0, phi1, cosphi1, sinphi1;
 	
 	public:
 		lambert(Radians l0_ = peyton::math::rad(90), Radians phi1_ = peyton::math::rad(90))
 			: phi1(phi1_), cosphi1(cos(phi1_)), sinphi1(sin(phi1_)), l0(l0_)
 		{ }
+
+		friend inline OSTREAM(lambert &proj) { return out << "lambert " << deg(proj.l0) << " " << deg(proj.phi1); }
 
 		template<typename T> // usually, T = Radians (double), but it can also be valarray<double>
 		void convert(const T l, const T phi, T &x, T &y) const

@@ -73,8 +73,9 @@ class opipeline_stage
 		virtual int run(gsl_rng *rng) = 0;
 
 	public:
-		static boost::shared_ptr<opipeline_stage> create(const std::string &name, Config &cfg);
-		virtual const std::string &name() = 0;
+		static boost::shared_ptr<opipeline_stage> create(const std::string &name);
+		virtual const std::string &name() const = 0;
+		virtual const std::string &type() const { static std::string s("stage"); return s; }
 
 	public:
 		virtual bool init(const Config &cfg) = 0;
@@ -142,7 +143,7 @@ class os_FeH : public osink
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
-		virtual const std::string &name() { static std::string s("FeH"); return s; }
+		virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
 		os_FeH() : osink()
 		{
@@ -216,7 +217,7 @@ class os_kin_TMIII : public osink
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
-		virtual const std::string &name() { static std::string s("kin_TMIII"); return s; }
+		virtual const std::string &name() const { static std::string s("kin_TMIII"); return s; }
 
 		os_kin_TMIII() : osink()
 		{
@@ -357,7 +358,7 @@ class os_ugriz : public osink
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
-		virtual const std::string &name() { static std::string s("ugriz"); return s; }
+		virtual const std::string &name() const { static std::string s("ugriz"); return s; }
 
 		os_ugriz() : osink()
 		{
@@ -518,7 +519,8 @@ class os_textout : public osink
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
 		virtual int priority() { return 1000000; }	// ensure this stage has the least priority
-		virtual const std::string &name() { static std::string s("textout"); return s; }
+		virtual const std::string &name() const { static std::string s("textout"); return s; }
+		virtual const std::string &type() const { static std::string s("output"); return s; }
 
 		os_textout() : osink(), headerWritten(false), tick(-1)
 		{
@@ -574,7 +576,8 @@ class os_textin : public osource
 	public:
 		virtual bool init(const Config &cfg);
 		virtual int run(gsl_rng *rng);
-		virtual const std::string &name() { static std::string s("textin"); return s; }
+		virtual const std::string &name() const { static std::string s("textin"); return s; }
+		virtual const std::string &type() const { static std::string s("input"); return s; }
 
 		os_textin() {};
 };
@@ -604,8 +607,7 @@ int os_textin::run(gsl_rng *rng)
 	return total;
 }
 
-boost::shared_ptr<opipeline_stage>
-	opipeline_stage::create(const std::string &name, Config &cfg)
+boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &name)
 {
 	boost::shared_ptr<opipeline_stage> s;
 
@@ -618,8 +620,6 @@ boost::shared_ptr<opipeline_stage>
 
 	ASSERT(name == s->name());
 
-	bool succ = s->init(cfg);
-	if(!succ) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 	return s;
 }
 
@@ -739,9 +739,11 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 		if(moddef.first ==  inmod) { modcfg.insert(make_pair("filename", input)); }	// some special handling for input/output modules
 		if(moddef.first == outmod) { modcfg.insert(make_pair("filename", output)); }
 
-		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(moddef.first, modcfg) );
+		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(moddef.first) );
+		if(!stage.get()) { THROW(EAny, "Module " + moddef.first + " unknown or failed to load."); }
 
-		ASSERT(stage) { std::cerr << "Module " << moddef.first << " unknown or failed to load.\n"; }
+		if(!stage->init(modcfg)) { THROW(EAny, "Failed to initialize output pipeline stage '" + moddef.first + "'"); }
+
 		pipe.add(stage);
 	}
 
@@ -785,5 +787,54 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 					<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
 					<< "\n";
 #endif
+}
+
+
+void observe_catalog2(const std::string &conffn, const std::string &input, const std::string &output, const std::vector<std::string> &modules)
+{
+	Config cfg; cfg.load(conffn);
+
+	int seed;
+	std::string inmod, outmod;
+	cfg.get(seed,	  "seed", 	  42);
+
+	opipeline pipe;
+	std::string name;
+
+	FOREACH(modules)
+	{
+		const std::string &cffn = *i;
+
+		Config modcfg;
+		if(file_exists(cffn))
+		{
+			modcfg.load(cffn);
+			if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
+		}
+		else
+		{
+			modcfg.insert(make_pair("module", cffn));
+		}
+		name = modcfg["module"];
+
+		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
+		if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
+
+		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
+		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
+
+		if(!stage->init(modcfg)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		MLOG(verb2) << "Loaded " << name << " type=" << stage->type();
+
+		pipe.add(stage);
+	}
+
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(rng, seed);
+
+	int nstars = pipe.run(rng);
+	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
+
+	gsl_rng_free(rng);
 }
 #endif

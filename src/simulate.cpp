@@ -539,7 +539,6 @@ try
 	opts.argument("cmd").bind(cmd).desc(
 		"What to make. Can be one of:\n"
 		"  footprint - \tcalculate footprint of a set of runs on the sky\n"
-//		"    pskymap - \tconstruct a partitioned sky map given a set of runs on the sky\n"
 		"       beam - \tcalculate footprint of a single conical beam\n"
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
@@ -597,11 +596,15 @@ try
 		"If -s is specified, simple textual output is stored to file $(output).";
 	sopts["catalog"]->add_standard_options();
 
-	std::string catalog;
+	std::string catalog, in_module = "textin", out_module = "textout";
+	std::vector<std::string> modules;
 	sopts["observe"].reset(new Options(argv0 + " observe", progdesc + " Apply observational errors.", version, Authorship::majuric));
 	sopts["observe"]->argument("conf").bind(input).desc("Observation (\"observe\") configuration file");
 	sopts["observe"]->argument("input").bind(catalog).desc("Input catalog file");
 	sopts["observe"]->argument("output").bind(output).desc("Output catalog file");
+	sopts["observe"]->argument("modules").bind(modules).gobble().desc("List of output module configuration files");
+	sopts["observe"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
+	sopts["observe"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");
 	sopts["observe"]->add_standard_options();
 
 	//
@@ -741,8 +744,11 @@ try
 		// may barf
 		gsl_set_error_handler_off();
 
-		// ./simulate.x observe observe.conf file.in.txt file.out.txt
-		observe_catalog(input, catalog, output);
+		// ./simulate.x observe observe.conf file.in.txt file.out.txt <module1 [module2]....>
+		//observe_catalog(input, catalog, output);
+		modules.push_back(in_module);
+		modules.push_back(out_module);
+		observe_catalog2(input, catalog, output, modules);
 	}
 	else
 	{

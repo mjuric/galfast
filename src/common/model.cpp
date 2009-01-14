@@ -518,6 +518,10 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 		input_or_die(in, cfg["lumfunc"]);
 		load_luminosity_function(in, rho0_ri);
 	}
+
+	// cutoff radius (default: 100kpc)
+	cfg.get(r_cut2,  "rcut",   1e5);
+	r_cut2 *= r_cut2;
 }
 
 // BahcallSoneira_model::BahcallSoneira_model()
@@ -571,12 +575,27 @@ bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, do
 
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
-	if(x*x + y*y + z*z > 1e10) { return 0; }
-
 	double r = sqrt(x*x + y*y);
 	double norm = lf.empty() ? 1. : lf(ri);
 //	norm = 1.;
-	return norm * m.rho(r, z, 0);
+	double rho = norm * m.rho(r, z, 0);
+
+#if 1
+	// Galactocentric cutoff: model it as a smooth transition, so that the integrator driver doesn't barf
+	// The exponential is an analytic approximation of a step function
+	double rc = (x*x + y*y + z*z) / r_cut2 - 1;
+
+	double f;
+	     if(rc < -0.01) { f = 1.; }
+	else if(rc > 0.01)  { f = 0.; }
+	else                { f = 1. / (1. + exp(1000 * rc)); };
+
+	rho = rho * f;
+#else
+	// simple cutoff
+	if(x*x + y*y + z*z > r_cut2) { return 0; }
+#endif
+	return rho;
 }
 
 void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<double, double> rho0_ri)
@@ -614,14 +633,14 @@ BLESS_POD(disk_model);
 peyton::io::obstream& BahcallSoneira_model::serialize(peyton::io::obstream& out) const
 {
 	galactic_model::serialize(out);
-	out << m << lf;
+	out << m << lf << r_cut2;
 
 	return out;
 }
 BahcallSoneira_model::BahcallSoneira_model(peyton::io::ibstream &in)
 	: galactic_model(in)
 {
-	in >> m >> lf;
+	in >> m >> lf >> r_cut2;
 	ASSERT(in);
 }
 

@@ -636,6 +636,7 @@ public:
 
 	spline lf;		/// dimensionless local luminosity function
 
+	double r_cut2;		/// Galactocentric radius squared of density cutoff (rho beyond r_cut is 0)
 public:
 	static const int THIN = 0, THICK = 1, HALO = 2;
 

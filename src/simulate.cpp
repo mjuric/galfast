@@ -389,6 +389,27 @@ gpc_polygon make_polygon(const std::vector<double> &x, const std::vector<double>
 	return p;
 }
 
+void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const lambert &proj, bool smOutput)
+{
+	int nvert = 0;
+	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
+	MLOG(verb1) << "Statistics: " << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
+			<< sky.num_contours << " contours, " << nvert << " vertices";
+
+	// store the footprint polygon
+	if(smOutput)
+	{
+		sm_write(output, sky);
+		MLOG(verb1) << "Output stored in SM-readable format in " << output << " file.";
+	}
+	else
+	{
+		xgpc_write(output, sky, proj);
+		MLOG(verb1) << "Output stored in .xgpc format in " << output << " file.";
+	}
+
+}
+
 void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians rhole, const lambert &proj, bool smOutput)
 {
 	Radians dx = rad(.1); /* polygon sampling resolution in radians */
@@ -437,22 +458,7 @@ void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians r
 		sky = poly;
 	}
 
-	int nvert = 0;
-	FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
-	MLOG(verb1) << "total [" << polygon_area(sky)*sqr(deg(1)) << "deg2 area, "
-	     << sky.num_contours << " contours, " << nvert << " vertices]";
-
-	// store the footprint polygon
-	if(smOutput)
-	{
-		sm_write(output, sky);
-		MLOG(verb1) << "Output stored in SM-readable format in " << output << " file.";
-	}
-	else
-	{
-		xgpc_write(output, sky, proj);
-		MLOG(verb1) << "Output stored in .xgpc format in " << output << " file.";
-	}
+	writeGPCPolygon(output, sky, proj, smOutput);
 
 	// free memory
 	gpc_free_polygon(&sky);
@@ -521,6 +527,126 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 #define CFG_THROW(str) THROW(EAny, str)
 
 #include "simulate.h"
+
+namespace footprints
+{
+	std::string output;
+	bool smOutput = false;
+
+	int pencilBeam(peyton::system::Config &cfg)
+	{
+		// projection
+		std::string pole; double l0, b0;
+		cfg.get(pole,	"projection",	std::string("90 90"));
+		std::istringstream ss(pole);
+		ss >> l0 >> b0;
+		lambert proj(rad(l0), rad(b0));
+
+		// beam direction and radius
+		double l, b, r, rhole = 0;
+		if(!cfg.count("footprint_beam")) { CFG_THROW("Configuration key footprint_beam must be set"); }
+		std::istringstream ss2(cfg["footprint_beam"]);
+		ss2 >> l >> b >> r >> rhole;
+
+		MLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
+		DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
+		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj, smOutput);
+
+		return 0;
+	}
+
+	int rectangle(peyton::system::Config &cfg)
+	{
+		// coordinate system (default: galactic)
+		std::string coordsys;
+		cfg.get(coordsys, "coordsys", std::string("gal"));
+
+		// transformer from the chosen to galactic coordinate system
+		peyton::coordinates::transform xxx2gal= peyton::coordinates::get_transform(coordsys, "gal");
+		if(xxx2gal == NULL) { THROW(EAny, "Don't know how to convert from coordinate system '" + coordsys + "' to galactic coordinates."); }
+
+		// set up the lambert projection (in galactic coordinates), with the pole being the
+		// pole of the chosen coordinate system
+		Radians lp, bp;
+		xxx2gal(rad(90), rad(90), lp, bp);
+		lambert proj(lp, bp);
+
+		// load rectangle bounds and sampling scale dx
+		std::string rect; double l0, l1, b0, b1;
+		cfg.get(rect, "rect", std::string("0 1 0 1"));
+		std::istringstream ss(rect);
+		ss >> l0 >> l1 >> b0 >> b1;
+		double dx;
+		cfg.get(dx, "dx", .1);
+
+		// Rationalize l
+		l0 = peyton::math::modulo(l0, 360);
+		l1 = peyton::math::modulo(l1, 360);
+		// The complicated if is there to ensure that the common case
+		// of l0=l1=0 (all sky) gets printed out as l0=0, l1=360
+		if(l0 >= l1) { if(l0 == 0) { l1 = 360; } else { l0 -= 360; } }
+
+		MLOG(verb1) << "Projection pole (l, b)               = " << deg(lp) << " " << deg(bp);
+		MLOG(verb1) << "Observed rectangle (l0, l1, b0, b1)  = " << l0 << " " << l1 << " " << b0 << " " << b1;
+		MLOG(verb1) << "Sampling resolution (dx)             = " << dx;
+
+		// South pole causes a divergence in lambert routines
+		if(b0 <= -89.99999999)
+		{
+			b0 = -89.9999;
+			MLOG(verb1) << "Footprint includes the south pole. Setting b0=" << b0 << " to avoid numerical issues.";
+		}
+
+		// Upper/lower edge
+		std::vector<gpc_vertex> vup, vdown;
+		gpc_vertex v;
+		for(double l = l0; true; l += dx)
+		{
+			if(l > l1) { l = l1; }
+
+			//std::cerr << l << " " << l1 << " " << dx << "\n";
+			v.x = rad(l); v.y = rad(b1);
+			xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+			vup.push_back(v);
+
+			v.x = rad(l); v.y = rad(b0);
+			xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+			vdown.push_back(v);
+
+			if(l >= l1) { break; }
+		}
+
+		// Note: There's no reason to sample the sides, as they're going to be
+		// straight lines in lambert projection because of the choice of coordinate
+		// system pole as the projection pole.
+
+		// Put together the rectangle
+		std::vector<gpc_vertex> vv;
+		vv.reserve(vup.size() + vdown.size());
+		//std::cerr << "b1 = " << b1 << "\n";
+		if(b1 <= 89.99999999)
+		{
+			vv.insert(vv.end(), vup.begin(), vup.end());
+		}
+		else
+		{
+			// insert a single vertex for the pole
+			MLOG(verb1) << "Footprint includes the north pole. Reducing upper edge to a single vertex.";
+			vv.push_back((gpc_vertex){0, 0});
+		}
+		vv.insert(vv.end(), vdown.rbegin(), vdown.rend());
+
+		// construct the GPC polygon and write it to file
+		gpc_polygon sky = {0, 0, NULL};
+		gpc_vertex_list c = { vv.size(), &vv[0] };
+		gpc_add_contour(&sky, &c, false);
+		writeGPCPolygon(output, sky, proj, smOutput);
+		gpc_free_polygon(&sky);
+
+		return 0;
+	}
+}
+
 //void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
@@ -538,8 +664,9 @@ try
 	Options opts(argv[0], progdesc, version, Authorship::majuric);
 	opts.argument("cmd").bind(cmd).desc(
 		"What to make. Can be one of:\n"
-		"  footprint - \tcalculate footprint of a set of runs on the sky\n"
-		"       beam - \tcalculate footprint of a single conical beam\n"
+		"       foot - \tcalculate footprint given a config file\n"
+		"  footprint - \tcalculate footprint of a set of runs on the sky (deprecated)\n"
+		"       beam - \tcalculate footprint of a single conical beam (deprecated)\n"
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
@@ -550,13 +677,6 @@ try
 	opts.add_standard_options();
 
 	Radians dx = 4.;
-#if 0
-	sopts["pskymap"].reset(new Options(argv0 + " pskymap", progdesc + " Partitioned sky map generation subcommand.", version, Authorship::majuric));
-	sopts["pskymap"]->argument("footprint").bind(input).desc("Footprint polygon file (input)");
-	sopts["pskymap"]->argument("output").bind(output).desc("Partitioned sky map file (output)");
-	sopts["pskymap"]->argument("dx").bind(dx).optional().desc("Partitioned map linear pixel size (degrees)");
-	sopts["pskymap"]->add_standard_options();
-#endif
 
 	sopts["footprint"].reset(new Options(argv0 + " footprint", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));
 	sopts["footprint"]->argument("conf").bind(input).desc("Footprint configuration file");
@@ -565,11 +685,17 @@ try
 		"Output filename is read from $footprint confvar.";
 	sopts["footprint"]->add_standard_options();
 
-	bool smOutput = false;
+	sopts["foot"].reset(new Options(argv0 + " foot", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));
+	sopts["foot"]->argument("conf").bind(input).desc("Footprint configuration file (input)");
+	sopts["foot"]->argument("output").bind(footprints::output).desc(".xgpc.txt footprint output file (output)");
+	sopts["foot"]->option("s").bind(footprints::smOutput).addname("sm_out").value("true").desc("Generate SM-readable output instead of .xgpc format");
+	sopts["foot"]->add_standard_options();
+
 	sopts["beam"].reset(new Options(argv0 + " beam", progdesc + " Conical beam footprint polygon generation subcommand.", version, Authorship::majuric));
 	sopts["beam"]->argument("conf").bind(input).desc("Footprint configuration file (input)");
-	sopts["beam"]->argument("output").bind(output).desc(".xgpc.txt footprint output file (output)");
-	sopts["beam"]->option("s").bind(smOutput).addname("sm_out").value("true").desc("Generate SM-readable output instead of .xgpc format");
+	sopts["beam"]->argument("output").bind(footprints::output).desc(".xgpc.txt footprint output file (output)");
+	sopts["beam"]->option("s").bind(footprints::smOutput).addname("sm_out").value("true").desc("Generate SM-readable output instead of .xgpc format");
+	sopts["beam"]->prolog = "Deprecated (will be removed in future versions). Use '" + argv0 + " foot' instead";
 	sopts["beam"]->add_standard_options();
 
 	std::string footfn, modelfn;
@@ -602,7 +728,7 @@ try
 	sopts["observe"]->argument("conf").bind(input).desc("Observation (\"observe\") configuration file");
 	sopts["observe"]->argument("input").bind(catalog).desc("Input catalog file");
 	sopts["observe"]->argument("output").bind(output).desc("Output catalog file");
-	sopts["observe"]->argument("modules").bind(modules).gobble().desc("List of output module configuration files");
+	sopts["observe"]->argument("modules").bind(modules).optional().gobble().desc("List of output module configuration files");
 	sopts["observe"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
 	sopts["observe"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");
 	sopts["observe"]->add_standard_options();
@@ -680,25 +806,18 @@ try
 	if(cmd == "beam")
 	{
 		Config cfg; cfg.load(in);
+		return footprints::pencilBeam(cfg);
+	}
+	if(cmd == "foot")
+	{
+		Config cfg; cfg.load(in);
 
-		// projection
-		std::string pole; double l0, b0;
-		cfg.get(pole,	"projection",	std::string("90 90"));
-		std::istringstream ss(pole);
-		ss >> l0 >> b0;
-		lambert proj(rad(l0), rad(b0));
+		if(!cfg.count("type")) { THROW(EAny, "The footprint configuration file must contain the 'type' keyword."); }
 
-		// beam direction and radius
-		double l, b, r, rhole = 0;
-		if(!cfg.count("footprint_beam")) { CFG_THROW("Configuration key footprint_beam must be set"); }
-		std::istringstream ss2(cfg["footprint_beam"]);
-		ss2 >> l >> b >> r >> rhole;
+		if(cfg["type"] == "beam") { return footprints::pencilBeam(cfg); }
+		if(cfg["type"] == "rect") { return footprints::rectangle(cfg); }
 
-		MLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
-		DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
-		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj, smOutput);
-
-		return 0;
+		THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
 	}
 	if(cmd == "pdf")
 	{

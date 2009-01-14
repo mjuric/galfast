@@ -212,14 +212,14 @@ bool os_FeH::init(const Config &cfg)
 
 
 // add kinematic information
-class os_kin_TMIII : public osink
+class os_kinTMIII : public osink
 {
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
-		virtual const std::string &name() const { static std::string s("kin_TMIII"); return s; }
+		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
-		os_kin_TMIII() : osink()
+		os_kinTMIII() : osink()
 		{
 			prov.insert("vPhivRvZ[3]");
 			req.insert("comp");
@@ -304,7 +304,7 @@ void getHaloKinematics(float &vPhi, float &vR, float &vZ, const double Z, gsl_rn
 	vZ = vZmean + gsl_ran_gaussian(rng, sigZ);
 }
 
-size_t os_kin_TMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_kinTMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
@@ -335,7 +335,7 @@ size_t os_kin_TMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	return nextlink->push(in, count, rng);
 }
 
-bool os_kin_TMIII::init(const Config &cfg)
+bool os_kinTMIII::init(const Config &cfg)
 {
 	return true;
 }
@@ -406,8 +406,10 @@ float os_ugriz::grFeH2ug(float gr, float FeH)
 	if(gsl_poly_solve_quadratic(a, b, c, &x0, &x1) == 0)
 	{
 	
-		std::stringstream ss; ss << "Could not find roots for ug given FeH=" << FeH << " and gr=" << gr << "\n";
-		THROW(EAny, ss.str());
+		std::stringstream ss; ss << "Could not find roots for ug given FeH=" << FeH << " and gr=" << gr;
+		MLOG(verb2) << ss.str();
+		x0 = x1 = 1.;
+		//THROW(EAny, ss.str());
 	}
 
 	bool x0q = 0.5 < x0 && x0 < 1.8;
@@ -615,7 +617,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "textout") { s.reset(new os_textout); }
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
-	else if(name == "kin_TMIII") { s.reset(new os_kin_TMIII); }
+	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 
 	ASSERT(name == s->name());
@@ -687,12 +689,14 @@ int opipeline::run(gsl_rng *rng)
 		if(!foundOne)
 		{
 			std::stringstream ss;
+			std::string sep;
 			FOREACH(stages)
 			{
 				opipeline_stage &s = *i->second;
-				ss << s.name() << ", ";
+				ss << sep << s.name();
+				sep = ", ";
 			}
-			THROW(EAny, "Modules " + ss.str() + " depend on fields that no other modules (or input) provide.");
+			THROW(EAny, "Module(s) '" + ss.str() + "' require one or more fields that no other module (or input) provides.");
 		}
 	}
 
@@ -790,7 +794,7 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 }
 
 
-void observe_catalog2(const std::string &conffn, const std::string &input, const std::string &output, const std::vector<std::string> &modules)
+void observe_catalog2(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
 {
 	Config cfg; cfg.load(conffn);
 
@@ -798,8 +802,39 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 	std::string inmod, outmod;
 	cfg.get(seed,	  "seed", 	  42);
 
-	opipeline pipe;
+	// merge-in any modules included from the config file via the 'modules' keyword
+	// modules keyword may either contain the module name (in which case the config
+	// will be read from the current config file's module.<module_name>.XXXX keys)
+	// or a filename with module configuration. (*********DEPRECATED********)
 	std::string name;
+	std::ostringstream msg;
+	if(cfg.count("modules"))
+	{
+		std::istringstream ss(cfg["modules"]);
+		while(ss >> name)
+		{
+			msg << " " << name;
+			modules.push_back(name);
+		}
+	}
+
+	// merge in any modules with module.<module_name>.on = 1. Configuration will be
+	// read from module.<module_name>.XXXX keys
+	std::set<std::string> keys;
+	cfg.get_matching_keys(keys, "module\\.[a-zA-Z0-9_]+$");
+	FOREACH(keys)
+	{
+		const std::string &key = *i;
+		if(!cfg[key].vint()) { continue; } // skip the disabled modules
+		// extract the module name
+		name = key.substr(key.find('.')+1);
+		msg << " " << name;
+		modules.push_back(name);
+	}
+	MLOG(verb2) << "Adding modules from config file:" << msg.str();
+
+	// merge-in modules with options given in the config file
+	opipeline pipe;
 
 	FOREACH(modules)
 	{
@@ -810,12 +845,14 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 		{
 			modcfg.load(cffn);
 			if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
+			name = modcfg["module"];
 		}
 		else
 		{
+			name = cffn;
+			cfg.get_subset(modcfg, "module." + name, true);
 			modcfg.insert(make_pair("module", cffn));
 		}
-		name = modcfg["module"];
 
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }

@@ -427,6 +427,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				// colors
 				defineTag<float>("color", ivars[IVAR_COLOR]);	// generic
 				defineTag<float>("sdss_Mr", ivars[IVAR_COLOR]);	// absolute magnitude
+				defineTag<float>("sdss_ri", ivars[IVAR_COLOR]);	// absolute magnitude
 
 				// apparent magnitudes
 				defineTag<float>("mag", ivars[IVAR_MAG]);	// generic
@@ -607,8 +608,8 @@ public:
 	const std::string &color() const { return m_color; }
 
 public:
-	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng) { return false; }
-	virtual bool setup_tags(sstruct::factory_t &factory) { return false; }
+	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);	// by default, adds comp=0 and XYZ tags
+	virtual bool setup_tags(sstruct::factory_t &factory);	// by default, sets up comp and XYZ[3] tags
 
 public:
 	virtual double absmag(double ri) { ASSERT(paralax_loaded); return paralax.Mr(ri); }
@@ -639,8 +640,6 @@ public:
 	static const int THIN = 0, THICK = 1, HALO = 2;
 
 	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
-	virtual bool setup_tags(sstruct::factory_t &factory);
-
 	virtual const std::string &name() const { static std::string s = "BahcallSoneira"; return s; }
 public:
 	BahcallSoneira_model();

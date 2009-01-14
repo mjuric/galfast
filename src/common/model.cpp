@@ -403,6 +403,7 @@ double ToyGeocentricPowerLaw_model::rho(double x, double y, double z, double ri)
 // }
 
 ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::system::Config &cfg)
+	: galactic_model(cfg)
 {
 	cfg.get(rho0,  "rho0",  rho0);
 	cfg.get(n, "n", n);
@@ -543,15 +544,10 @@ BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
 sstruct::factory_t sstruct::factory;
 std::map<sstruct *, char *> sstruct::owner;
 
-bool BahcallSoneira_model::setup_tags(sstruct::factory_t &factory)
-{
-	factory.useTag("comp");
-	factory.useTag("XYZ[3]");
-	return true;
-}
-
 bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng)
 {
+	galactic_model::draw_tag(t, x, y, z, ri, rng);
+
 	double r = sqrt(x*x + y*y);
 
 	double thin = m.rho_thin(r, z, 0);
@@ -567,7 +563,7 @@ bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, do
 	else if(u < pthick) { t.component() = THICK; }
 	else { t.component() = HALO; }
 
-	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
+//	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
 //	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
 
 	return true;
@@ -692,10 +688,25 @@ galactic_model::galactic_model(peyton::system::Config &cfg)
 	cfg.get(m_color, "color", "color");
 
 	// load paralax coefficients, if there are any
-	if(cfg.count("col2absmag_poly"))
+	if(cfg.count("col2absmag.poly"))
 	{
-		std::vector<double> coeff = cfg["col2absmag_poly"];
+		std::vector<double> coeff = cfg["col2absmag.poly"];
 		paralax.setParalaxCoefficients(coeff);
 		paralax_loaded = true;
 	}
+}
+
+bool galactic_model::setup_tags(sstruct::factory_t &factory)
+{
+	factory.useTag("comp");
+	factory.useTag("XYZ[3]");
+	return true;
+}
+
+bool galactic_model::draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng)
+{
+	t.component() = 0;
+	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
+
+	return true;
 }

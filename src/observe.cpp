@@ -186,12 +186,14 @@ size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 				int i = p < A[0] ? 0 : 1;
 
 				// calculate mean
-				double muD = muInf + DeltaMu*exp(-abs(Z/1000)/Hmu);		// Bond et al. A2
+				double muD = muInf + DeltaMu*exp(-fabs(Z/1000)/Hmu);		// Bond et al. A2
 				double aZ = muD - 0.067;
 
 				// draw
 				FeH = gsl_ran_gaussian(rng, sigma[i]);
 				FeH += aZ + offs[i];
+/*				if(FeH > 0 && Z > 900) { std::cerr << Z << " : " << FeH << " " << muD << " " << aZ << " " << offs[i] << " " << i << "\n"; }
+				if(FeH > 0 && Z > 900) { std::cerr << muInf << " " << DeltaMu << " " << abs(Z/1000) << " " << Hmu << " " << -abs(Z/1000)/Hmu << " " << i << "\n"; }*/
 			} break;
 			case BahcallSoneira_model::HALO:
 				FeH = offs[2] + gsl_ran_gaussian(rng, sigma[2]);
@@ -209,6 +211,48 @@ bool os_FeH::init(const Config &cfg)
 	return true;
 }
 
+
+
+// add Fe/H information
+class os_fixedFeH : public osink
+{
+	protected:
+		float FeH;
+	public:
+		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+		virtual bool init(const Config &cfg);
+		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
+
+		os_fixedFeH() : osink(), FeH(0)
+		{
+			prov.insert("FeH");
+		}
+};
+
+size_t os_fixedFeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+	//	- all stars are main sequence
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		s.FeH() = FeH;
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_fixedFeH::init(const Config &cfg)
+{
+	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	cfg.get(FeH, "FeH", 0.f);
+
+	return true;
+}
 
 
 // add kinematic information
@@ -348,8 +392,9 @@ class os_ugriz : public osink
 {
 	protected:
 		spline Mr2gi, gi2ri;
+		std::vector<double> FeHDeltaC;
 
-		void Mr2gi_build();
+		void Mr2gi_build(const std::string &gi2Mr_str);
 		void gi2ri_build();
 
 		float MrFeH2gi(float Mr, float FeH);
@@ -417,7 +462,7 @@ float os_ugriz::grFeH2ug(float gr, float FeH)
 	if(x0q == x1q) {
 		if(x0q) { DLOG(verb3) << "WARNING: Real u-g root ambiguous: x0,x1 = " << x0 << ", " << x1; }
 		else    { DLOG(verb3) << "WARNING: Both roots probably wrong: x0,x1 = " << x0 << ", " << x1; }
-		x0q = abs(x0 - 1.05) < abs(x1 - 1.05) ? true : false;	// return the one closer to 1.05
+		x0q = fabs(x0 - 1.05) < fabs(x1 - 1.05) ? true : false;	// return the one closer to 1.05
 		x1q = !x0q;
 	}
 	return x0q ? x0 : x1;
@@ -428,24 +473,52 @@ float os_ugriz::grFeH2ug(float gr, float FeH)
 #endif
 }
 
-void os_ugriz::Mr2gi_build()
+template<typename T>
+int split(T& arr, const std::string &text)
 {
-	// coefficients of Mr(g-i) relation
-	// double coeff[] = {-0.56, 14.32, -12.97, 6.127, -1.267, 0.0967};
-	std::string fn = datadir() + "/gi2Mr.FeH=0.txt";
-	FILE_EXISTS_OR_THROW(fn);
-	MLOG(verb2) << "Mr2gi locus: " << fn;
+	typename T::value_type tmp;
+	std::stringstream ss(text);
 
-	text_input_or_die(f, fn);
-	std::vector<double> gi, Mr;
-	load(f, gi, 0, Mr, 1);
-	Mr2gi.construct(Mr, gi);
+	arr.clear();
+	while(ss >> tmp) { arr.push_back(tmp); }
+	return arr.size();
+}
+
+template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
+
+void os_ugriz::Mr2gi_build(const std::string &gi2Mr_str)
+{
+	if(0) {
+		// coefficients of Mr(g-i) relation
+		// double coeff[] = {-0.56, 14.32, -12.97, 6.127, -1.267, 0.0967};
+		std::string fn = datadir() + "/gi2Mr.FeH=0.txt";
+		FILE_EXISTS_OR_THROW(fn);
+		MLOG(verb2) << "Mr2gi locus: " << fn;
+
+		text_input_or_die(f, fn);
+		std::vector<double> gi, Mr;
+		load(f, gi, 0, Mr, 1);
+		Mr2gi.construct(Mr, gi);
+	} else {
+		std::vector<double> giarr, Mrarr, gi2Mr;
+		split(gi2Mr, gi2Mr_str);
+		for(double gi=-0.5; gi <= 5.; gi+=0.01)
+		{
+			double Mr = gsl_poly_eval(&gi2Mr[0], gi2Mr.size(), gi);
+			Mrarr.push_back(Mr);
+			giarr.push_back(gi);
+		}
+		Mr2gi.construct(Mrarr, giarr);
+
+		MLOG(verb2) << "Constructed gi(Mr) using Mr(gi) coeffs = " << gi2Mr;
+	}
 }
 
 float os_ugriz::MrFeH2gi(float Mr, float FeH)
 {
 	// offset due to metallicity
-	double FeHDelta = FeH*(-1.11 - 0.18*FeH);
+//	double FeHDelta = FeH*(-1.11 - 0.18*FeH);
+	double FeHDelta = gsl_poly_eval(&FeHDeltaC[0], FeHDeltaC.size(), FeH);
 
 	return Mr2gi(Mr - FeHDelta);
 }
@@ -501,7 +574,14 @@ size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
 
 bool os_ugriz::init(const Config &cfg)
 {
-	Mr2gi_build();
+	std::string gi2Mr_str, FeH2dMr_str;
+	cfg.get(gi2Mr_str,   "gi2Mr",   "-0.56 14.32 -12.97 6.127 -1.267 0.0967");
+	cfg.get(FeH2dMr_str, "FeH2dMr", "0.0 -1.11 -0.18");
+
+	split(FeHDeltaC, FeH2dMr_str);
+	MLOG(verb2) << "DeltaMr(Fe/H) coeffs = " << FeHDeltaC;
+
+	Mr2gi_build(gi2Mr_str);
 	gi2ri_build();
 
 	return true;
@@ -617,6 +697,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "textout") { s.reset(new os_textout); }
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
+	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 
@@ -850,7 +931,7 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 		else
 		{
 			name = cffn;
-			cfg.get_subset(modcfg, "module." + name, true);
+			cfg.get_subset(modcfg, "module." + name + ".", true);
 			modcfg.insert(make_pair("module", cffn));
 		}
 

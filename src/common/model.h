@@ -257,10 +257,10 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 	public:
 		struct tagdef
 		{
-			const std::string tagID;
-			const size_t size;
-			size_t index;
-			size_t *index_var;
+			const std::string tagName;		// unique name of the tag
+			const size_t size;			// size of the tag data (in bytes)
+			size_t offset;				// the offset of this tag, if active, -1 otherwise
+			std::vector<size_t*> offset_vars;	// variable to update with tag offset, if/when this tag gets activated
 
 			virtual void  serialize1(const void *, peyton::io::obstream &) const = 0;
 			virtual void  serialize2(const void *, std::ostream &) const = 0;
@@ -270,7 +270,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			virtual void  destructor(void *val) = 0;
 			virtual void  copy(void *dest, void *src) = 0;
 
-			tagdef(const std::string &tid, const size_t s) : tagID(tid), size(s), index_var(NULL), index(-1) {}
+			tagdef(const std::string &tid, const size_t s) : tagName(tid), size(s), offset(-1) {}
 		protected:
 			tagdef(const tagdef &);
 			tagdef &operator =(const tagdef &);
@@ -287,92 +287,144 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 			tagdefT(const std::string &tid) : tagdef(tid, sizeof(T)) {}
 		};
+		// simple array of types T
+		template<typename T> struct tagdefTA : public tagdef
+		{
+			size_t n;
+
+			virtual void  serialize1(const void *val, peyton::io::obstream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << v[i]; } }
+			virtual void  serialize2(const void *val, std::ostream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << (i ? " " : "") << v[i]; } }
+			virtual void  unserialize1(void *val, peyton::io::ibstream &in)  { T *v = reinterpret_cast<T*>(val); FOR(0,n) { in >> v[i]; } }
+			virtual void  unserialize2(void *val, std::istream &in) { T *v = reinterpret_cast<T*>(val); FOR(0,n) { in >> v[i]; } }
+			virtual void* constructor(void *p)  { FOR(0,n) { new (reinterpret_cast<T*>(p)+i) T(); } }
+			virtual void  destructor(void *val) { FOR(0,n) { reinterpret_cast<T*>(val)[i].~T(); } }
+			virtual void  copy(void *dest, void *src) { FOR(0,n) { reinterpret_cast<T*>(dest)[i] = reinterpret_cast<T*>(src)[i];} }
+
+			tagdefTA(const std::string &tid, size_t n_) : tagdef(tid, sizeof(T)*n_), n(n_) {}
+		};
 
 		struct factory_t	// singleton used to initialize arrays
 		{
-			std::map<size_t *,    tagdef*> alltagsi;// index variables -> tagdef map
-			std::map<int,         tagdef*> tagdefs;	// pointer offset  -> tagdef map
-			std::map<std::string, tagdef*> alltags;	// tag name        -> tagdef map
+			std::map<size_t,      tagdef*> usedTags;	// tags currently in use (offset -> tagdef map)
+			std::map<std::string, tagdef*> definedTags;	// all defined tags that can be activated with useTag()
+			std::map<std::string, std::string> tagAliases;	// tag alias -> tag name
+
+			size_t nextOffset;			// next available offset for a tag activated with useTag()
+			size_t tagSize;				// size of all active tags, once the structure has been frozen
+
 			std::vector<tagdef *> streamTags;	// list of tags to be unserialized
-			size_t nextIndex;
-			size_t tagSize;
 
 			// helpers for tag definitions
-			template<typename T> void defineTag(const std::string &tagID, size_t &index_var)
+			template<typename T> void defineScalarTag(const std::string &tagName, size_t *offset_var = NULL)
 			{
-				tagdef *td = new tagdefT<T>(tagID);
-				td->index_var = &index_var;
+				tagdef *td = new tagdefT<T>(tagName);
+				if(offset_var) { td->offset_vars.push_back(offset_var); }
 
-				alltagsi[&index_var] = alltags[tagID] = td;
+				definedTags[tagName] = td;
+			}
+			template<typename T> void defineArrayTag(const std::string &tagName, const size_t n, size_t *offset_var = NULL)
+			{
+				if(n == 0) { return defineScalarTag<T>(tagName, offset_var); }
+
+				tagdef *td = new tagdefTA<T>(tagName, n);
+				if(offset_var) { td->offset_vars.push_back(offset_var); }
+
+				definedTags[tagName] = td;
 			}
 
-			// registration of tags that are in use
-			tagdef *useTag(size_t &index_var)
+			// activation of tags that are in use
+			tagdef *useTagRaw(const std::string &name, bool allowUndefined = false);
+			size_t useTag(const std::string &name, bool allowUndefined = false)
 			{
-				ASSERT(alltagsi.count(&index_var));
-				if(index_var != -1) { return alltagsi[&index_var]; }	// if already in use
-				return addTag(alltagsi[&index_var]);
-			}
-			tagdef *useTag(const std::string &name)
-			{
-				ASSERT(alltags.count(name));
-				tagdef *td = alltags[name];
-				if(td->index != -1) { return td; }	// if already in use
-				return addTag(td);
+				return useTagRaw(name, allowUndefined)->offset;
 			}
 			tagdef *addTag(tagdef *td)
 			{
 				die_if_frozen();
 
-				td->index = nextIndex;
-				nextIndex += td->size;
+				td->offset = nextOffset;
+				nextOffset += td->size;
 
-				tagdefs[td->index] = td;
-				*td->index_var = td->index;
+				usedTags[td->offset] = td;
+				FOREACH(td->offset_vars) { **i = td->offset; }
 
 				return td;
+			}
+			tagdef *aliasTag(const std::string &name, const std::string &alias)
+			{
+				ASSERT(definedTags.count(name));
+				ASSERT(definedTags.count(alias));
+				
+				tagdef *td = definedTags[name];
+				ASSERT(td->offset != -1);		// the tag alias target has to be in use
+
+				tagdef *atd = definedTags[alias];
+				ASSERT(atd->offset == -1);		// the alias must be unused
+				ASSERT(atd->size == td->size);		// alias and the aliased tag must be of same size
+				
+				atd->offset = td->offset;		// let the alias know where in the index it is
+				FOREACH(atd->offset_vars) { **i = atd->offset; }	// notify aliases' listeners
+				tagAliases[alias] = name;
+				return atd;
+			}
+			size_t getOffset(const std::string &name)
+			{
+				ASSERT(definedTags.count(name));
+				tagdef *td = definedTags[name];
+				return td->offset;
 			}
 
 			// in-use tags serialization/unserialization
 			peyton::io::ibstream& unserialize(peyton::io::ibstream& in)
 			{
-				std::string tagID;
+				std::string tagName;
 				size_t size;
-				FOREACH(tagdefs)
+				FOREACH(usedTags)
 				{
-					in >> tagID >> size;
-					if(!alltags.count(tagID)) { ASSERT(0) { std::cerr << "tagID = " << tagID << " not registered."; } }
-					tagdef *td = alltags[tagID];
-					ASSERT(size == td->size) { std::cerr << "tagID = " << tagID << "\n"; }
+					in >> tagName >> size;
+					if(!definedTags.count(tagName)) { ASSERT(0) { std::cerr << "tagName = " << tagName << " not registered."; } }
+					tagdef *td = definedTags[tagName];
+					ASSERT(size == td->size) { std::cerr << "tagName = " << tagName << "\n"; }
 					addTag(td);
 				}
 				return in;
 			}
 			peyton::io::obstream& serialize(peyton::io::obstream& out)
 			{
-				FOREACH(tagdefs) { out << *i; }
+				FOREACH(usedTags) { out << *i; }
 				return out;
 			}
 			size_t gettags(std::set<std::string> &tags) const
 			{
-				FOREACH(tagdefs) { tags.insert(i->second->tagID); }
+				FOREACH(usedTags) { tags.insert(i->second->tagName); }
+				FOREACH(tagAliases) { tags.insert(i->first); }
 			}
 			std::ostream& serialize(std::ostream& out) const
 			{
-				//if(!tagdefs.empty()) { out << "# "; }
-
 				bool first = true;
-				FOREACH(tagdefs) {
+				FOREACH(usedTags)
+				{
 					if(!first) out << " ";
 					tagdef *td = i->second;
-					out << td->tagID; // << "{" << td->size << "}";
+					out << td->tagName;
 					first = false;
+				}
+				if(tagAliases.size())
+				{
+					out << "\t|\t";
+					first = true;
+					FOREACH(tagAliases)
+					{
+						if(!first) out << " ";
+						out << i->first << "=" << i->second; // alias=name pairs
+						first = false;
+					}
 				}
 				return out;
 			}
 			std::istream& unserialize(std::istream& in)
 			{
-				std::string tagID, line;
+				std::string tagName, line;
 				size_t size;
 
 				std::getline(in, line);
@@ -380,22 +432,37 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				std::istringstream ss(line.c_str());
 
 				// gobble up any "#" characters
-				do { ss >> tagID; } while(tagID == "#" && ss);
+				do { ss >> tagName; } while(tagName == "#" && ss);
 				ASSERT(ss);
 
-				// split tagID to tagID and size
+				// split tagName to tagName and size
 				streamTags.clear();
 				do {
-					//std::cerr << "Tag: " << tagID << "\n";
-					streamTags.push_back(useTag(tagID));
-				} while(ss >> tagID);
+					//std::cerr << "Tag: " << tagName << "\n";
+					streamTags.push_back(useTagRaw(tagName, true));
+				} while(ss >> tagName && tagName != "|");
+
+				// check if there are alias definitions following the | sign
+				if(!ss) { return in; }
+
+				std::string aliasName;
+				ss >> aliasName;
+				ASSERT(ss);
+				do {
+					// parse alias=tagName pairs
+					size_t idx = aliasName.find('=');
+					if(idx == std::string::npos) { ASSERT(0); continue; }
+					tagName = aliasName.substr(idx+1);
+					aliasName = aliasName.substr(0, idx);
+					aliasTag(tagName, aliasName);
+				} while(ss >> tagName);
 				return in;
 			}
 	
 			void freeze_tags()
 			{
 				if(tagSize != -1) { return; }
-				tagSize = nextIndex;
+				tagSize = nextOffset;
 			}
 			void die_if_frozen()
 			{
@@ -406,80 +473,97 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				}
 			}
 
-			size_t ivars[100]; // index variables
+			static const size_t max_ovars = 1000;
+			size_t ovars[max_ovars]; // offset variables
 
-			// some special (shared) ivars
-			static const size_t IVAR_COLOR = 6;	// index variable with "color" information
-			static const size_t IVAR_MAG = 7;	// index variable with magnitude information
-			static const size_t IVAR_ABSMAG = 11;	// index variable with absolute magnitude information
+			// some special (shared) ovars
+			static const size_t IVAR_COLOR =  max_ovars-1;	// offset variable with "color" information
+			static const size_t IVAR_MAG =    max_ovars-2;	// offset variable with magnitude information
+			static const size_t IVAR_ABSMAG = max_ovars-3;	// offset variable with absolute magnitude information
+
+			static const size_t SDSS_BASE	= 20;		// offset variable from which SDSS-related stuff begins
+			static const size_t DEBUG_BASE	= 100;		// offset variable from which debugging/test-related stuff begins
 
 			factory_t()
-				: nextIndex(0), tagSize(-1)
+				: nextOffset(0), tagSize(-1)
 			{
 				//std::cerr << "Factory: defining tags\n";
-				defineTag<int>("comp", ivars[0]);
-				defineTag<float>("extinction.r", ivars[1]);
-				defineTag<boost::array<float, 3> >("vel[3]", ivars[2]);
-				defineTag<boost::array<float, 3> >("XYZ[3]", ivars[3]);
-				defineTag<std::string>("star_name", ivars[4]);
-				defineTag<boost::array<double, 2> >("lonlat[2]", ivars[5]);
+				defineScalarTag<int>("comp", &ovars[0]);
+				defineScalarTag<float>("extinction.r", &ovars[1]);
+				defineArrayTag<double>("lb[2]", 2, &ovars[3]);
+				defineArrayTag<float>("XYZ[3]", 3, &ovars[4]);
+				defineScalarTag<float>("FeH", &ovars[5]);
+				defineArrayTag<float>("vPhivRvZ[3]", 3, &ovars[6]);
+				defineScalarTag<std::string>("star_name", &ovars[DEBUG_BASE+0]);		// test thingee
 
-				// colors
-				defineTag<float>("color", ivars[IVAR_COLOR]);	// generic
-				defineTag<float>("sdss_Mr", ivars[IVAR_COLOR]);	// absolute magnitude
-				defineTag<float>("sdss_ri", ivars[IVAR_COLOR]);	// absolute magnitude
+				// SDSS
+				defineScalarTag<float>("absSDSSr", &ovars[SDSS_BASE+0]);		// absolute magnitude
+				defineScalarTag<float>("SDSSr", &ovars[SDSS_BASE+1]);			// SDSS r band
+				defineScalarTag<float>("SDSSri", &ovars[SDSS_BASE+2]);		// LF color
+				defineArrayTag<float>("SDSSugriz[5]", 5, &ovars[SDSS_BASE+3]);	// SDSS ugriz colors
 
-				// apparent magnitudes
-				defineTag<float>("mag", ivars[IVAR_MAG]);	// generic
-				defineTag<float>("sdss_r", ivars[IVAR_MAG]);	// SDSS R band
+				// LSST
+//				defineScalarTag<float>("absLSSTr", &ovars[IVAR_COLOR]);	// absolute magnitude
+//				defineScalarTag<float>("LSSTr", &ovars[IVAR_MAG]);	// LSST r band
 
-				defineTag<boost::array<float, 5> >("ugriz[5]", ivars[8]);
-				defineTag<float>("FeH", ivars[9]);
-				defineTag<boost::array<float, 3> >("vPhivRvZ[3]", ivars[10]);
-
-				// absolute magnitude in IVAR_MAG band
-				defineTag<float>("absmag", ivars[IVAR_ABSMAG]); // absolute magnitude
+				// built-in generics
+				defineScalarTag<float>("color", &ovars[IVAR_COLOR]);	// generic
+				defineScalarTag<float>("mag",   &ovars[IVAR_MAG]);	// generic
+				defineScalarTag<float>("absmag", &ovars[IVAR_ABSMAG]); // absolute magnitude in IVAR_MAG's band
 			}
 			~factory_t()
 			{
-				FOREACH(alltagsi) { delete i->second; }
+				FOREACH(definedTags) { delete i->second; }
 			}
 		};
 
 		// tag accessors -- WARNING: The indices here MUST match the indices in factory_t::factory_t()
-		int &component()	{ return get<int>(factory.ivars[0]); }
-		float &ext_r()		{ return get<float>(factory.ivars[1]); }
-		float *vel()		{ return get<float[3]>(factory.ivars[2]); }
-		float *XYZ()		{ return get<float[3]>(factory.ivars[3]); }
-		std::string &starname()	{ return get<std::string>(factory.ivars[4]); }
-		std::pair<double, double> &lonlat() { return get<std::pair<double,double> >(factory.ivars[5]); }
-		float &color()		{ return get<float>(factory.ivars[factory_t::IVAR_COLOR]); }
-//		float &sdss_Mr()	{ return get<float>(factory.ivars[factory_t::IVAR_COLOR]); }
-		float &mag()		{ return get<float>(factory.ivars[factory_t::IVAR_MAG]); }
-		float &sdss_r()		{ return get<float>(factory.ivars[factory_t::IVAR_MAG]); }
-		float &absmag()		{ return get<float>(factory.ivars[factory_t::IVAR_ABSMAG]); }
-		float *sdss_mag()	{ return get<float[5]>(factory.ivars[8]); }
-		float &FeH()		{ return get<float>(factory.ivars[9]); }
-		float *vPhivRvZ()	{ return get<float[3]>(factory.ivars[10]); }
+		float &color()		{ return get<float>(factory.ovars[factory_t::IVAR_COLOR]); }
+		float &mag()		{ return get<float>(factory.ovars[factory_t::IVAR_MAG]); }
+		float &absmag()		{ return get<float>(factory.ovars[factory_t::IVAR_ABSMAG]); }
+
+		int &component()	{ return get<int>(factory.ovars[0]); }
+		float &ext_r()		{ return get<float>(factory.ovars[1]); }
+//		float *vel()		{ return get<float[3]>(factory.ovars[2]); }
+		std::pair<double, double> &lb()
+					{ return get<std::pair<double,double> >(factory.ovars[3]); }
+		float *XYZ()		{ return get<float[3]>(factory.ovars[4]); }
+		float &FeH()		{ return get<float>(factory.ovars[5]); }
+		float *vPhivRvZ()	{ return get<float[3]>(factory.ovars[6]); }
+
+		std::string &starname()	{ return get<std::string>(factory.ovars[factory_t::DEBUG_BASE+0]); }
+
+		// SDSS
+		float &absSDSSr()	{ return get<float>(factory.ovars[factory_t::SDSS_BASE+0]); }
+		float &SDSSr()		{ return get<float>(factory.ovars[factory_t::SDSS_BASE+1]); }
+		float *SDSSugriz()	{ return get<float[5]>(factory.ovars[factory_t::SDSS_BASE+3]); }
 
 		static factory_t factory;			// factory singleton
 		static std::map<sstruct *, char* > owner;	// list of objects that own their tags pointer
 
-		// tag lookup
-		template<typename T> T& get(const size_t index)
+		// tag lookup by offset
+		template<typename T> T& get(const size_t offset)
 		{
-			ASSERT(factory.tagdefs.count(index) && factory.tagdefs[index]->size == sizeof(T));
-			return *reinterpret_cast<T*>(tags + index);
+			ASSERT(factory.usedTags.count(offset) && factory.usedTags[offset]->size == sizeof(T));
+			return *reinterpret_cast<T*>(tags + offset);
+		}
+		// tag lookup by name (slow, should almost never be used)
+		template<typename T> T& get(const std::string &name)
+		{
+			ASSERT( factory.definedTags.count(name) );		// ensure this tag exists
+			const tagdef *td = factory.definedTags[name];
+			ASSERT( td->offset != -1 && td->size == sizeof(T) );	// ensure this tag is active
+			return *reinterpret_cast<T*>(tags + td->offset);
 		}
 
 	public:
 		std::ostream& serialize(std::ostream& out) const
 		{
 			bool first = true;
-			FOREACH(factory.tagdefs)
+			FOREACH(factory.usedTags)
 			{
 				if(!first) { out << " "; }
-				i->second->serialize2(tags + i->second->index, out);
+				i->second->serialize2(tags + i->second->offset, out);
 				first = false;
 			}
 			return out;
@@ -488,17 +572,17 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		{
 			FOREACH(factory.streamTags)
 			{
-				(*i)->unserialize2(tags + (*i)->index, in);
+				(*i)->unserialize2(tags + (*i)->offset, in);
 			}
 			return in;
 		};
 
 		peyton::io::obstream& serialize(peyton::io::obstream& out)
 		{
-			out << (char)factory.tagdefs.size();
-			FOREACH(factory.tagdefs)
+			out << (char)factory.usedTags.size();
+			FOREACH(factory.usedTags)
 			{
-				i->second->serialize1(tags + i->second->index, out);
+				i->second->serialize1(tags + i->second->offset, out);
 			}
 			return out;
 		};
@@ -506,9 +590,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		{
 			char count;
 			in >> count;
-			FOREACH(factory.tagdefs)
+			FOREACH(factory.usedTags)
 			{
-				i->second->unserialize1(tags + i->second->index, in);
+				i->second->unserialize1(tags + i->second->offset, in);
 				count--;
 				if(!count) { break; }
 			}
@@ -518,9 +602,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 	public:
 		sstruct &operator=(const sstruct &s)
 		{
-			FOREACHj(j, factory.tagdefs)
+			FOREACHj(j, factory.usedTags)
 			{
-				j->second->copy(tags + j->second->index, s.tags + j->second->index);
+				j->second->copy(tags + j->second->offset, s.tags + j->second->offset);
 			}
 			return *this;
 		}
@@ -538,9 +622,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			//std::cerr << "Allocated " << (void*)t->tags << " as array (size=" << factory.tagSize << ").\n";
 			owner[t] = t->tags;
 			// tag construction
-			FOREACH(factory.tagdefs)
+			FOREACH(factory.usedTags)
 			{
-				i->second->constructor(t->tags + i->second->index);
+				i->second->constructor(t->tags + i->second->offset);
 			}
 			return t;
 		}
@@ -559,9 +643,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			for(int i=0; i != n; i++)
 			{
 				t[i].tags = tags + factory.tagSize*i;
-				FOREACHj(j, factory.tagdefs)
+				FOREACHj(j, factory.usedTags)
 				{
-					j->second->constructor(t[i].tags + j->second->index);
+					j->second->constructor(t[i].tags + j->second->offset);
 				}
 			}
 			owner[t] = tags;
@@ -574,9 +658,9 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			if(tags && owner.count(this))
 			{
 				//std::cerr << "Calling destructors on " << (void*)tags << "\n";
-				FOREACHj(j, factory.tagdefs)
+				FOREACHj(j, factory.usedTags)
 				{
-					j->second->destructor(tags + j->second->index);
+					j->second->destructor(tags + j->second->offset);
 				}
 				//std::cerr << "Deleting " << (void*)tags << " as array.\n";
 				delete [] tags;

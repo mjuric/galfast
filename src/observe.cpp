@@ -140,17 +140,21 @@ class osink : public opipeline_stage
 // add Fe/H information
 class os_FeH : public osink
 {
-	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
-		virtual const std::string &name() const { static std::string s("FeH"); return s; }
+protected:
+	double A[2], sigma[3], offs[3];
+	double Hmu, muInf, DeltaMu;
 
-		os_FeH() : osink()
-		{
-			prov.insert("FeH");
-			req.insert("comp");
-			req.insert("XYZ[3]");
-		}
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual const std::string &name() const { static std::string s("FeH"); return s; }
+
+	os_FeH() : osink()
+	{
+		prov.insert("FeH");
+		req.insert("comp");
+		req.insert("XYZ[3]");
+	}
 };
 
 size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
@@ -168,14 +172,14 @@ size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		float Z = s.XYZ()[2];
 		float &FeH = s.FeH();
 
-		// assign metallicity
-		static double A[]     = { 0.63, 0.37 };
-		static double sigma[] = { 0.20, 0.20,  0.30};
-		static double offs[]  = { 0.00, 0.14, -1.46};
-
-		static double Hmu = 0.5;
-		static double muInf = -0.82;
-		static double DeltaMu = 0.55;
+// 		// assign metallicity
+// 		static double A[]     = { 0.63, 0.37 };
+// 		static double sigma[] = { 0.20, 0.20,  0.30};
+// 		static double offs[]  = { 0.00, 0.14, -1.46};
+// 
+// 		static double muInf = -0.82;
+// 		static double DeltaMu = 0.55;
+// 		static double Hmu = 500;
 
 		switch(component)
 		{
@@ -186,7 +190,7 @@ size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 				int i = p < A[0] ? 0 : 1;
 
 				// calculate mean
-				double muD = muInf + DeltaMu*exp(-fabs(Z/1000)/Hmu);		// Bond et al. A2
+				double muD = muInf + DeltaMu*exp(-fabs(Z)/Hmu);		// Bond et al. A2
 				double aZ = muD - 0.067;
 
 				// draw
@@ -208,6 +212,32 @@ size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 
 bool os_FeH::init(const Config &cfg)
 {
+	cfg.get(A[0],     "A0",     0.63);
+	cfg.get(sigma[0], "sigma0", 0.20);
+	cfg.get(offs[0],  "offs0",  0.00);
+	cfg.get(A[1],     "A1",     0.37);
+	cfg.get(sigma[1], "sigma1", 0.20);
+	cfg.get(offs[1],  "offs1",  0.14);
+	
+	cfg.get(Hmu,      "Hmu",     500.);
+	cfg.get(muInf,    "muInf",  -0.82);
+	cfg.get(DeltaMu,  "deltaMu", 0.55);
+
+	// renormalize disk gaussian amplitudes to sum up to 1
+	double sumA = A[0] + A[1];
+	A[0] /= sumA; A[1] /= sumA;
+
+	// Halo configuration
+	cfg.get(sigma[2], "sigmaH",  0.30);
+	cfg.get(offs[2],  "offsH",  -1.46);
+
+	// Output model parameters
+	MLOG(verb1) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
+	MLOG(verb1) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];
+	MLOG(verb1) << "Disk offsets          (offs[0], offs[1]): "<< offs[0] << " " << offs[1];
+	MLOG(verb1) << "Disk median Z dep. (muInf, deltaMu, Hmu): "<< muInf << " " << DeltaMu << " " << Hmu;
+	MLOG(verb1) << "Halo gaussian              (muH, sigmaH): "<< offs[2] << " " << sigma[2];
+
 	return true;
 }
 
@@ -386,6 +416,236 @@ bool os_kinTMIII::init(const Config &cfg)
 
 
 
+// convert input absolute/apparent magnitudes to ugriz colors
+class os_photometry : public osink
+{
+	protected:
+		std::string bandset;			// name of this filter set
+		std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
+		int bidx;				// index of bootstrap band in bnames
+		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
+		size_t offset_mags;			// sstruct offset to magnitudes in computed bands [output]
+		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
+		std::vector<std::vector<float> > clt;
+		std::vector<std::vector<bool> > eclt;	// extrapolation flags
+		int nMr, nFeH;
+		double Mr0, Mr1, dMr;
+		double FeH0, FeH1, dFeH;
+		int ncolors;
+
+		float color(int ic, double FeH, double Mr, bool *e = NULL)
+		{
+			ASSERT(ic >= 0 && ic < clt.size());
+			ASSERT(Mr0 <= Mr && Mr <= Mr1);
+			ASSERT(FeH0 <= FeH && FeH <= FeH1);
+
+			int f = (int)((FeH - FeH0) / dFeH);
+			int m = (int)((Mr  -  Mr0) / dMr);
+			int idx = m*nFeH + f;
+			if(e) { *e = eclt[ic][idx]; }
+			return clt[ic][idx];
+		}
+	public:
+		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+		virtual bool init(const Config &cfg);
+		virtual const std::string &name() const { static std::string s("photometry"); return s; }
+
+		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1)
+		{
+			req.insert("FeH");
+		}
+};
+
+struct Mr2col
+{
+	static const size_t maxcolors = 20;	// ug,gr,ri,iz,zy
+
+	double Mr;
+	double c[maxcolors];
+
+	bool operator <(const Mr2col &a) const { return Mr < a.Mr; }
+};
+
+struct colsplines
+{
+	double Mrmin, Mrmax;
+	spline s[Mr2col::maxcolors];
+	spline &operator [](const size_t i) { return s[i]; }
+};
+
+bool os_photometry::init(const Config &cfg)
+{
+	// band definitions
+	std::string tmp, bname;
+	cfg.get(bandset,   "bandset",   "LSSTugrizy[6]");
+	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
+	std::istringstream ss(tmp);
+	while(ss >> bname)
+	{
+		bnames.push_back(bname);
+	}
+	ncolors = bnames.size()-1;
+	if(ncolors >= Mr2col::maxcolors)
+	{
+		THROW(EAny, "This module cannot handle more than " + str(Mr2col::maxcolors+1) + " bands.");
+	}
+
+	std::string tagname = bandset + "[" + str(bnames.size()) + "]";
+	sstruct::factory.defineArrayTag<float>(tagname, ncolors);
+	offset_mags = sstruct::factory.useTag(tagname);
+	prov.insert(tagname);
+
+	// bootstap band setup
+	cfg.get(bband,   "bootstrap_band",   "LSSTr");
+	req.insert(bband);
+	req.insert("abs" + bband);
+	typeof(bnames.begin()) b = std::find(bnames.begin(), bnames.end(), bband);
+	if(b == bnames.end())
+	{
+		THROW(EAny, "Bootstrap band must be listed in the 'bands' keyword.");
+	}
+	bidx = b - bnames.begin();
+
+	// sampling parameters
+	cfg.get(tmp,   "Mr",   "3 15 0.01");
+	ss.str(tmp);
+	if(!(ss >> Mr0 >> Mr1 >> dMr))
+	{
+		THROW(EAny, "Error reading Mr field from config file. Expect Mr = <Mr0> <Mr1> <dMr>, got Mr = " + tmp);
+	}
+	cfg.get(tmp,   "Mr",   "-3 0.5 0.05");
+	ss.str(tmp);
+	if(!(ss >> FeH0 >> FeH1 >> dFeH))
+	{
+		THROW(EAny, "Error reading FeH field from config file. Expect FeH = <FeH0> <FeH1> <dFeH>, got FeH = " + tmp);
+	}
+
+	cfg.get(tmp,   "file",   "fit.txt");
+	text_input_or_die(in, tmp);
+
+	// load the data
+	std::map<double, std::vector<Mr2col> > v;
+	std::set<double> uFeH;
+	Mr2col mc; double FeH;
+	bind(in, mc.Mr,0, FeH,1);
+	FOR(0, ncolors) { bind(in, mc.c[i], i+2); }
+	while(in.next())
+	{
+		v[FeH].push_back(mc);
+		uFeH.insert(FeH);
+	}
+	std::vector<double> vFeH(uFeH.begin(), uFeH.end());
+
+	// construct col(Mr) splines for each FeH line present in the input
+	std::map<double, colsplines> s;
+	FOREACH(v)
+	{
+		double FeH = i->first;
+		std::vector<Mr2col> &m2c = i->second;
+		colsplines ss = s[FeH];		// Splines that will return col(Mr) for this FeH
+
+		std::sort(m2c.begin(), m2c.end());
+		std::vector<double> Mr(m2c.size()), c(m2c.size());
+		FOR(0, m2c.size()) { Mr[i] = m2c[i].Mr; }	// Construct (sorted) array of Mr
+		FOR(0, ncolors) // for each color i, construct its col_i(Mr) spline
+		{
+			FORj(j, 0, m2c.size()) { c[j] = m2c[j].c[i]; }
+			ss[i].construct(Mr, c);
+		}
+		// remember beginning/end for test of extrapolation
+		ss.Mrmin = Mr.front();
+		ss.Mrmax = Mr.back();
+	}
+
+	// allocate memory for output tables
+	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
+	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
+	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
+	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
+
+	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
+	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
+	std::vector<double> vcol(vFeH.size());	// col knots
+	std::vector<double> vecol(vFeH.size());	// 1 if corresponding col knot was extrapolated, 0 otherwise
+	FORj(ic, 0, ncolors)
+	{
+		FORj(m, 0, nMr)
+		{
+			double Mr = Mr0 + m*dMr;
+
+			// construct col(FeH) splines for given Mr
+			int k=0;
+			FOREACH(s)
+			{
+				vcol[k]  = i->second[ic](Mr);
+				vecol[k] = i->second.Mrmin > Mr || Mr > i->second.Mrmax;
+				k++;
+			}
+			spline s, es;
+			s.construct(vFeH, vcol);
+			es.construct(vFeH, vecol);	// zero where neither adjacent knot was extrapolated, nonzero otherwise
+
+			FORj(f, 0, nFeH) // compute col(FeH, Mr)
+			{
+				double FeH = FeH0 + f*dFeH;
+				int idx = m*nFeH + f;
+
+				clt[ic][idx] = s(FeH);
+				eclt[ic][idx] = vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.;
+			}
+		}
+	}
+
+}
+
+size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	const size_t nbands = bnames.size();
+	if(offset_mag == -1)
+	{
+		offset_mag    = sstruct::factory.getOffset(bband);
+		offset_absmag = sstruct::factory.getOffset("abs" + bband);
+	}
+
+	// ASSUMPTIONS:
+	//	- Fe/H exists in input
+	//	- Apparent and absolute magnitude in the requested band exist in input
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// calculate magnitudes, absolute magnitudes and distance
+		const float Mr   = s.get<float>(offset_absmag);
+		const float bmag = s.get<float>(offset_mag);
+		const float FeH  = s.FeH();
+
+		// construct colors given the absolute magnitude and metallicity
+		bool ex; int flags = 0;
+		float c[ncolors];
+		FOR(0, ncolors)
+		{
+			c[i] = color(i, FeH, Mr, &ex);
+			flags |= ex << i;
+		}
+		// ug gr ri iz zy
+		// convert colors to apparent magnitudes
+		float *mags = s.get<float*>(offset_mags);
+		FORj(b, 0, nbands)
+		{
+			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
+			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
+			mags[b] += bmag;
+		}
+
+/*		mags[0] = r + ug + gr;
+		mags[1] = r + gr;
+		mags[2] = r;
+		mags[3] = r - ri;
+		mags[4] = r - ri - iz;*/
+	}
+
+	return nextlink->push(in, count, rng);
+}
 
 // convert input absolute/apparent magnitudes to ugriz colors
 class os_ugriz : public osink
@@ -407,8 +667,9 @@ class os_ugriz : public osink
 
 		os_ugriz() : osink()
 		{
-			prov.insert("ugriz[5]");
-			req.insert("sdss_r");
+			prov.insert("SDSSugriz[5]");
+			req.insert("SDSSr");
+			req.insert("absSDSSr");
 			req.insert("FeH");
 		}
 };
@@ -549,7 +810,7 @@ size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		sstruct &s = in[i];
 
 		// calculate magnitudes, absolute magnitudes and distance
-		const double Mr = s.absmag();
+		const double Mr = s.absSDSSr();
 		const float FeH = s.FeH();
 
 		// construct SDSS colors given the absolute magnitude and metallicity
@@ -560,8 +821,8 @@ size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		float iz = ri2iz(ri);
 
 		// convert colors to apparent magnitudes
-		float r  = s.sdss_r();
-		float *mags = s.sdss_mag();
+		float r  = s.SDSSr();
+		float *mags = s.SDSSugriz();
 		mags[0] = ug + gr + r;
 		mags[1] = gr + r;
 		mags[2] = r;
@@ -696,6 +957,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	if(name == "textin") { s.reset(new os_textin); }
 	else if(name == "textout") { s.reset(new os_textout); }
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
+	else if(name == "photometry") { s.reset(new os_photometry); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }

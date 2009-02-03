@@ -38,7 +38,71 @@
 
 #include <gsl/gsl_poly.h>
 
+#if HAVE_BOOST_REGEX
+#include <boost/regex.hpp>
+#endif
+
 using namespace std;
+
+// activation of tags that are in use
+sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool allowUndefined)
+{
+	if(!definedTags.count(name) && allowUndefined)
+	{
+		// autocreate this tag based on the information contained in the name
+		// the name format is: name[N]{x}, where:
+		//	[] part is optional -- if not specified, the quantity is a scalar
+		//	N is the size of the array (integer)
+		//	x is the type of the array, and can be one of:
+		//		f -- (default), single precision float
+		//		g -- double precision float
+		//		d -- integer
+		//		s -- string
+		//
+		// The regex below matches: name, N, x as what[1],[2],[3], respectively
+		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgds])\\})?");
+		boost::smatch what;
+		if(boost::regex_match(name, what, e, boost::match_extra))
+		{
+#if 0
+			unsigned i, j;
+			std::cout << "** Match found **\n   Sub-Expressions:\n";
+			for(i = 0; i < what.size(); ++i)
+				std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
+#endif
+			// type/array dispatcher
+			std::string field = what[1];
+			size_t N = atoi(what[2].str().c_str());
+			char type = what[3].str()[0];
+
+			MLOG(verb2) << "Autodefining tag " << name;
+			
+			switch(type)
+			{
+				case 'd': defineArrayTag<int>(name, N); break;
+				case 'g': defineArrayTag<double>(name, N); break;
+				case 's': defineArrayTag<std::string>(name, N); break;
+				case 'f': case 0:
+					defineArrayTag<float>(name, N); break;
+				default:
+					ASSERT(0);
+			}
+		}
+		else
+		{
+			MLOG(verb1) << "Failed to parse tag definition " << name;
+		}
+	}
+
+	if(!definedTags.count(name))
+	{
+		THROW(EAny, "Could not find/define tag " + name);
+	}
+
+	tagdef *td = definedTags[name];
+	if(td->offset != -1) { return td; }	// if already in use
+	return addTag(td);
+}
 
 /////////////
 

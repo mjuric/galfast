@@ -1030,14 +1030,23 @@ void sky_generator::montecarlo(star_output_function &out)
 	
 	// generate the data in smaller batches (to conserve memory)
 	static const int Kbatch = 20000000;
-//	static const int Kbatch = 10000;
 
 	// prepare output
-	sstruct::factory.useTag("lonlat[2]");
-	MLOG(verb1) << "color=" << pdfs[0]->galmodel().color();
-	sstruct::factory.useTag(pdfs[0]->galmodel().color());
-	sstruct::factory.useTag(pdfs[0]->galmodel().band());
-	sstruct::factory.useTag("absmag");
+	sstruct::factory.useTag("lb[2]");
+	std::string
+		colorName = pdfs[0]->galmodel().color(),
+		magName = pdfs[0]->galmodel().band(),
+		absmagName = "abs" + pdfs[0]->galmodel().band();
+	MLOG(verb1) << "color=" << colorName;
+	MLOG(verb1) << "mag=" << magName;
+	MLOG(verb1) << "absmag=" << absmagName;
+	sstruct::factory.useTag(colorName, true);
+	sstruct::factory.useTag(magName, true);
+	sstruct::factory.useTag(absmagName, true);
+	sstruct::factory.aliasTag(absmagName, "absmag");
+	sstruct::factory.aliasTag(colorName,  "color");
+	sstruct::factory.aliasTag(magName,    "mag");
+
 	FOR(0, pdfs.size())
 	{
 		if(pdfs[i]->galmodel().band() != pdfs[0]->galmodel().band()) {
@@ -1290,7 +1299,7 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		Radians l, b;
 		proj.inverse(s.x, s.y, l, b);
 		double cl = cos(l), cb = cos(b), sl = sin(l), sb = sin(b);
-		coordinates::galequ(l, b, l, b);
+//		coordinates::galequ(l, b, l, b);
 
 		// absolute magnitudes and distance
 //		const double Mr = paralax.Mr(s.ri);
@@ -1306,7 +1315,7 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		model.draw_tag(t, x, y, z, s.ri, rng);
 
 		// write out this star and its tags
-		t.lonlat()  = std::make_pair(deg(l), deg(b));
+		t.lb()      = std::make_pair(deg(l), deg(b));
 		t.color()   = s.ri;
 		t.mag()     = s.m;
 		t.absmag()  = Mr;
@@ -1321,15 +1330,18 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 void test_tags()
 {
 	if(0) {
-		sstruct::factory.useTag("star_name");
-		sstruct::factory.useTag("xyz[3]");
-		sstruct::factory.useTag("extinction.r");
+		sstruct::factory.useTag("LSSTugrizy[6]{g}", true);
 
-		std::cerr << sstruct::factory.ivars[0] << "\n";
-		std::cerr << sstruct::factory.ivars[1] << "\n";
-		std::cerr << sstruct::factory.ivars[2] << "\n";
-		std::cerr << sstruct::factory.ivars[3] << "\n";
-		std::cerr << sstruct::factory.ivars[4] << "\n";
+		sstruct::factory.useTag("star_name");
+		sstruct::factory.useTag("XYZ[3]");
+		sstruct::factory.useTag("extinction.r");
+		sstruct::factory.aliasTag("extinction.r", "mag");
+
+		std::cerr << sstruct::factory.ovars[0] << "\n";
+		std::cerr << sstruct::factory.ovars[1] << "\n";
+		std::cerr << sstruct::factory.ovars[2] << "\n";
+		std::cerr << sstruct::factory.ovars[3] << "\n";
+		std::cerr << sstruct::factory.ovars[4] << "\n";
 
 		if(1) {
 			sstruct *tag = sstruct::create();
@@ -1339,12 +1351,15 @@ void test_tags()
 			float *XYZ = tag->XYZ();
 			std::string &starname = tag->starname();
 			starname = "Bla";
+			Ar = 2.;
+			XYZ[2] = 3.33;
 
 			sstruct *tag2 = sstruct::create();
 			*tag2 = *tag;
 			starname = "Newyyy";
 
 			std::cerr << "Ar = " << Ar << "\n";
+			std::cerr << "mag = " << tag->mag() << "\n";
 			std::cerr << "XYZ = " << XYZ[0] << " " << XYZ[1] << " " << XYZ[3] << "\n";
 			std::cerr << "starname = " << starname << "\n";
 			std::cerr << "starname2 = " << tag2->starname() << "\n";
@@ -1378,7 +1393,7 @@ void test_tags()
 		// Unserialize text file and print it out to the screen
 		std::ifstream in("out.txt");
 		sstruct::factory.unserialize(in);
-		sstruct::factory.useTag("vel[3]");
+		sstruct::factory.useTag("SDSSr");
 
 		sstruct *tag = sstruct::create(100);
 		size_t cnt = 0;

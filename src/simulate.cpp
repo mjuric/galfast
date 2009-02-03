@@ -655,6 +655,8 @@ int main(int argc, char **argv)
 {
 try
 {
+//	test_tags(); return 0;
+
 	std::string argv0 = argv[0];
 	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.19 2007/04/15 12:09:52 mjuric Exp $");
 	std::string progdesc = "simulate.x, a mock star catalog simulator.";

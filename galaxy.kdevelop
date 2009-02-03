@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol>kdevcvsservice</versioncontrol>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
@@ -57,7 +57,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog -s catalog.conf sky.pdf.bin sky.cat.txt</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/workspace/job.ng</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/workspace/job.11</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -112,7 +112,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>1</numberofjobs>
       <dontact>false</dontact>
-      <makebin/>
+      <makebin></makebin>
       <prio>0</prio>
       <runmultiplejobs>false</runmultiplejobs>
     </make>
@@ -128,8 +128,6 @@
     <groups>
       <group pattern="*.h" name="Header files" />
       <group pattern="*.cpp" name="Source files" />
-      <hidenonprojectfiles>false</hidenonprojectfiles>
-      <hidenonlocation>false</hidenonlocation>
     </groups>
     <tree>
       <hidepatterns>*.o,*.lo,CVS</hidepatterns>
@@ -184,7 +182,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -210,11 +208,11 @@
   <kdevdebugger>
     <general>
       <programargs>gnomonic.sel</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

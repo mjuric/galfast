@@ -28,6 +28,7 @@
 #include "gpc_cpp.h"
 
 #include <boost/shared_ptr.hpp>
+#include <boost/lambda/lambda.hpp>
 #include <sstream>
 
 #include "simulate.h"
@@ -45,6 +46,8 @@
 #include <astro/util.h>
 #include <astro/system/log.h>
 #include <astro/useall.h>
+
+using namespace boost::lambda;
 
 // Get the autoconf/automake set datadir
 // TODO: This should be moved into its separate file
@@ -422,12 +425,16 @@ class os_photometry : public osink
 	protected:
 		std::string bandset;			// name of this filter set
 		std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
+		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
+		std::string photoFlags;			// Name of the photometric flags field
 		int bidx;				// index of bootstrap band in bnames
 		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
 		size_t offset_mags;			// sstruct offset to magnitudes in computed bands [output]
+		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 		std::vector<std::vector<float> > clt;
-		std::vector<std::vector<bool> > eclt;	// extrapolation flags
+		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
+		std::vector<std::vector<cbool> > eclt;	// extrapolation flags
 		int nMr, nFeH;
 		double Mr0, Mr1, dMr;
 		double FeH0, FeH1, dFeH;
@@ -436,8 +443,8 @@ class os_photometry : public osink
 		float color(int ic, double FeH, double Mr, bool *e = NULL)
 		{
 			ASSERT(ic >= 0 && ic < clt.size());
-			ASSERT(Mr0 <= Mr && Mr <= Mr1);
-			ASSERT(FeH0 <= FeH && FeH <= FeH1);
+			ASSERT(Mr0 <= Mr && Mr <= Mr1) { std::cerr << Mr0 << " <= " << Mr << " <= " << Mr1 << "\n"; }
+			ASSERT(FeH0 <= FeH && FeH <= FeH1) { std::cerr << FeH0 << " <= " << FeH << " <= " << FeH1 << "\n"; }
 
 			int f = (int)((FeH - FeH0) / dFeH);
 			int m = (int)((Mr  -  Mr0) / dMr);
@@ -450,9 +457,10 @@ class os_photometry : public osink
 		virtual bool init(const Config &cfg);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
-		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1)
+		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1), offset_mags(-1)
 		{
 			req.insert("FeH");
+//			prov.insert("photoFlags");
 		}
 };
 
@@ -473,11 +481,14 @@ struct colsplines
 	spline &operator [](const size_t i) { return s[i]; }
 };
 
+template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
+
 bool os_photometry::init(const Config &cfg)
 {
 	// band definitions
 	std::string tmp, bname;
-	cfg.get(bandset,   "bandset",   "LSSTugrizy[6]");
+	cfg.get(bandset,   "bandset",   "LSSTugrizy");
+
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
 	std::istringstream ss(tmp);
 	while(ss >> bname)
@@ -490,15 +501,24 @@ bool os_photometry::init(const Config &cfg)
 		THROW(EAny, "This module cannot handle more than " + str(Mr2col::maxcolors+1) + " bands.");
 	}
 
-	std::string tagname = bandset + "[" + str(bnames.size()) + "]";
-	sstruct::factory.defineArrayTag<float>(tagname, ncolors);
-	offset_mags = sstruct::factory.useTag(tagname);
-	prov.insert(tagname);
+	// check if the bandset has the number of bands appended
+	if(bandset.find('[') == std::string::npos || bandset.find(']') == std::string::npos)
+	{
+		bandset += '[' + str(bnames.size()) + ']';
+	}
+	prov.insert(bandset);
+
+	// deduce photoFlags name
+	std::string bandsetname = bandset.substr(0, bandset.find('['));
+	photoFlags = bandsetname + "PhotoFlags{i}";
+	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
+	prov.insert(photoFlags);
 
 	// bootstap band setup
 	cfg.get(bband,   "bootstrap_band",   "LSSTr");
+	cfg.get(absbband,   "absband",   "abs"+bband);
 	req.insert(bband);
-	req.insert("abs" + bband);
+	req.insert(absbband);
 	typeof(bnames.begin()) b = std::find(bnames.begin(), bnames.end(), bband);
 	if(b == bnames.end())
 	{
@@ -507,21 +527,36 @@ bool os_photometry::init(const Config &cfg)
 	bidx = b - bnames.begin();
 
 	// sampling parameters
-	cfg.get(tmp,   "Mr",   "3 15 0.01");
-	ss.str(tmp);
+	cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
+	ss.clear(); ss.str(tmp);
 	if(!(ss >> Mr0 >> Mr1 >> dMr))
 	{
 		THROW(EAny, "Error reading Mr field from config file. Expect Mr = <Mr0> <Mr1> <dMr>, got Mr = " + tmp);
 	}
-	cfg.get(tmp,   "Mr",   "-3 0.5 0.05");
-	ss.str(tmp);
+	cfg.get(tmp,   "FeH_grid",   "-3 0.5 0.01");
+	ss.clear(); ss.str(tmp);
 	if(!(ss >> FeH0 >> FeH1 >> dFeH))
 	{
 		THROW(EAny, "Error reading FeH field from config file. Expect FeH = <FeH0> <FeH1> <dFeH>, got FeH = " + tmp);
 	}
 
-	cfg.get(tmp,   "file",   "fit.txt");
+	cfg.get(tmp,   "file",   "");
+	if(tmp == "") { // Try to find internal definitions for the photometric system
+		tmp = datadir() + "/" + bandset + ".photosys.txt";
+		if(!file_exists(tmp))
+		{
+			THROW(EAny, "Default photosys. definition file " + tmp + " for " + bandset + " not found. Specify it explicitly using the file=xxx keyword.");
+		}
+	}
 	text_input_or_die(in, tmp);
+
+	MLOG(verb1) << "Generating " << bandset << " photometry.";
+	MLOG(verb1) << bandset << ": Generating " << bnames.size() << " bands: " << bnames;
+	MLOG(verb1) << bandset << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
+	MLOG(verb1) << bandset << ": Using " << bband << " to bootstrap appmags from colors.";
+	MLOG(verb1) << bandset << ": Resampling color table to fast lookup grid:";
+	MLOG(verb1) << bandset << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
+	MLOG(verb1) << bandset << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
 
 	// load the data
 	std::map<double, std::vector<Mr2col> > v;
@@ -542,7 +577,7 @@ bool os_photometry::init(const Config &cfg)
 	{
 		double FeH = i->first;
 		std::vector<Mr2col> &m2c = i->second;
-		colsplines ss = s[FeH];		// Splines that will return col(Mr) for this FeH
+		colsplines &ss = s[FeH];		// Splines that will return col(Mr) for this FeH
 
 		std::sort(m2c.begin(), m2c.end());
 		std::vector<double> Mr(m2c.size()), c(m2c.size());
@@ -551,12 +586,21 @@ bool os_photometry::init(const Config &cfg)
 		{
 			FORj(j, 0, m2c.size()) { c[j] = m2c[j].c[i]; }
 			ss[i].construct(Mr, c);
+//			std::cerr << FeH << " " << ss[i].f << "\n";
 		}
 		// remember beginning/end for test of extrapolation
 		ss.Mrmin = Mr.front();
 		ss.Mrmax = Mr.back();
 	}
 
+/*	FOREACH(s) {
+		std::cerr << i->first << ": ";
+		FORj(j,0,ncolors) {
+			std::cerr << i->second[j].f << "  ";
+		}
+		std::cerr << "\n";
+	}*/
+	
 	// allocate memory for output tables
 	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
@@ -575,10 +619,12 @@ bool os_photometry::init(const Config &cfg)
 
 			// construct col(FeH) splines for given Mr
 			int k=0;
+//			std::cerr << "Mr = " << Mr << "\n";
 			FOREACH(s)
 			{
 				vcol[k]  = i->second[ic](Mr);
 				vecol[k] = i->second.Mrmin > Mr || Mr > i->second.Mrmax;
+//				std::cerr << i->first << " " << vcol[k] << " " << vecol[k] << "\n";
 				k++;
 			}
 			spline s, es;
@@ -592,10 +638,20 @@ bool os_photometry::init(const Config &cfg)
 
 				clt[ic][idx] = s(FeH);
 				eclt[ic][idx] = vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.;
+//				std::cerr << Mr << " " << FeH << " : " << clt[ic][idx] << " " << eclt[ic][idx] << "\n";
 			}
 		}
 	}
 
+	std::vector<double> nextrap(ncolors);
+	FOR(0, ncolors)
+	{
+		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
+	}
+	MLOG(verb1) << bandset << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
+	MLOG(verb1) << bandset << ":    extrapolation fractions = " << nextrap;
+
+	return true;
 }
 
 size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
@@ -604,7 +660,9 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	if(offset_mag == -1)
 	{
 		offset_mag    = sstruct::factory.getOffset(bband);
-		offset_absmag = sstruct::factory.getOffset("abs" + bband);
+		offset_absmag = sstruct::factory.getOffset(absbband);
+		offset_mags   = sstruct::factory.getOffset(bandset);
+		offset_photoflags = sstruct::factory.getOffset(photoFlags);
 	}
 
 	// ASSUMPTIONS:
@@ -620,7 +678,9 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		const float FeH  = s.FeH();
 
 		// construct colors given the absolute magnitude and metallicity
-		bool ex; int flags = 0;
+		int &flags = *s.getptr<int>(offset_photoflags);
+		flags = 0;
+		bool ex;
 		float c[ncolors];
 		FOR(0, ncolors)
 		{
@@ -629,14 +689,19 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		}
 		// ug gr ri iz zy
 		// convert colors to apparent magnitudes
-		float *mags = s.get<float*>(offset_mags);
+		float *mags = s.getptr<float>(offset_mags);
 		FORj(b, 0, nbands)
 		{
 			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
 			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
 			mags[b] += bmag;
 		}
-
+#if 0
+		FORj(b,0,ncolors)
+		{
+			std::cerr << mags[b]-mags[b+1] << " =?= " << c[b] << "\n";
+		}
+#endif
 /*		mags[0] = r + ug + gr;
 		mags[1] = r + gr;
 		mags[2] = r;
@@ -744,8 +809,6 @@ int split(T& arr, const std::string &text)
 	while(ss >> tmp) { arr.push_back(tmp); }
 	return arr.size();
 }
-
-template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
 void os_ugriz::Mr2gi_build(const std::string &gi2Mr_str)
 {
@@ -1021,7 +1084,7 @@ int opipeline::run(gsl_rng *rng)
 			FOREACHj(j, s.provides())
 			{
 				if(j->at(0) == '_') { continue; }
-				sstruct::factory.useTag(*j);
+				sstruct::factory.useTag(*j, true);
 			}
 
 			// erase from the list of pending stages
@@ -1055,7 +1118,7 @@ int opipeline::run(gsl_rng *rng)
 		last = next;
 		ss << " -> " << last->name();
 	}
-	MLOG(verb1) << "Output module chain: " << ss.str();
+	MLOG(verb1) << "Postprocessing module chain: " << ss.str();
 
 	return source->run(rng);
 }
@@ -1137,7 +1200,7 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 }
 
 
-void observe_catalog2(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
+void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
 {
 	Config cfg; cfg.load(conffn);
 
@@ -1161,19 +1224,25 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 		}
 	}
 
-	// merge in any modules with module.<module_name>.on = 1. Configuration will be
-	// read from module.<module_name>.XXXX keys
-	std::set<std::string> keys;
-	cfg.get_matching_keys(keys, "module\\.[a-zA-Z0-9_]+$");
+	// merge in any modules with module.<module_name>.XXXX present and
+	// module.<module_name>.enabled != 0. Configuration will be read from
+	// module.<module_name>.XXXX keys.
+	std::set<std::string> keys, smodules;
+	cfg.get_matching_keys(keys, "module\\.[a-zA-Z0-9_}{]+\\..*$");
 	FOREACH(keys)
 	{
 		const std::string &key = *i;
-		if(!cfg[key].vint()) { continue; } // skip the disabled modules
-		// extract the module name
 		name = key.substr(key.find('.')+1);
-		msg << " " << name;
-		modules.push_back(name);
+		name = name.substr(0, name.find('.'));
+		//std::cerr << "key = " << key << " name=" << name << "\n";
+
+		std::string enkey = "module." + name + ".enabled";
+		if(cfg.count(enkey) && !cfg[enkey].vbool()) { continue; } // skip the disabled modules
+
+		if(!smodules.count(name)) { msg << " " << name; }
+		smodules.insert(name);
 	}
+	modules.insert(modules.end(), smodules.begin(), smodules.end());
 	MLOG(verb2) << "Adding modules from config file:" << msg.str();
 
 	// merge-in modules with options given in the config file
@@ -1186,15 +1255,19 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 		Config modcfg;
 		if(file_exists(cffn))
 		{
+			// load from filename
 			modcfg.load(cffn);
 			if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
 			name = modcfg["module"];
 		}
 		else
 		{
-			name = cffn;
-			cfg.get_subset(modcfg, "module." + name + ".", true);
+			// load from subkeys
+			cfg.get_subset(modcfg, "module." + cffn + ".", true);
 			modcfg.insert(make_pair("module", cffn));
+
+			// get module name, in case the user is using module.name{uniqident}.xxx syntax
+			name = cffn.substr(0, cffn.find('{'));
 		}
 
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
@@ -1204,7 +1277,7 @@ void observe_catalog2(const std::string &conffn, const std::string &input, const
 		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
 
 		if(!stage->init(modcfg)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		MLOG(verb2) << "Loaded " << name << " type=" << stage->type();
+		MLOG(verb2) << "Loaded " << name << " (module type: " << stage->type() << ")";
 
 		pipe.add(stage);
 	}

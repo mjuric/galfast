@@ -672,7 +672,7 @@ try
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
-		"    observe - \tapply observational errors to a mock catalog\n"
+		"postprocess - \tpostprocess the mock catalog (e.g., derive photometry, add instrumental errors, etc.)\n"
 					   );
 	opts.stop_after_final_arg = true;
 	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
@@ -726,14 +726,14 @@ try
 
 	std::string catalog, in_module = "textin", out_module = "textout";
 	std::vector<std::string> modules;
-	sopts["observe"].reset(new Options(argv0 + " observe", progdesc + " Apply observational errors.", version, Authorship::majuric));
-	sopts["observe"]->argument("conf").bind(input).desc("Observation (\"observe\") configuration file");
-	sopts["observe"]->argument("input").bind(catalog).desc("Input catalog file");
-	sopts["observe"]->argument("output").bind(output).desc("Output catalog file");
-	sopts["observe"]->argument("modules").bind(modules).optional().gobble().desc("List of output module configuration files");
-	sopts["observe"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
-	sopts["observe"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");
-	sopts["observe"]->add_standard_options();
+	sopts["postprocess"].reset(new Options(argv0 + " postprocess", progdesc + " Apply postprocessing steps to catalog sources.", version, Authorship::majuric));
+	sopts["postprocess"]->argument("conf").bind(input).desc("Postprocessing (\"postprocess.conf\") configuration file");
+	sopts["postprocess"]->argument("input").bind(catalog).desc("Input catalog file");
+	sopts["postprocess"]->argument("output").bind(output).desc("Output catalog file");
+	sopts["postprocess"]->argument("modules").bind(modules).optional().gobble().desc("List of postprocessing module configuration files");
+	sopts["postprocess"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
+	sopts["postprocess"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");
+	sopts["postprocess"]->add_standard_options();
 
 	//
 	// Parse
@@ -859,17 +859,17 @@ try
 			skygen.montecarlo(cat_out);
 		}
 	}
-	else if(cmd == "observe")
+	else if(cmd == "postprocess")
 	{
 		// turn off GSL's error handler or else locusfitting routines
 		// may barf
 		gsl_set_error_handler_off();
 
-		// ./simulate.x observe observe.conf file.in.txt file.out.txt <module1 [module2]....>
+		// ./simulate.x postprocess postprocess.conf file.in.txt file.out.txt [module1 [module2]....]
 		//observe_catalog(input, catalog, output);
 		modules.push_back(in_module);
 		modules.push_back(out_module);
-		observe_catalog2(input, catalog, output, modules);
+		postprocess_catalog(input, catalog, output, modules);
 	}
 	else
 	{

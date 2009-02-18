@@ -56,11 +56,11 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 		//	x is the type of the array, and can be one of:
 		//		f -- (default), single precision float
 		//		g -- double precision float
-		//		d -- integer
+		//		d,i -- integer
 		//		s -- string
 		//
 		// The regex below matches: name, N, x as what[1],[2],[3], respectively
-		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgds])\\})?");
+		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])\\})?");
 		boost::smatch what;
 		if(boost::regex_match(name, what, e, boost::match_extra))
 		{
@@ -79,7 +79,7 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 			
 			switch(type)
 			{
-				case 'd': defineArrayTag<int>(name, N); break;
+				case 'd': case 'i': defineArrayTag<int>(name, N); break;
 				case 'g': defineArrayTag<double>(name, N); break;
 				case 's': defineArrayTag<std::string>(name, N); break;
 				case 'f': case 0:
@@ -556,7 +556,7 @@ double toy_geo_plaw_abspoly_model::absmag(double ri)
 	return gsl_poly_eval(&Mr_coef[0], Mr_coef.size(), ri);
 }
 #endif
-					     
+
 void BahcallSoneira_model::load(peyton::system::Config &cfg)
 {
 	FOREACH(cfg) { MLOG(verb1) << (*i).first << " = " << (*i).second; }

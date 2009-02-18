@@ -1041,8 +1041,8 @@ void sky_generator::montecarlo(star_output_function &out)
 	MLOG(verb1) << "mag=" << magName;
 	MLOG(verb1) << "absmag=" << absmagName;
 	sstruct::factory.useTag(colorName, true);
-	sstruct::factory.useTag(magName, true);
 	sstruct::factory.useTag(absmagName, true);
+	sstruct::factory.useTag(magName, true);
 	sstruct::factory.aliasTag(absmagName, "absmag");
 	sstruct::factory.aliasTag(colorName,  "color");
 	sstruct::factory.aliasTag(magName,    "mag");

@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
-      <programargs>catalog -s catalog.conf sky.pdf.bin sky.cat.txt</programargs>
+      <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
@@ -56,7 +56,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog -s catalog.conf sky.pdf.bin sky.cat.txt</globaldebugarguments>
+      <globaldebugarguments>postprocess postprocess.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/workspace/job.11</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
@@ -112,7 +112,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>1</numberofjobs>
       <dontact>false</dontact>
-      <makebin></makebin>
+      <makebin/>
       <prio>0</prio>
       <runmultiplejobs>false</runmultiplejobs>
     </make>
@@ -128,6 +128,8 @@
     <groups>
       <group pattern="*.h" name="Header files" />
       <group pattern="*.cpp" name="Source files" />
+      <hidenonprojectfiles>false</hidenonprojectfiles>
+      <hidenonlocation>false</hidenonlocation>
     </groups>
     <tree>
       <hidepatterns>*.o,*.lo,CVS</hidepatterns>

@@ -184,7 +184,7 @@ public:
 
 class spline
 {
-private:
+public:
 	gsl_interp *f;
 	gsl_interp_accel *acc;
 	std::valarray<double> xv, yv;
@@ -411,7 +411,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				}
 				if(tagAliases.size())
 				{
-					out << "\t|\t";
+					out << "  |  ";
 					first = true;
 					FOREACH(tagAliases)
 					{
@@ -455,7 +455,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 					tagName = aliasName.substr(idx+1);
 					aliasName = aliasName.substr(0, idx);
 					aliasTag(tagName, aliasName);
-				} while(ss >> tagName);
+				} while(ss >> aliasName);
 				return in;
 			}
 	
@@ -494,6 +494,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineArrayTag<float>("XYZ[3]", 3, &ovars[4]);
 				defineScalarTag<float>("FeH", &ovars[5]);
 				defineArrayTag<float>("vPhivRvZ[3]", 3, &ovars[6]);
+				defineScalarTag<int>("photoFlags", &ovars[7]);
 				defineScalarTag<std::string>("star_name", &ovars[DEBUG_BASE+0]);		// test thingee
 
 				// SDSS
@@ -531,6 +532,8 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		float &FeH()		{ return get<float>(factory.ovars[5]); }
 		float *vPhivRvZ()	{ return get<float[3]>(factory.ovars[6]); }
 
+		int &photoFlags()	{ return get<int>(factory.ovars[7]); }
+	
 		std::string &starname()	{ return get<std::string>(factory.ovars[factory_t::DEBUG_BASE+0]); }
 
 		// SDSS
@@ -544,8 +547,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		// tag lookup by offset
 		template<typename T> T& get(const size_t offset)
 		{
-			ASSERT(factory.usedTags.count(offset) && factory.usedTags[offset]->size == sizeof(T));
+			ASSERT(factory.usedTags.count(offset));
+			ASSERT(factory.usedTags[offset]->size == sizeof(T));
 			return *reinterpret_cast<T*>(tags + offset);
+		}
+		template<typename T> T* getptr(const size_t offset)
+		{
+			ASSERT(factory.usedTags.count(offset));
+			return reinterpret_cast<T*>(tags + offset);
 		}
 		// tag lookup by name (slow, should almost never be used)
 		template<typename T> T& get(const std::string &name)

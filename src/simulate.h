@@ -215,6 +215,6 @@ public:
 };
 
 void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output);
-void observe_catalog2(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules);
+void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules);
 
 #endif // simulate_h__

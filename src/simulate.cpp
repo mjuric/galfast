@@ -650,11 +650,13 @@ namespace footprints
 //void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
+void test_kin();
 void test_tags();
 int main(int argc, char **argv)
 {
 try
 {
+	test_kin();
 //	test_tags(); return 0;
 
 	std::string argv0 = argv[0];

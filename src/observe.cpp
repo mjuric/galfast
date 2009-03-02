@@ -42,6 +42,11 @@
 #include <map>
 #include <string>
 
+#include <gsl/gsl_vector.h>
+#include <gsl/gsl_matrix.h>
+#include <gsl/gsl_blas.h>
+#include <gsl/gsl_linalg.h>
+
 #include <astro/math.h>
 #include <astro/util.h>
 #include <astro/system/log.h>
@@ -251,6 +256,7 @@ class os_fixedFeH : public osink
 {
 	protected:
 		float FeH;
+
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
@@ -287,10 +293,89 @@ bool os_fixedFeH::init(const Config &cfg)
 	return true;
 }
 
+void print_matrix(gsl_matrix *m)
+{
+/* print matrix the hard way */
+  printf("Matrix m\n");
+  for (int i=0;i<m->size1;i++)
+    {
+      for (int j=0;j<m->size2;j++)
+	{
+	  fprintf(stderr, "%f ",gsl_matrix_get(m,i,j));
+	}
+      fprintf(stderr, "\n");
+    }
+  fprintf(stderr, "\n");
+}
+
+struct trivar_gauss
+{
+	gsl_matrix *A;
+	gsl_vector *Z;
+
+	trivar_gauss()
+	{
+		A = gsl_matrix_alloc(3, 3);
+		Z = gsl_vector_alloc(3);
+
+		gsl_matrix_set_zero(A);
+	}
+
+	void set(double s11, double s12, double s13, double s22, double s23, double s33)
+	{
+		// populate A (assumes the upper triang is already 0), calculate Cholesky decomp
+		gsl_matrix_set(A, 0, 0, sqr(s11));
+		gsl_matrix_set(A, 1, 0,     s12 ); gsl_matrix_set(A, 1, 1, sqr(s22));
+		gsl_matrix_set(A, 2, 0,     s13 ); gsl_matrix_set(A, 2, 1,     s23 ); gsl_matrix_set(A, 2, 2, sqr(s33));
+		//print_matrix(A);
+
+		int status = gsl_linalg_cholesky_decomp(A);
+		ASSERT(status == 0);
+		//print_matrix(A); std::cerr << "status=" << status << "\n";
+	}
+
+	void draw(gsl_vector *y, gsl_rng *rng, bool zero = false)
+	{
+		gsl_vector_set(Z, 0, gsl_ran_ugaussian(rng));
+		gsl_vector_set(Z, 1, gsl_ran_ugaussian(rng));
+		gsl_vector_set(Z, 2, gsl_ran_ugaussian(rng));
+
+		if(zero) { gsl_vector_set_zero(y); }
+		//gsl_blas_dgemv(CblasNoTrans, 1., A, Z, 1., y);
+		gsl_blas_dtrmv(CblasLower, CblasNoTrans, CblasNonUnit, A, Z);
+		gsl_vector_add(y, Z);
+		//std::cout << "XXXXX: " << y->data[0] << " " << y->data[1] << " " << y->data[2] << "\n";
+	}
+
+	~trivar_gauss()
+	{
+		gsl_vector_free(Z);
+		gsl_matrix_free(A);
+	}
+};
 
 // add kinematic information
 class os_kinTMIII : public osink
 {
+	protected:
+		typedef std::vector<double> dvec;
+
+		trivar_gauss tri_rnd;
+
+		double fk, DeltavPhi;
+		dvec 	vPhi1, vPhi2, vR, vZ,
+			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
+			HvPhi, HvR, HvZ,
+			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
+		dvec *diskEllip[6], *haloEllip[6], *diskMeans[3], *haloMeans[3];
+
+	public:
+		void add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], gsl_rng *rng);
+		void compute_means(double v[3], double Rsquared, double Z, dvec *means[3]);
+
+		void get_disk_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng, bool &firstGaussian);
+		void get_halo_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng);
+
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
@@ -298,87 +383,46 @@ class os_kinTMIII : public osink
 
 		os_kinTMIII() : osink()
 		{
-			prov.insert("vPhivRvZ[3]");
+			prov.insert("vcyl[3]");
 			req.insert("comp");
 			req.insert("XYZ[3]");
 		}
 };
 
-void getDiskKinematics(float &vPhi, float &vR, float &vZ, const double Z, gsl_rng *rng)
+void test_kin()
 {
-	// given XYZ=($1-$3), in pc, generate vPhi, vR, vZ = ($4-$6) for DISK
-	// stars. The velocities are physical, i.e. in Galactic coordinate frame
-	// (km/s), and based on a vPhi model from Tomography II (astro-ph/0804.3850)
-	// with vR and vZ models from Tomography III
+	return;
+	os_kinTMIII o;
 
-	//// Phi component ////
-	// we assume that vPhi is a function of Z, as given in TomographyII
-	// the distribution shape of vPhi is a sum of 2 (fixed) gaussians
-	// with the 3:1 normalization ratio; the first Gaussian is offset
-	// by 23 km/s from vPhiMedian(Z) to more negative values, and the
-	// second Gaussian is offset by 11 km/s to more positive values;
-	double vPhiMedian = -225. + 20. + 19.2*pow(Z/1000, 1.25);   // =0 at Z=6.5 kpc
-	if(vPhiMedian > 0) { vPhiMedian = 0; }
+	Config cfg;
+	o.init(cfg);
 
-	// choose gaussian to draw from
-	static const double norm1 = 0.25;  // fraction of stars in the first gaussian
-	int i = (gsl_rng_uniform(rng) < norm1) ? 0 : 1;
+	double v[3];
+	bool firstGaussian;
 
-	// this is eq.13 from Tomography II, with a -220 offset coming from
-	// accounting for the vLSR (220 km/s), and 5 km/s from Solar peculiar
-	// motion (which was not included in TomographyII)
-	static const double offs[]  = { -23., +11. };
-	static const double sigPhi[] = { 12.0, 34.0 }; // the intrinsic widths of the Gaussians are sigPhi1 and sigPhi2,
-	vPhi = (vPhiMedian + offs[i]) + gsl_ran_gaussian(rng, sigPhi[i]);
+	float XYZ[3] = {8000, 0, 200};
+	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
 
-#if 0
-	// for dispersion gradient (to be added in quadrature)
-	define aPhi  0.0
-	define bPhi 10.0
-	define cPhi  1.0
-	set sigPhiZ = $aPhi + $bPhi * (Z/1000)**$cPhi
-	set sigPhi1z = sqrt($sigPhi1**2 + sigPhiZ**2)
-	set sigPhi2z = sqrt($sigPhi2**2 + sigPhiZ**2)
-#endif
+	// R^2 and Z in kpc
+	const double Rsquared = 1e-6 * (sqr(XYZ[0]) + sqr(XYZ[1]));
+	const double Z = 1e-3 * XYZ[2];
 
-	//// R and Z components ////
-	// for R and Z, the distribution shape is Gaussian, with spatially
-	// invariant mean value, while the dispersions can increase with Z
-	static double vRmean = 0.0;
-	static double vZmean = 0.0;
-	// for dispersions:
-	static double aR = 35.0;
-	static double bR = 10.0;
-	static double cR =  1.0;
-	static double aZ = 20.0;
-	static double bZ = 10.0;
-	static double cZ =  1.0;
-	double sigR = aR + bR * pow(Z/1000, cR);
-	double sigZ = aZ + bZ * pow(Z/1000, cZ);
+	trivar_gauss tri_rnd;
+	tri_rnd.set(20, 10, 20,   20, 20,   30);
+	double vvv[3] = { 0., 0., 0. };
+	gsl_vector *vv = &gsl_vector_view_array(vvv, 3).vector;
+	tri_rnd.draw(vv, rng);
+	exit(-1);
 
-	// and now generate vR and vZ
-	vR = vRmean + gsl_ran_gaussian(rng, sigR);
-	vZ = vZmean + gsl_ran_gaussian(rng, sigZ);
-}
-
-void getHaloKinematics(float &vPhi, float &vR, float &vZ, const double Z, gsl_rng *rng)
-{
-	// given XYZ=($1-$3), in pc, generate vPhi, vR, vZ = ($4-$6) for HALO
-	// stars. The velocities are physical, i.e. in Galactic coordinate frame
-	// (km/s), and based on a vPhi model from Tomography II (astro-ph/0804.3850)
-	// with vR and vZ models from Tomography III
-
-	// it is assumed that the halo kinematics are spatially invariant
-	static double sigPhi = 100.0;
-	static double sigR   = 110.0;
-	static double sigZ   =  90.0;
-	static double vPhimean = 0.0;
-	static double vRmean   = 0.0;
-	static double vZmean   = 0.0;
-
-	vPhi = vPhimean + gsl_ran_gaussian(rng, sigPhi);
-	vR = vRmean + gsl_ran_gaussian(rng, sigR);
-	vZ = vZmean + gsl_ran_gaussian(rng, sigZ);
+	std::cout << "# XYZ = " << XYZ[0] << "," << XYZ[1] << "," << XYZ[2] << " (pc)\n";
+	for(int i = 0; i != 1; i++)
+	{
+		o.get_disk_kinematics(v, Rsquared, Z, rng, firstGaussian);
+		std::cout << v[0] << " " << v[1] << " " << v[2] << " " << firstGaussian << "\n";
+	}
+//	std::cerr << "XYZ = " << XYZ[0] << "," << XYZ[1] << "," << XYZ[2] << "\n";
+//	std::cerr << "  v = " << v[0] << "," << v[1] << "," << v[2] << "\n";
+	exit(-1);
 }
 
 size_t os_kinTMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
@@ -386,34 +430,172 @@ size_t os_kinTMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
+	double tmp[3]; bool firstGaussian;
 	for(size_t i=0; i != count; i++)
 	{
 		sstruct &s = in[i];
 
 		// fetch prerequisites
 		const int component = s.component();
-		float Z = s.XYZ()[2];
-		float *v = s.vPhivRvZ();
+		float *XYZ   = s.XYZ();
+		float *v     = s.vcyl();
+		const double Rsquared = 1e-6 * (sqr(XYZ[0]) + sqr(XYZ[1]));
+		const double Z = 1e-3 * XYZ[2];
 
 		switch(component)
 		{
 			case BahcallSoneira_model::THIN:
 			case BahcallSoneira_model::THICK:
-				getDiskKinematics(v[0], v[1], v[2], Z, rng);
+				//getDiskKinematics(v[0], v[1], v[2], Z, rng);
+				get_disk_kinematics(tmp, Rsquared, Z, rng, firstGaussian);
 				break;
 			case BahcallSoneira_model::HALO:
-				getHaloKinematics(v[0], v[1], v[2], Z, rng);
+				//getHaloKinematics(v[0], v[1], v[2], Z, rng);
+				get_halo_kinematics(tmp, Rsquared, Z, rng);
 				break;
 			default:
 				THROW(ENotImplemented, "We should have never gotten here");
 		}
+		v[0] = tmp[0]; v[1] = tmp[1]; v[2] = tmp[2];
 	}
 
 	return nextlink->push(in, count, rng);
 }
 
+template<typename T>
+	int split(T& arr, const std::string &text)
+{
+	typename T::value_type tmp;
+	std::stringstream ss(text);
+
+	arr.clear();
+	while(ss >> tmp) { arr.push_back(tmp); }
+	return arr.size();
+}
+
+template<typename T>
+	T split(const std::string &text)
+{
+	T ret;
+	split(ret, text);
+	return ret;
+}
+
+inline double modfun(double Rsquared, double Z, double a, double b, double c, double d, double e)
+{
+	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
+}
+
+void os_kinTMIII::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], gsl_rng *rng)
+{
+	// compute velocity dispersions at this position, and draw from trivariate gaussian
+	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
+	double sigma[6];
+	FOR(0, 6)
+	{
+		dvec &p = *ellip[i];
+		sigma[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
+	}
+	gsl_vector *vv = &gsl_vector_view_array(v, 3).vector;
+	tri_rnd.set(sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5]);
+	tri_rnd.draw(vv, rng);
+}
+
+void os_kinTMIII::compute_means(double v[3], double Rsquared, double Z, dvec *means[3])
+{
+	// returns means in v[3]
+	FOR(0, 3)
+	{
+		dvec &p = *means[i];
+		v[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
+	}
+}
+
+void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng, bool &firstGaussian)
+{
+	// set up which gaussian are we drawing from
+	double p = gsl_rng_uniform(rng);
+	if(firstGaussian = (p < fk))
+	{
+		// first gaussian
+		diskMeans[1] = &vPhi1;
+		diskEllip[3] = &sigmaPhiPhi1;
+	}
+	else
+	{
+		// second gaussian
+		diskMeans[1] = &vPhi2;
+		diskEllip[3] = &sigmaPhiPhi2;
+	}
+
+	compute_means(v, Rsquared, Z, diskMeans);
+	// truncate v_phi > 0
+	if(v[1] > 0.) { v[1] = 0.; }
+
+	add_dispersion(v, Rsquared, Z, diskEllip, rng);
+}
+
+void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng)
+{
+	compute_means(v, Rsquared, Z, haloMeans);
+	add_dispersion(v, Rsquared, Z, haloEllip, rng);
+}
+
+template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
+
 bool os_kinTMIII::init(const Config &cfg)
 {
+	cfg.get(fk           , "fk"           , 3.0);
+	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0);
+	fk = fk / (1. + fk);	// renormalize to probability of drawing from the first gaussian
+
+	cfg.get(vR           , "vR"           , split<dvec>("0 0 0 0 0"));	diskMeans[0] = &vR;
+	cfg.get(vPhi1        , "vPhi"         , split<dvec>("-194 19.2 1.25 0 0"));	diskMeans[1] = &vPhi1;
+	cfg.get(vZ           , "vZ"           , split<dvec>("0 0 0 0 0"));	diskMeans[2] = &vZ;
+	cfg.get(sigmaRR      , "sigmaRR"      , split<dvec>("40 5 1.5 0 0"));	diskEllip[0] = &sigmaRR;
+	cfg.get(sigmaRPhi    , "sigmaRPhi"    , split<dvec>("0 0 0 0 0"));	diskEllip[1] = &sigmaRPhi;
+	cfg.get(sigmaRZ      , "sigmaRZ"      , split<dvec>("0 0 0 0 0"));	diskEllip[2] = &sigmaRZ;
+	cfg.get(sigmaPhiPhi1 , "sigmaPhiPhi1" , split<dvec>("12 1.8 2 0 11"));	diskEllip[3] = &sigmaPhiPhi1;	// dynamically changeable
+	cfg.get(sigmaPhiPhi2 , "sigmaPhiPhi2" , split<dvec>("34 1.2 2 0 0"));
+	cfg.get(sigmaZPhi    , "sigmaZPhi"    , split<dvec>("0 0 0 0 0"));	diskEllip[4] = &sigmaZPhi;
+	cfg.get(sigmaZZ      , "sigmaZZ"      , split<dvec>("25 4 1.5 0 0"));	diskEllip[5] = &sigmaZZ;
+
+	// v2 is v1 + DeltavPhi, which is what this does.
+	vPhi2 = vPhi1; vPhi2[0] += DeltavPhi;
+
+	cfg.get(HvR          , "HvR"          , split<dvec>("0 0 0 0 0"));	haloMeans[0] = &HvR;
+	cfg.get(HvPhi        , "HvPhi"        , split<dvec>("0 0 0 0 0"));	haloMeans[1] = &HvPhi;
+	cfg.get(HvZ          , "HvZ"          , split<dvec>("0 0 0 0 0"));	haloMeans[2] = &HvZ;
+	cfg.get(HsigmaRR     , "HsigmaRR"     , split<dvec>("135 0 0 0 0"));	haloEllip[0] = &HsigmaRR;
+	cfg.get(HsigmaRPhi   , "HsigmaRPhi"   , split<dvec>("0 0 0 0 0"));	haloEllip[1] = &HsigmaRPhi;
+	cfg.get(HsigmaRZ     , "HsigmaRZ"     , split<dvec>("0 0 0 0 0"));	haloEllip[2] = &HsigmaRZ;
+	cfg.get(HsigmaPhiPhi , "HsigmaPhiPhi" , split<dvec>("85 0 0 0 0"));	haloEllip[3] = &HsigmaPhiPhi;
+	cfg.get(HsigmaZPhi   , "HsigmaZPhi"   , split<dvec>("0 0 0 0 0"));	haloEllip[4] = &HsigmaZPhi;
+	cfg.get(HsigmaZZ     , "HsigmaZZ"     , split<dvec>("85 0 0 0 0"));	haloEllip[5] = &HsigmaZZ;
+
+	// some info
+	MLOG(verb1) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
+	MLOG(verb1) << "Second disk gaussian offset:  " << DeltavPhi;
+
+	MLOG(verb1) << "vR coefficients:              " << vR;
+	MLOG(verb1) << "vZ coefficients:              " << vZ;
+	MLOG(verb1) << "sigmaRR coefficients:         " << sigmaRR;
+	MLOG(verb1) << "sigmaRPhi coefficients:       " << sigmaRPhi;
+	MLOG(verb1) << "sigmaRZ coefficients:         " << sigmaRZ;
+	MLOG(verb1) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1;
+	MLOG(verb1) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2;
+	MLOG(verb1) << "sigmaZPhi coefficients:       " << sigmaZPhi;
+	MLOG(verb1) << "sigmaZZ coefficients:         " << sigmaZZ;
+
+	MLOG(verb1) << "HvR coefficients:             " << HvR;
+	MLOG(verb1) << "HvZ coefficients:             " << HvZ;
+	MLOG(verb1) << "HsigmaRR coefficients:        " << HsigmaRR;
+	MLOG(verb1) << "HsigmaRPhi coefficients:      " << HsigmaRPhi;
+	MLOG(verb1) << "HsigmaRZ coefficients:        " << HsigmaRZ;
+	MLOG(verb1) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi;
+	MLOG(verb1) << "HsigmaZPhi coefficients:      " << HsigmaZPhi;
+	MLOG(verb1) << "HsigmaZZ coefficients:        " << HsigmaZZ;
+
 	return true;
 }
 
@@ -480,8 +662,6 @@ struct colsplines
 	spline s[Mr2col::maxcolors];
 	spline &operator [](const size_t i) { return s[i]; }
 };
-
-template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
 bool os_photometry::init(const Config &cfg)
 {
@@ -797,17 +977,6 @@ float os_ugriz::grFeH2ug(float gr, float FeH)
 	randomizeG Zraw 0 0.1 $3
 	unset Zraw
 #endif
-}
-
-template<typename T>
-int split(T& arr, const std::string &text)
-{
-	typename T::value_type tmp;
-	std::stringstream ss(text);
-
-	arr.clear();
-	while(ss >> tmp) { arr.push_back(tmp); }
-	return arr.size();
 }
 
 void os_ugriz::Mr2gi_build(const std::string &gi2Mr_str)

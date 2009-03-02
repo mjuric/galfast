@@ -493,7 +493,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineArrayTag<double>("lb[2]", 2, &ovars[3]);
 				defineArrayTag<float>("XYZ[3]", 3, &ovars[4]);
 				defineScalarTag<float>("FeH", &ovars[5]);
-				defineArrayTag<float>("vPhivRvZ[3]", 3, &ovars[6]);
+				defineArrayTag<float>("vcyl[3]", 3, &ovars[6]);
 				defineScalarTag<int>("photoFlags", &ovars[7]);
 				defineScalarTag<std::string>("star_name", &ovars[DEBUG_BASE+0]);		// test thingee
 
@@ -530,7 +530,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 					{ return get<std::pair<double,double> >(factory.ovars[3]); }
 		float *XYZ()		{ return get<float[3]>(factory.ovars[4]); }
 		float &FeH()		{ return get<float>(factory.ovars[5]); }
-		float *vPhivRvZ()	{ return get<float[3]>(factory.ovars[6]); }
+		float *vcyl()		{ return get<float[3]>(factory.ovars[6]); }
 
 		int &photoFlags()	{ return get<int>(factory.ovars[7]); }
 	

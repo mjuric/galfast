@@ -41,6 +41,8 @@
 #include <astro/system/config.h>
 #include <astro/system/log.h>
 #include <astro/io/binarystream.h>
+#include <astro/io/format.h>
+#include <astro/exceptions.h>
 
 #include "paralax.h"
 
@@ -255,22 +257,105 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		char *tags;
 
 	public:
+		class fmtout
+		{
+		protected:
+			static const size_t BUFMAX = 20000;
+			char buf[BUFMAX+1];	// line buffer
+			size_t pos;
+		public:
+			fmtout() : pos(0) {}
+			const char *c_str() const { return buf; }
+
+			size_t prep_buf()
+			{
+				if(pos == BUFMAX)
+				{
+					// This should really never happen ...
+					buf[BUFMAX] = 0;
+					THROW(peyton::exceptions::EAny, "Line buffer exhausted");
+				}
+
+				// Spaces between fields
+				if(pos != 0) { buf[pos] = ' '; pos++; }
+				return BUFMAX - pos;
+			}
+
+			template<typename T>
+			int printf_aux(char *dest, size_t len, const char *fmt, const T &v)
+			{
+				// Default action: explode, because this has to be overloaded for
+				// every printf-legal type
+				THROW(peyton::exceptions::EAny, "Internal error");
+			}
+
+			int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+			int printf_aux(char *dest, size_t maxlen, const char *fmt, const float &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+			int printf_aux(char *dest, size_t maxlen, const char *fmt, const int &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+
+			template<typename T>
+			int printf(const std::string &fmt, const T &v)
+			{
+				size_t len = prep_buf();
+
+				if(!fmt.size())
+				{
+					// No format specification -- revert to iostreams
+					std::ostringstream ss;
+					ss << v;
+					std::string out = ss.str();
+					strncpy(buf+pos, out.c_str(), std::min(len, out.size()));
+					pos += out.size();
+				}
+				else
+				{
+					// sprintf format specified, use it
+					printf_aux(buf+pos, len, fmt.c_str(), v);
+				}
+			}
+		};
+
+		struct tagclass
+		{
+			std::string className;			// "type" of this tag (e.g., "photometry", "color", "astrometry", ...)
+			std::string formatString;		// io::formatter format string for the tag
+
+			tagclass(const std::string &name, const std::string &fmt)
+				: className(name), formatString(fmt)
+			{
+			}
+		};
+
 		struct tagdef
 		{
 			const std::string tagName;		// unique name of the tag
 			const size_t size;			// size of the tag data (in bytes)
 			size_t offset;				// the offset of this tag, if active, -1 otherwise
 			std::vector<size_t*> offset_vars;	// variable to update with tag offset, if/when this tag gets activated
+			const tagclass *tagClass;		// tagClass of this tagdef
+		protected:
+			std::string formatString;		// io::formatter format string for the tag
+		public:
+
+			const std::string &getFormatString() const
+			{
+				if(!formatString.empty()) { return formatString; }
+				if(tagClass) { return tagClass->formatString; }
+				static const std::string dummy;
+				return dummy;
+			}
 
 			virtual void  serialize1(const void *, peyton::io::obstream &) const = 0;
 			virtual void  serialize2(const void *, std::ostream &) const = 0;
+			virtual void  serialize3(const void *, fmtout &) const = 0;
 			virtual void  unserialize1(void *, peyton::io::ibstream &) = 0;
 			virtual void  unserialize2(void *, std::istream &) = 0;
 			virtual void* constructor(void *) = 0;
 			virtual void  destructor(void *val) = 0;
 			virtual void  copy(void *dest, void *src) = 0;
 
-			tagdef(const std::string &tid, const size_t s) : tagName(tid), size(s), offset(-1) {}
+			tagdef(const std::string &tid, const size_t s, const tagclass *tagClass_ = NULL, const std::string &fmt = "")
+				: tagName(tid), size(s), offset(-1), tagClass(tagClass_), formatString(fmt) {}
 		protected:
 			tagdef(const tagdef &);
 			tagdef &operator =(const tagdef &);
@@ -279,13 +364,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		{
 			virtual void  serialize1(const void *val, peyton::io::obstream &out) const { const T *v = reinterpret_cast<const T*>(val); out << *v; }
 			virtual void  serialize2(const void *val, std::ostream &out) const { const T *v = reinterpret_cast<const T*>(val); out << *v; }
+			virtual void  serialize3(const void *val, fmtout &out) const { const T *v = reinterpret_cast<const T*>(val); out.printf(getFormatString(), *v); }
 			virtual void  unserialize1(void *val, peyton::io::ibstream &in)  { T *v = reinterpret_cast<T*>(val); in >> *v; }
 			virtual void  unserialize2(void *val, std::istream &in) { T *v = reinterpret_cast<T*>(val); in >> *v; }
 			virtual void* constructor(void *p)  { return new (p) T(); }
 			virtual void  destructor(void *val) { reinterpret_cast<T*>(val)->~T(); }
 			virtual void  copy(void *dest, void *src) { *reinterpret_cast<T*>(dest) = *reinterpret_cast<T*>(src); }
 
-			tagdefT(const std::string &tid) : tagdef(tid, sizeof(T)) {}
+			tagdefT(const std::string &tid, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T), tagClass_, fmt) {}
 		};
 		// simple array of types T
 		template<typename T> struct tagdefTA : public tagdef
@@ -294,13 +380,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 			virtual void  serialize1(const void *val, peyton::io::obstream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << v[i]; } }
 			virtual void  serialize2(const void *val, std::ostream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << (i ? " " : "") << v[i]; } }
+			virtual void  serialize3(const void *val, fmtout &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out.printf(getFormatString(), v[i]); } }
 			virtual void  unserialize1(void *val, peyton::io::ibstream &in)  { T *v = reinterpret_cast<T*>(val); FOR(0,n) { in >> v[i]; } }
 			virtual void  unserialize2(void *val, std::istream &in) { T *v = reinterpret_cast<T*>(val); FOR(0,n) { in >> v[i]; } }
 			virtual void* constructor(void *p)  { FOR(0,n) { new (reinterpret_cast<T*>(p)+i) T(); } }
 			virtual void  destructor(void *val) { FOR(0,n) { reinterpret_cast<T*>(val)[i].~T(); } }
 			virtual void  copy(void *dest, void *src) { FOR(0,n) { reinterpret_cast<T*>(dest)[i] = reinterpret_cast<T*>(src)[i];} }
 
-			tagdefTA(const std::string &tid, size_t n_) : tagdef(tid, sizeof(T)*n_), n(n_) {}
+			tagdefTA(const std::string &tid, size_t n_, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T)*n_, tagClass_, fmt), n(n_) {}
 		};
 
 		struct factory_t	// singleton used to initialize arrays
@@ -308,25 +395,45 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			std::map<size_t,      tagdef*> usedTags;	// tags currently in use (offset -> tagdef map)
 			std::map<std::string, tagdef*> definedTags;	// all defined tags that can be activated with useTag()
 			std::map<std::string, std::string> tagAliases;	// tag alias -> tag name
+			std::map<std::string, tagclass*> tagClasses;	// all defined tag classes
 
 			size_t nextOffset;			// next available offset for a tag activated with useTag()
 			size_t tagSize;				// size of all active tags, once the structure has been frozen
 
 			std::vector<tagdef *> streamTags;	// list of tags to be unserialized
 
-			// helpers for tag definitions
-			template<typename T> void defineScalarTag(const std::string &tagName, size_t *offset_var = NULL)
+		protected:
+			std::map<std::string, std::string> classToFormat;	// map of types to io::formatter/sprintf default formats
+			bool formatsInitialized;
+
+		public:
+			tagclass *defineTagClass(const std::string &className, const std::string &fmt = "")
 			{
-				tagdef *td = new tagdefT<T>(tagName);
+				if(tagClasses.count(className)) { return tagClasses[className]; }
+				return tagClasses[className] = new tagclass(className, fmt);
+			}
+			tagclass *getTagClass(const std::string &className)
+			{
+				if(tagClasses.count(className)) { return tagClasses[className]; }
+
+				// autodefine class
+				MLOG(verb2) << "Autodefining tag class '" << className << "'";
+				return defineTagClass(className);
+			}
+
+			// helpers for tag definitions
+			template<typename T> void defineScalarTag(const std::string &tagName, size_t *offset_var = NULL, const std::string &type = "", const std::string &fmt = "")
+			{
+				tagdef *td = new tagdefT<T>(tagName, getTagClass(type), fmt);
 				if(offset_var) { td->offset_vars.push_back(offset_var); }
 
 				definedTags[tagName] = td;
 			}
-			template<typename T> void defineArrayTag(const std::string &tagName, const size_t n, size_t *offset_var = NULL)
+			template<typename T> void defineArrayTag(const std::string &tagName, const size_t n, size_t *offset_var = NULL, const std::string &type = "", const std::string &fmt = "")
 			{
-				if(n == 0) { return defineScalarTag<T>(tagName, offset_var); }
+				if(n == 0) { return defineScalarTag<T>(tagName, offset_var, type, fmt); }
 
-				tagdef *td = new tagdefTA<T>(tagName, n);
+				tagdef *td = new tagdefTA<T>(tagName, n, getTagClass(type), fmt);
 				if(offset_var) { td->offset_vars.push_back(offset_var); }
 
 				definedTags[tagName] = td;
@@ -485,36 +592,48 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			static const size_t DEBUG_BASE	= 100;		// offset variable from which debugging/test-related stuff begins
 
 			factory_t()
-				: nextOffset(0), tagSize(-1)
+				: nextOffset(0), tagSize(-1), formatsInitialized(false)
 			{
+				// built in tag classes and formatting specifications
+				defineTagClass("magnitude", 	"% 7.3f"); 	// -12.345
+				defineTagClass("color", 	"% 6.3f");	// -12.345
+				defineTagClass("astrometry", 	"% 13.8f");	// -123.12345678
+				defineTagClass("position", 	"% 10.2f");	// -123456.78
+				defineTagClass("propermotion",  "% 7.1f");	// -1234.1
+				defineTagClass("velocity",      "% 7.1f");	// -1234.1
+				defineTagClass("flags",         "% 4d");	// 1234
+
 				//std::cerr << "Factory: defining tags\n";
-				defineScalarTag<int>("comp", &ovars[0]);
-				defineScalarTag<float>("extinction.r", &ovars[1]);
-				defineArrayTag<double>("lb[2]", 2, &ovars[3]);
-				defineArrayTag<float>("XYZ[3]", 3, &ovars[4]);
-				defineScalarTag<float>("FeH", &ovars[5]);
-				defineArrayTag<float>("vcyl[3]", 3, &ovars[6]);
-				defineScalarTag<int>("photoFlags", &ovars[7]);
+				defineScalarTag<int>("comp", &ovars[0], "", "%3d");
+				defineScalarTag<float>("extinction.r", &ovars[1], "magnitude");
+				defineArrayTag<double>("radec[2]", 2, &ovars[2], "astrometry");
+				defineArrayTag<double>("lb[2]", 2, &ovars[3], "astrometry");
+				defineArrayTag<float>("XYZ[3]", 3, &ovars[4], "position");
+				defineScalarTag<float>("FeH", &ovars[5], "", "% 5.2f");
+				defineArrayTag<float>("vcyl[3]", 3, &ovars[6], "velocity");
+				defineArrayTag<float>("pmlb[3]", 3, &ovars[8], "propermotion");
+				defineArrayTag<float>("pmradec[3]", 3, &ovars[9], "propermotion");
 				defineScalarTag<std::string>("star_name", &ovars[DEBUG_BASE+0]);		// test thingee
 
 				// SDSS
-				defineScalarTag<float>("absSDSSr", &ovars[SDSS_BASE+0]);		// absolute magnitude
-				defineScalarTag<float>("SDSSr", &ovars[SDSS_BASE+1]);			// SDSS r band
-				defineScalarTag<float>("SDSSri", &ovars[SDSS_BASE+2]);		// LF color
-				defineArrayTag<float>("SDSSugriz[5]", 5, &ovars[SDSS_BASE+3]);	// SDSS ugriz colors
+				defineScalarTag<float>("absSDSSr", &ovars[SDSS_BASE+0], "magnitude");		// absolute magnitude
+				defineScalarTag<float>("SDSSr", &ovars[SDSS_BASE+1], "magnitude");			// SDSS r band
+				defineScalarTag<float>("SDSSri", &ovars[SDSS_BASE+2], "color");		// LF color
+				defineArrayTag<float>("SDSSugriz[5]", 5, &ovars[SDSS_BASE+3], "magnitude");	// SDSS ugriz colors
 
 				// LSST
 //				defineScalarTag<float>("absLSSTr", &ovars[IVAR_COLOR]);	// absolute magnitude
 //				defineScalarTag<float>("LSSTr", &ovars[IVAR_MAG]);	// LSST r band
 
 				// built-in generics
-				defineScalarTag<float>("color", &ovars[IVAR_COLOR]);	// generic
-				defineScalarTag<float>("mag",   &ovars[IVAR_MAG]);	// generic
-				defineScalarTag<float>("absmag", &ovars[IVAR_ABSMAG]); // absolute magnitude in IVAR_MAG's band
+				defineScalarTag<float>("color", &ovars[IVAR_COLOR], "color");	// generic
+				defineScalarTag<float>("mag",   &ovars[IVAR_MAG], "magnitude");	// generic
+				defineScalarTag<float>("absmag", &ovars[IVAR_ABSMAG], "magnitude"); // absolute magnitude in IVAR_MAG's band
 			}
 			~factory_t()
 			{
 				FOREACH(definedTags) { delete i->second; }
+				FOREACH(tagClasses) { delete i->second; }
 			}
 		};
 
@@ -525,15 +644,14 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 		int &component()	{ return get<int>(factory.ovars[0]); }
 		float &ext_r()		{ return get<float>(factory.ovars[1]); }
-//		float *vel()		{ return get<float[3]>(factory.ovars[2]); }
-		std::pair<double, double> &lb()
-					{ return get<std::pair<double,double> >(factory.ovars[3]); }
+		double *radec()		{ return get<double[2]>(factory.ovars[2]); }
+		double *lb()		{ return get<double[2]>(factory.ovars[3]); }
 		float *XYZ()		{ return get<float[3]>(factory.ovars[4]); }
 		float &FeH()		{ return get<float>(factory.ovars[5]); }
 		float *vcyl()		{ return get<float[3]>(factory.ovars[6]); }
+		float *pmlb()		{ return get<float[3]>(factory.ovars[8]); }
+		float *pmradec()	{ return get<float[3]>(factory.ovars[9]); }
 
-		int &photoFlags()	{ return get<int>(factory.ovars[7]); }
-	
 		std::string &starname()	{ return get<std::string>(factory.ovars[factory_t::DEBUG_BASE+0]); }
 
 		// SDSS
@@ -566,7 +684,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		}
 
 	public:
-		std::ostream& serialize(std::ostream& out) const
+/*		std::ostream& serialize(std::ostream& out) const
 		{
 			bool first = true;
 			FOREACH(factory.usedTags)
@@ -575,6 +693,17 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				i->second->serialize2(tags + i->second->offset, out);
 				first = false;
 			}
+			return out;
+		};*/
+		std::ostream& serialize(std::ostream& out) const
+		{
+			fmtout line;
+			FOREACH(factory.usedTags)
+			{
+				i->second->serialize3(tags + i->second->offset, line);
+			}
+			out << line.c_str();
+//			std::cerr << line.c_str() << "\n";
 			return out;
 		};
 		std::istream& unserialize(std::istream& in)

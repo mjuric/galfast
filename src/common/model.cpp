@@ -49,6 +49,10 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 {
 	if(!definedTags.count(name) && allowUndefined)
 	{
+		// TODO: implement name[N]{x|keyword1=xxx,keyword2=yyy} formats
+		// where typically the keywords will be 'class' and 'fmt'
+		// NOTE: Update head_to_sm_read.pl to understand these too
+
 		// autocreate this tag based on the information contained in the name
 		// the name format is: name[N]{x}, where:
 		//	[] part is optional -- if not specified, the quantity is a scalar
@@ -60,13 +64,15 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 		//		s -- string
 		//
 		// The regex below matches: name, N, x as what[1],[2],[3], respectively
-		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])\\})?");
+		//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(\\w+=[^,]+)(?:,(\\w+=[^,]+))*)\\})?");
+		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(?:\\s*(\\w+)\\s*=([^,]+))(?:,(?:\\s*(\\w+)\\s*=([^,]+)))*)?\\})?");
 		boost::smatch what;
 		if(boost::regex_match(name, what, e, boost::match_extra))
 		{
 #if 0
 			unsigned i, j;
 			std::cout << "** Match found **\n   Sub-Expressions:\n";
+			std::cout << "Searched string: " << name << "\n";
 			for(i = 0; i < what.size(); ++i)
 				std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
 #endif
@@ -75,15 +81,27 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 			size_t N = atoi(what[2].str().c_str());
 			char type = what[3].str()[0];
 
-			MLOG(verb2) << "Autodefining tag " << name;
+			std::string fieldClass, fmt;
+			for(int i = 4; i < what.size(); i += 2)
+			{
+				if(i+1 >= what.size()) { break; }
+				std::string key = what[i].str();
+				if(key.size() == 0) { continue; }	// nothing was found
+
+				     if(key == "class") { fieldClass = what[i+1].str(); }
+				else if(key == "fmt")   { fmt = what[i+1].str(); }
+				else { THROW(EAny, "Unknown field definition key '" + key + "'."); }
+			}
+
+			MLOG(verb2) << "Autodefining tag " << name << " class=" << fieldClass << ", fmt=" << fmt;
 			
 			switch(type)
 			{
-				case 'd': case 'i': defineArrayTag<int>(name, N); break;
-				case 'g': defineArrayTag<double>(name, N); break;
-				case 's': defineArrayTag<std::string>(name, N); break;
+				case 'd': case 'i': defineArrayTag<int>(name, N, NULL, fieldClass, fmt); break;
+				case 'g': 	    defineArrayTag<double>(name, N, NULL, fieldClass, fmt); break;
+				case 's': 	    defineArrayTag<std::string>(name, N, NULL, fieldClass, fmt); break;
 				case 'f': case 0:
-					defineArrayTag<float>(name, N); break;
+						    defineArrayTag<float>(name, N, NULL, fieldClass, fmt); break;
 				default:
 					ASSERT(0);
 			}

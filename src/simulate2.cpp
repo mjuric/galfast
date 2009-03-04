@@ -1300,6 +1300,7 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		proj.inverse(s.x, s.y, l, b);
 		double cl = cos(l), cb = cos(b), sl = sin(l), sb = sin(b);
 //		coordinates::galequ(l, b, l, b);
+		if(l < 0) { l = ctn::twopi + l; }
 
 		// absolute magnitudes and distance
 //		const double Mr = paralax.Mr(s.ri);
@@ -1315,7 +1316,9 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		model.draw_tag(t, x, y, z, s.ri, rng);
 
 		// write out this star and its tags
-		t.lb()      = std::make_pair(deg(l), deg(b));
+		double  *lb = t.lb();
+		      lb[0] = deg(l);
+		      lb[1] = deg(b);
 		t.color()   = s.ri;
 		t.mag()     = s.m;
 		t.absmag()  = Mr;

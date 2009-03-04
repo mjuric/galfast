@@ -180,15 +180,6 @@ size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		float Z = s.XYZ()[2];
 		float &FeH = s.FeH();
 
-// 		// assign metallicity
-// 		static double A[]     = { 0.63, 0.37 };
-// 		static double sigma[] = { 0.20, 0.20,  0.30};
-// 		static double offs[]  = { 0.00, 0.14, -1.46};
-// 
-// 		static double muInf = -0.82;
-// 		static double DeltaMu = 0.55;
-// 		static double Hmu = 500;
-
 		switch(component)
 		{
 			case BahcallSoneira_model::THIN:
@@ -392,6 +383,11 @@ class os_kinTMIII : public osink
 void test_kin()
 {
 	return;
+// 	Radians l, b;
+// 	equgal(0, ctn::pi/2., l, b);
+// 	printf("%.10f\n", deg(l));
+// 	exit(-1);
+
 	os_kinTMIII o;
 
 	Config cfg;
@@ -642,7 +638,6 @@ class os_photometry : public osink
 		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1), offset_mags(-1)
 		{
 			req.insert("FeH");
-//			prov.insert("photoFlags");
 		}
 };
 
@@ -690,7 +685,7 @@ bool os_photometry::init(const Config &cfg)
 
 	// deduce photoFlags name
 	std::string bandsetname = bandset.substr(0, bandset.find('['));
-	photoFlags = bandsetname + "PhotoFlags{i}";
+	photoFlags = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
 	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
 	prov.insert(photoFlags);
 
@@ -1081,6 +1076,213 @@ bool os_ugriz::init(const Config &cfg)
 }
 
 
+// convert velocities to proper motions
+class os_vel2pm : public osink
+{
+public:
+	int coordsys;
+	static const int GAL = 0;
+	static const int EQU = 1;
+
+	float vLSR,		// Local standard of rest velocity
+ 	      u0, v0, w0;	// Solar peculiar motion
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
+
+	os_vel2pm() : osink(), coordsys(GAL)
+	{
+		req.insert("lb[2]");
+		req.insert("XYZ[3]");
+		req.insert("vcyl[3]");
+	}
+};
+
+// convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
+void vel_xyz2lbr(float &vl, float &vr, float &vb, const float vx, const float vy, const float vz, const double l, const double b)
+{
+	double cl, sl, cb, sb;
+	cl = cos(l);
+	sl = sin(l);
+	cb = cos(b);
+	sb = sin(b);
+
+	float tmp;
+	vl  =  vx*sl  - vy*cl;
+	tmp =  vx*cl  + vy*sl;
+	vr  = -cb*tmp + vz*sb;
+	vb  =  sb*tmp + vz*cb;
+}
+
+void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
+{
+	// convert galactocentric cylindrical to cartesian velocities
+	float rho = sqrt(X*X + Y*Y);
+	float cphi = X / rho;
+	float sphi = Y / rho;
+
+	vx = -sphi * vr + cphi * vphi;
+	vy =  cphi * vr + sphi * vphi;
+	vz = vz0;
+}
+
+template<typename T>
+void array_copy(T *dest, const T *src, const size_t n)
+{
+	FOR(0, n) { dest[i] = src[i]; }
+}
+
+size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
+	//
+	// OUTPUT:
+	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
+	//	Radial velocity in km/s in pm[2]
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		const double *lb0 = s.lb(); double lb[2];
+		lb[0] = rad(lb0[0]);
+		lb[1] = rad(lb0[1]);
+		const float *vcyl = s.vcyl();
+		const float *XYZ = s.XYZ();
+
+		// convert the velocities from cylindrical to galactocentric cartesian system
+		float pm[3];
+		vel_cyl2xyz(pm[0], pm[1], pm[2],   vcyl[0], vcyl[1], vcyl[2],   XYZ[0], XYZ[1]);
+
+		// switch to Solar coordinate frame
+		pm[0] -= u0;
+		pm[1] -= v0 + vLSR;
+		pm[2] -= w0;
+
+		// convert to velocities wrt. the observer
+		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],   lb[0], lb[1]);
+
+		// convert to proper motions
+		float D = sqrt(sqr(XYZ[0]) + sqr(XYZ[1]) + sqr(XYZ[2]));
+		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
+		pm[1] /= 4.74 * D*1e-3;
+
+		// rotate to output coordinate system
+		switch(coordsys)
+		{
+		case GAL:
+			array_copy(s.pmlb(), pm, 3);
+			break;
+		case EQU:
+			THROW(EAny, "Output in equatorial system not implemented yet.");
+			array_copy(s.pmradec(), pm, 3);
+			break;
+		default:
+			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+			break;
+		}
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_vel2pm::init(const Config &cfg)
+{
+	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	std::string cs;
+	cfg.get(cs, "coordsys", "gal");
+	     if(cs == "gal") { coordsys = GAL; prov.insert("pmlb[3]"); }
+	else if(cs == "equ") { coordsys = EQU; prov.insert("pmradec[3]"); }
+	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
+
+	// LSR and peculiar Solar motion
+	cfg.get(vLSR, "vLSR", -220.0f);
+	cfg.get(u0,   "u0",    -10.0f);
+	cfg.get(v0,   "v0",     -5.3f);
+	cfg.get(w0,   "w0",      7.2f);
+
+	return true;
+}
+
+
+/////////////////////////////////////////////////////////////
+
+// convert between coordinate systems
+class os_gal2other : public osink
+{
+public:
+	int coordsys;
+	static const int GAL = 0;
+	static const int EQU = 1;
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
+
+	os_gal2other() : osink(), coordsys(GAL)
+	{
+		req.insert("lb[2]");
+	}
+};
+
+size_t os_gal2other::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
+	//
+	// OUTPUT:
+	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
+	//	Radial velocity in km/s in pm[2]
+	if(coordsys != GAL)
+	{
+		for(size_t i=0; i != count; i++)
+		{
+			sstruct &s = in[i];
+
+			// fetch prerequisites
+			const double *lb0 = s.lb(); double lb[2];
+			lb[0] = rad(lb0[0]);
+			lb[1] = rad(lb0[1]);
+
+			// rotate to output coordinate system
+			double *out;
+			switch(coordsys)
+			{
+			case EQU:
+				out = s.radec();
+				galequ(lb[0], lb[1], out[0], out[1]);
+				break;
+			default:
+				THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+				break;
+			}
+
+			// convert to degrees
+			out[0] /= ctn::d2r;
+			out[1] /= ctn::d2r;
+		}
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_gal2other::init(const Config &cfg)
+{
+	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	std::string cs;
+	cfg.get(cs, "coordsys", "gal");
+	     if(cs == "gal") { coordsys = GAL; /* -- noop -- */ }
+	else if(cs == "equ") { coordsys = EQU; prov.insert("radec[2]"); }
+	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
+
+	return true;
+}
+
+
 
 // in/out ends of the chain
 class os_textout : public osink
@@ -1089,6 +1291,12 @@ class os_textout : public osink
 		std::ofstream out;
 		bool headerWritten;
 		ticker tick;
+
+	protected:
+		// map of field name -> formatter string, for output
+		std::map<std::string, std::string> outputs;
+		// map of field index -> formatter string (optimization)
+		std::map<size_t, std::string> outputsI;
 
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
@@ -1127,6 +1335,17 @@ bool os_textout::init(const Config &cfg)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	out.open(cfg["filename"].c_str());
+
+	// slurp up any output/formatting information
+	// the formats are written in the configuration file as:
+	//	format.<fieldname> = <formatter_fmt_string>
+	std::set<std::string> keys;
+	cfg.get_matching_keys(keys, "format\\.[a-zA-Z0-9_]+$");
+	FOREACH(keys)
+	{
+		std::string name = i->substr(7);
+		outputs[name] = cfg[*i];
+	}
 
 	return out;
 }
@@ -1192,6 +1411,8 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "photometry") { s.reset(new os_photometry); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
+	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
+	else if(name == "gal2other") { s.reset(new os_gal2other); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 

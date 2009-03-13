@@ -36,6 +36,7 @@
 #include "projections.h"
 #include "model.h"
 #include "gpc_cpp.h"
+#include "io.h"
 
 #include <astro/useall.h>
 using namespace std;
@@ -715,15 +716,16 @@ try
 	sopts["pdfinfo"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
 	sopts["pdfinfo"]->add_standard_options();
 
-	bool simpleOutput = false;
+	bool simpleOutput = true;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
 	sopts["catalog"]->argument("conf").bind(input).desc("Catalog (\"sim\") configuration file (input)");
 	sopts["catalog"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
 	sopts["catalog"]->argument("output").bind(output).desc("Generated catalog prefix (output)");
-	sopts["catalog"]->option("s").bind(simpleOutput).addname("simple").value("true").desc("Generate simple .txt output");
-	sopts["catalog"]->prolog = 
-		"The output is stored by default in $(output)/uniq_objects.dmm and $(output)/uniq_observations.dmm DMM files.\n"
-		"If -s is specified, simple textual output is stored to file $(output).";
+//	sopts["catalog"]->option("s").bind(simpleOutput).addname("simple").value("true").desc("Generate simple .txt output");
+	sopts["catalog"]->option("d").bind(simpleOutput).addname("dmm").value("false").desc("Generate DMM output (deprecated)");
+	sopts["catalog"]->prolog =
+		"If -d is specified, the output is by default stored to $(output)/uniq_objects.dmm and $(output)/uniq_observations.dmm DMM files.\n"
+		"Otherwise, textual output, possibly compressed depending on file extension, is stored $(output).";
 	sopts["catalog"]->add_standard_options();
 
 	std::string catalog, in_module = "textin", out_module = "textout";
@@ -856,8 +858,9 @@ try
 		else
 		{
 			MLOG(verb1) << "Simple text file output to " << output << ".";
-			std::ofstream out(output.c_str());
-			star_output_to_textstream cat_out(out);
+//			std::ofstream out(output.c_str());
+			flex_output out(output.c_str());
+			star_output_to_textstream cat_out(out.out());
 			skygen.montecarlo(cat_out);
 		}
 	}

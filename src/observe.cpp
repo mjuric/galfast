@@ -37,6 +37,7 @@
 #include "paralax.h"
 #include "analysis.h"
 #include "dm.h"
+#include "io.h"
 
 #include <vector>
 #include <map>
@@ -1283,12 +1284,96 @@ bool os_gal2other::init(const Config &cfg)
 }
 
 
+/////////////////////////////////////////////////////////////
+#if 0
+// mix in photometric errors
+class os_photoErrors : public osink
+{
+public:
+	struct photoerr_t
+	{
+		spline sigma;
+
+		photoerr_t() {}
+
+		float draw(const float mag, gsl_rng *rng)
+		{
+			double s = sigma(mag);
+			float err = gsl_ran_gaussian(rng, s);
+			return err;
+		}
+	};
+	std::map<std::string, photoerr_t> photoerrs;	// band -> error definitions
+
+public:
+	std::map<size_t, photoerr_t *> photoerrsI;	// sstruct idx -> error definitions (optimization, this is populated on init)
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual const std::string &name() const { static std::string s("photoErrors"); return s; }
+
+	os_photoErrors() : osink()
+	{
+		req.insert("lb[2]");
+	}
+};
+
+size_t os_photoErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
+	//
+	// OUTPUT:
+	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
+	//	Radial velocity in km/s in pm[2]
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		const double *lb0 = s.lb(); double lb[2];
+		lb[0] = rad(lb0[0]);
+		lb[1] = rad(lb0[1]);
+
+		// rotate to output coordinate system
+		double *out;
+		switch(coordsys)
+		{
+		case EQU:
+			out = s.radec();
+			galequ(lb[0], lb[1], out[0], out[1]);
+			break;
+		default:
+			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+			break;
+		}
+
+		// convert to degrees
+		out[0] /= ctn::d2r;
+		out[1] /= ctn::d2r;
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_photoErrors::init(const Config &cfg)
+{
+	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	cfg.get(cs, "coordsys", "gal");
+
+	return true;
+}
+#endif
 
 // in/out ends of the chain
 class os_textout : public osink
 {
 	protected:
-		std::ofstream out;
+//		std::ofstream out;
+//		peyton::io::gzstream::ofstream out;
+		flex_output out;
+
 		bool headerWritten;
 		ticker tick;
 
@@ -1316,14 +1401,14 @@ size_t os_textout::push(sstruct *&data, const size_t count, gsl_rng *rng)
 
 	if(!headerWritten)
 	{
-		out << "# " << sstruct::factory << "\n";
+		out.out() << "# " << sstruct::factory << "\n";
 		headerWritten = true;
 	}
 
 	size_t cnt = 0;
-	while(cnt < count && (out << data[cnt] << "\n")) { cnt++; tick.tick(); }
+	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }
 
-	if(!out) { THROW(EIOException, "Error outputing data"); }
+	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
 	delete [] data;
 	data = NULL;
@@ -1334,6 +1419,7 @@ size_t os_textout::push(sstruct *&data, const size_t count, gsl_rng *rng)
 bool os_textout::init(const Config &cfg)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+//	out.open(cfg["filename"].c_str());
 	out.open(cfg["filename"].c_str());
 
 	// slurp up any output/formatting information
@@ -1347,7 +1433,7 @@ bool os_textout::init(const Config &cfg)
 		outputs[name] = cfg[*i];
 	}
 
-	return out;
+	return out.out();
 }
 
 class osource : public opipeline_stage
@@ -1365,7 +1451,8 @@ class osource : public opipeline_stage
 class os_textin : public osource
 {
 	protected:
-		std::ifstream in;
+//		std::ifstream in;
+		flex_input in;
 
 	public:
 		virtual bool init(const Config &cfg);
@@ -1380,10 +1467,10 @@ bool os_textin::init(const Config &cfg)
 {
 	const char *fn = cfg["filename"].c_str();
 	in.open(fn);
-	if(!in) { THROW(EFile, "Failed to open '" + (std::string)fn + "' for input."); }
+	if(!in.in()) { THROW(EFile, "Failed to open '" + (std::string)fn + "' for input."); }
 
-	in >> sstruct::factory;
-	return in;
+	in.in() >> sstruct::factory;
+	return in.in();
 }
 
 int os_textin::run(gsl_rng *rng)
@@ -1394,9 +1481,9 @@ int os_textin::run(gsl_rng *rng)
 	do {
 		sstruct *data = sstruct::create(block);
 		size_t cnt = 0;
-		while(cnt < block && in >> data[cnt]) { cnt++; }
+		while(cnt < block && in.in() >> data[cnt]) { cnt++; }
 		total += nextlink->push(data, cnt, rng);
-	} while(in);
+	} while(in.in());
 
 	return total;
 }
@@ -1413,6 +1500,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
+//	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 

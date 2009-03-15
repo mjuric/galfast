@@ -205,10 +205,10 @@ public:
 		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
 	~spline();
 
- 	double operator ()(double x)        { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
- 	double deriv(double x)              { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
- 	double deriv2(double x)             { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
- 	double integral(double a, double b) { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
+ 	double operator ()(double x)        const { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
+	double deriv(double x)              const { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
+	double deriv2(double x)             const { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
+	double integral(double a, double b) const { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
 
 	bool empty() const { return xv.size() == 0; }
 public:
@@ -329,10 +329,11 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		struct tagdef
 		{
 			const std::string tagName;		// unique name of the tag
-			const size_t size;			// size of the tag data (in bytes)
+			const size_t size;			// total size of the tag data (in bytes)
 			size_t offset;				// the offset of this tag, if active, -1 otherwise
 			std::vector<size_t*> offset_vars;	// variable to update with tag offset, if/when this tag gets activated
 			const tagclass *tagClass;		// tagClass of this tagdef
+			size_t n;				// number of data elements (1 if tag holds a scalar, >1 if array)
 		protected:
 			std::string formatString;		// io::formatter format string for the tag
 		public:
@@ -343,6 +344,11 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				if(tagClass) { return tagClass->formatString; }
 				static const std::string dummy;
 				return dummy;
+			}
+			size_t count() const { return n; }
+			std::string cannonicalTagName() const
+			{
+				return tagName.substr(0, tagName.find('['));
 			}
 
 			virtual void  serialize1(const void *, peyton::io::obstream &) const = 0;
@@ -376,8 +382,6 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		// simple array of types T
 		template<typename T> struct tagdefTA : public tagdef
 		{
-			size_t n;
-
 			virtual void  serialize1(const void *val, peyton::io::obstream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << v[i]; } }
 			virtual void  serialize2(const void *val, std::ostream &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out << (i ? " " : "") << v[i]; } }
 			virtual void  serialize3(const void *val, fmtout &out) const { const T *v = reinterpret_cast<const T*>(val); FOR(0,n) { out.printf(getFormatString(), v[i]); } }
@@ -387,7 +391,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			virtual void  destructor(void *val) { FOR(0,n) { reinterpret_cast<T*>(val)[i].~T(); } }
 			virtual void  copy(void *dest, void *src) { FOR(0,n) { reinterpret_cast<T*>(dest)[i] = reinterpret_cast<T*>(src)[i];} }
 
-			tagdefTA(const std::string &tid, size_t n_, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T)*n_, tagClass_, fmt), n(n_) {}
+			tagdefTA(const std::string &tid, size_t n_, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T)*n_, tagClass_, fmt) { n = n_; }
 		};
 
 		struct factory_t	// singleton used to initialize arrays
@@ -480,6 +484,16 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				tagdef *td = definedTags[name];
 				return td->offset;
 			}
+			bool getUsedTagsByClassName(std::vector<const tagdef *> &found, const std::string &className)
+			{
+				found.clear();
+				FOREACH(usedTags)
+				{
+					if(i->second->tagClass->className != className) continue;
+					found.push_back(i->second);
+				}
+				return !found.empty();
+			}
 
 			// in-use tags serialization/unserialization
 			peyton::io::ibstream& unserialize(peyton::io::ibstream& in)
@@ -503,6 +517,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			}
 			size_t gettags(std::set<std::string> &tags) const
 			{
+				tags.clear();
 				FOREACH(usedTags) { tags.insert(i->second->tagName); }
 				FOREACH(tagAliases) { tags.insert(i->first); }
 			}

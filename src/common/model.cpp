@@ -49,12 +49,8 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 {
 	if(!definedTags.count(name) && allowUndefined)
 	{
-		// TODO: implement name[N]{x|keyword1=xxx,keyword2=yyy} formats
-		// where typically the keywords will be 'class' and 'fmt'
-		// NOTE: Update head_to_sm_read.pl to understand these too
-
 		// autocreate this tag based on the information contained in the name
-		// the name format is: name[N]{x}, where:
+		// the name format is: name[N]{x|keyword1=xxx,keyword2=yyy}, where:
 		//	[] part is optional -- if not specified, the quantity is a scalar
 		//	N is the size of the array (integer)
 		//	x is the type of the array, and can be one of:
@@ -81,27 +77,27 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 			size_t N = atoi(what[2].str().c_str());
 			char type = what[3].str()[0];
 
-			std::string fieldClass, fmt;
+			std::string tagClass, fmt;
 			for(int i = 4; i < what.size(); i += 2)
 			{
 				if(i+1 >= what.size()) { break; }
 				std::string key = what[i].str();
 				if(key.size() == 0) { continue; }	// nothing was found
 
-				     if(key == "class") { fieldClass = what[i+1].str(); }
+				     if(key == "class") { tagClass = what[i+1].str(); }
 				else if(key == "fmt")   { fmt = what[i+1].str(); }
 				else { THROW(EAny, "Unknown field definition key '" + key + "'."); }
 			}
 
-			MLOG(verb2) << "Autodefining tag " << name << " class=" << fieldClass << ", fmt=" << fmt;
+			MLOG(verb2) << "Autodefining tag " << name << " class=" << tagClass << ", fmt=" << fmt;
 			
 			switch(type)
 			{
-				case 'd': case 'i': defineArrayTag<int>(name, N, NULL, fieldClass, fmt); break;
-				case 'g': 	    defineArrayTag<double>(name, N, NULL, fieldClass, fmt); break;
-				case 's': 	    defineArrayTag<std::string>(name, N, NULL, fieldClass, fmt); break;
+				case 'd': case 'i': defineArrayTag<int>(name, N, NULL, tagClass, fmt); break;
+				case 'g': 	    defineArrayTag<double>(name, N, NULL, tagClass, fmt); break;
+				case 's': 	    defineArrayTag<std::string>(name, N, NULL, tagClass, fmt); break;
 				case 'f': case 0:
-						    defineArrayTag<float>(name, N, NULL, fieldClass, fmt); break;
+						    defineArrayTag<float>(name, N, NULL, tagClass, fmt); break;
 				default:
 					ASSERT(0);
 			}

@@ -88,12 +88,18 @@ class opipeline_stage
 
 	public:
 		virtual bool init(const Config &cfg) = 0;
-		const std::set<std::string> &provides() const { return prov; }
+		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory);
+//		const std::set<std::string> &provides() const { return prov; }
 		const std::set<std::string> &requires() const { return req; }
 
 		bool satisfied_with(const std::set<std::string> &haves);
-		bool provides_any_of(const std::set<std::string> &needs, std::string &which);
-		virtual int priority() { return 0; }
+//		bool provides_any_of(const std::set<std::string> &needs, std::string &which);
+
+		static const int PRIORITY_INPUT      = -10000;
+		static const int PRIORITY_STAR       =      0;
+		static const int PRIORITY_INSTRUMENT =   1000;
+		static const int PRIORITY_OUTPUT     =  10000;
+		virtual int priority() { return PRIORITY_STAR; }
 
 	public:
 		bool inits(const std::string &cfgstring) { return inits(cfgstring.c_str()); }
@@ -110,6 +116,18 @@ class opipeline_stage
 		}
 };
 
+bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory)
+{
+	// use tags which the stage will provide
+	FOREACH(prov)
+	{
+		if(i->at(0) == '_') { continue; }
+		factory.useTag(*i, true);
+	}
+
+	return true;
+}
+
 bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 {
 	FOREACH(req)
@@ -122,6 +140,7 @@ bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 	return true;
 }
 
+#if 0
 bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::string &which)
 {
 	FOREACH(needs)
@@ -130,6 +149,7 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 	}
 	return false;
 }
+#endif
 
 class osink : public opipeline_stage
 {
@@ -242,6 +262,130 @@ bool os_FeH::init(const Config &cfg)
 }
 
 
+// add photometric errors information
+class os_photometryErrors : public osink
+{
+protected:
+	struct errdef
+	{
+		size_t	inoffs;		// sstruct offset where the true magnitude is
+		size_t	outoffs;	// sstruct offset where the observed magnitude will be stored
+		const spline *sgma;	// spline giving gaussian sigma of errors given true magnitude
+
+		errdef(size_t io, size_t oo, const spline &s) : inoffs(io), outoffs(oo), sgma(&s) {}
+		float sigma(float mag) { return (*sgma)(mag); }
+	};
+
+protected:
+	std::map<std::string, std::map<std::string, spline> > availableErrors;
+	std::vector<errdef> usedErrors;
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg);
+	virtual bool prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory);
+	virtual const std::string &name() const { static std::string s("photometryErrors"); return s; }
+	virtual int priority() { return PRIORITY_INSTRUMENT; }	// ensure this stage has the least priority
+
+	os_photometryErrors() : osink()
+	{
+	}
+};
+
+size_t os_photometryErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// mix-in gaussian error, with sigma drawn from preloaded splines
+		FOREACH(usedErrors)
+		{
+			float &mag = s.get<float>(i->inoffs);
+			float &obs = s.get<float>(i->outoffs);
+			obs = mag + gsl_ran_gaussian(rng, i->sigma(mag));
+		}
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_photometryErrors::prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory)
+{
+	// Search the configuration for all photometric tags that are defined.
+	// Note that the priority of this module ensures it's run after any module
+	// that may generate photometric information has already run.
+	std::vector<const sstruct::tagdef *> mags;
+	if(!factory.getUsedTagsByClassName(mags, "magnitude"))
+	{
+		MLOG(verb1) << "Warning: Not mixing in photometric errors, as no photometric information is being generated.";
+		return true;
+	}
+
+	FOREACH(mags)
+	{
+		const sstruct::tagdef *td = *i;
+
+		if(availableErrors.count(td->tagName) == 0 ) { continue; }
+
+		std::string name = td->cannonicalTagName();
+		size_t size = td->size / td->count();
+		if(size == sizeof(float))
+		{
+			THROW(EAny, "Photometry errors module expects all photometric information to be stored as single-precision floats, and " + td->tagName + " is not.");
+		}
+
+		FOREACH(availableErrors[td->tagName])
+		{
+			size_t idx = atoi(i->first.c_str());
+			if(idx >= td->count()) { continue; }
+
+			std::string restag = "obs" + name + "_" + str(idx);	// e.g. obsSDSSr
+			size_t resoffs = sstruct::factory.useTag(restag, true);
+			prov.insert(restag);
+
+			usedErrors.push_back(errdef(resoffs, td->offset + idx*size, i->second));
+		}
+	}
+}
+
+bool os_photometryErrors::init(const Config &cfg)
+{
+	// Expected configuration format:
+	// 	<photosys>.<bandidx>.file = banderrs.txt
+	// If instead of a filename the keyword 'internal' is specified, built-in files will be used.
+	// Built-in filenames are of the form $datadir/<photosys>.<bandidx>.photoerr.txt
+	//
+	// Example:
+	// SDSSugriz[5].0.file = SDSSugriz[5].u.photoerr.txt
+	//
+	// Expected banderrs.txt format:
+	//   <mag>   <sigma(mag)>
+	// Band should correspond to photosys name, e.g., for SDSSugriz[5], the u band is SDSSugriz[0]
+	std::set<std::string> keys;
+	cfg.get_matching_keys(keys, "[a-zA-Z0-9_\\[\\]]+\\.[0-9]+\\.file");
+
+	FOREACH(keys)
+	{
+		size_t p1 = i->find('.');
+		std::string photosys = i->substr(0, p1);
+		p1++;
+		std::string idx = i->substr(p1, i->find('.', p1));
+
+		std::string file = cfg[*i];
+		if(file == "internal")
+		{
+			file = datadir() + "/" + photosys + "." + idx + ".photoerr.txt";
+		}
+		text_input_or_die(in, file);
+		std::vector<double> mag, sigma;
+		load(in, mag, 0, sigma, 1);
+
+		availableErrors[photosys][idx].construct(mag, sigma);
+	}
+
+	return true;
+}
 
 // add Fe/H information
 class os_fixedFeH : public osink
@@ -1386,7 +1530,7 @@ class os_textout : public osink
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
 		virtual bool init(const Config &cfg);
-		virtual int priority() { return 1000000; }	// ensure this stage has the least priority
+		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
 		virtual const std::string &name() const { static std::string s("textout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
 
@@ -1439,7 +1583,7 @@ bool os_textout::init(const Config &cfg)
 class osource : public opipeline_stage
 {
 	public:
-		virtual int priority() { return -1000000; } // ensure highest priority for this stage
+		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
 
 	public:
 		osource() : opipeline_stage()
@@ -1519,12 +1663,9 @@ class opipeline
 		int run(gsl_rng *rng);
 };
 
+// construct the pipeline based on requirements and provisions
 int opipeline::run(gsl_rng *rng)
 {
-	// construct the pipeline based on requirements and provisions
-	std::set<std::string> haves;
-	sstruct::factory.gettags(haves);
-
 	// form a priority queue of requested stages. The priorities ensure that _output stage
 	// will end up last (as well as allow some control of which stage executes first if
 	// multiple stages have all prerequisites satisfied)
@@ -1538,32 +1679,35 @@ int opipeline::run(gsl_rng *rng)
 	std::string which;
 	while(!stages.empty())
 	{
+		// get all currently available (used) tags
+		std::set<std::string> haves;
+		sstruct::factory.gettags(haves);
+
+		// debugging output
 		std::ostringstream ss;
 		FOREACH(haves) { ss << *i << " "; };
 		DLOG(verb2) << "haves: " << ss.str();
 
+		// find next pipeline stage that is satisfied with the available tags
 		bool foundOne = false;
 		FOREACH(stages)
 		{
 			opipeline_stage &s = *i->second;
 			if(!s.satisfied_with(haves)) { continue; }
 
+#if 0
 			// check for collisions
 			if(s.provides_any_of(haves, which))
 			{
 				THROW(EAny, "Another module already provides " + which + ", that " + s.name() + " is trying to provide");
 			}
+#endif
+			// initialize this pipeline stage (this typically useTag-s any new tags
+			// that this stage will add)
+			s.prerun(pipeline, sstruct::factory);
 
 			// append to pipeline
 			pipeline.push_back(&s);
-			haves.insert(s.provides().begin(), s.provides().end());
-
-			// use tags which the stage will provide
-			FOREACHj(j, s.provides())
-			{
-				if(j->at(0) == '_') { continue; }
-				sstruct::factory.useTag(*j, true);
-			}
 
 			// erase from the list of pending stages
 			stages.erase(i);

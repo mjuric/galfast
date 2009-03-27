@@ -44,68 +44,148 @@
 
 using namespace std;
 
+// helpers for tag definitions
+template<typename T>
+sstruct::tagdef* createTag_aux(const std::string &tagName, sstruct::tagclass *tagClass, const size_t n = 1)
+{
+	if(n <= 1)
+		return new sstruct::tagdefT<T>(tagName, tagClass);	// scalar
+	else
+		return new sstruct::tagdefTA<T>(tagName, n, tagClass);	// array
+}
+
+void parseAliases(std::vector<std::pair<std::string, size_t> > &aliases, const std::string &s)
+{
+	aliases.clear();
+
+	// alias format: alias1,alias2,alias3=NNN,alias4...
+	// where NNN is index into this tag's array (if the tag is an array)
+	boost::regex e("(?:(\\w+)(?:=(\\d+))?)(?:,(\\w+)(?:=(\\d+))?)*");
+	boost::smatch what;
+	if(boost::regex_match(s, what, e, boost::match_extra))
+	{
+	#if 0
+		unsigned i, j;
+		std::cout << "** Match found **\n   Sub-Expressions:\n";
+		std::cout << "Searched string: " << s << "\n";
+		for(i = 0; i < what.size(); ++i)
+			std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
+	#endif
+		for(int i = 0; i < what.size(); i += 2)
+		{
+			if(i+1 >= what.size()) { break; }
+			std::string alias = what[i].str();
+			if(alias.size() == 0) { continue; }	// nothing was found
+
+			std::string idxs = what[i].str();
+			size_t idx = idxs.empty() ? 0 : atoi(idxs.c_str());
+			aliases.push_back(make_pair(alias, idx));
+		}
+	}
+}
+
+sstruct::tagdef *sstruct::factory_t::createTag(const std::string &stringDef, size_t *offset_var)
+{
+	// parse stringDef and create a corresponding tag instance
+	// the tag definition format is: name[N]{keyword1:xxx;keyword2:yyy;...}, where:
+	//	[] part is optional -- if not specified, the quantity is a scalar
+	//	N is the size of the array (integer)
+	// The regex below matches: name, N, x as what[1],[2],[3], respectively
+	//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(\\w+=[^,]+)(?:,(\\w+=[^,]+))*)\\})?");
+	//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(?:\\s*(\\w+)\\s*=([^,]+))(?:,(?:\\s*(\\w+)\\s*=([^,]+)))*)?\\})?");
+	boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{(?:(?:\\s*(\\w+)\\s*:([^;]+))(?:;(?:\\s*(\\w+)\\s*:([^;]+)))*)?\\})?");
+	boost::smatch what;
+	if(boost::regex_match(stringDef, what, e, boost::match_extra))
+	{
+	#if 0
+		unsigned i, j;
+		std::cout << "** Match found **\n   Sub-Expressions:\n";
+		std::cout << "Searched string: " << stringDef << "\n";
+		for(i = 0; i < what.size(); ++i)
+			std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
+	#endif
+		// slurp up the definition
+		std::string tagName = what[1];
+		size_t n = atoi(what[2].str().c_str());
+
+		std::string className, fmt, type;
+		std::vector<std::pair<std::string, size_t> > aliases;
+		for(int i = 4; i < what.size(); i += 2)
+		{
+			if(i+1 >= what.size()) { break; }
+			std::string key = what[i].str();
+			if(key.size() == 0) { continue; }	// nothing was found
+
+				if(key == "class") { className = what[i+1].str(); }
+			else if(key == "fmt")   { fmt = what[i+1].str(); }
+			else if(key == "type")  { type = what[i+1].str(); }
+			else if(key == "alias") { parseAliases(aliases, what[i+1].str()); }
+			else { THROW(EAny, "Unknown field definition key '" + key + "'."); }
+		}
+
+		MLOG(verb2) << "Defining tag from " << stringDef << ": type=" << type << ", class=" << className << ", fmt=" << fmt;
+
+		// create a correctly subclassed tagdef
+		if(type.empty()) { type = "float"; }
+		tagclass *tagClass = getTagClass(className);
+		tagdef *td = NULL;
+		#define CREATETYPE(strtype, ctype) if(td == NULL && type == strtype) { td = createTag_aux<ctype>(tagName, tagClass, n); td->tagType = strtype; }
+		CREATETYPE("int", int)
+		CREATETYPE("double", double)
+		CREATETYPE("string", std::string)
+		CREATETYPE("float", float)
+		#undef CREATETYPE
+		if(td == NULL) { THROW(EAny, "Unknown tag data type '" + type + "'"); }
+
+		// set overriden tag properties
+		if(!fmt.empty()) { td->formatString = fmt; }
+
+		// store the new tag definition
+		definedTags[tagName] = td;
+		if(offset_var) { td->offset_vars.push_back(offset_var); }
+
+		// set aliases
+		FOREACH(aliases)
+		{
+			aliasTag(tagName, i->first, i->second);
+		}
+	}
+	else
+	{
+		MLOG(verb1) << "Failed to parse tag definition " << stringDef;
+	}
+}
+
+sstruct::tagdef *sstruct::factory_t::aliasTag(const std::string &name, const std::string &alias, const size_t idx = -1)
+{
+	ASSERT(definedTags.count(name));
+	tagdef *td = definedTags[name];
+	ASSERT(td->offset != -1);		// the tag alias target has to be in use
+
+	if(!definedTags.count(alias))
+	{
+		// autodefine tag by cloning the tag being aliased
+		definedTags[alias] = idx < 0 ? td->clone(alias) : td->cloneScalar(alias);
+	}
+
+	tagdef *atd = definedTags[alias];
+	ASSERT(atd->offset == -1);			// the alias must be unused
+	ASSERT(atd->elementSize == td->elementSize);	// alias and the aliased tag must be of same element size
+	ASSERT(idx < td->n);				// if aliasing a sub-element, must be within bounds
+
+	atd->aliasingIndex = idx;
+	atd->offset = td->offset + td->elementSize*idx;	// let the alias know where in the index it is
+	FOREACH(atd->offset_vars) { **i = atd->offset; }	// notify aliases' listeners
+	tagAliases[alias] = name;
+	return atd;
+}
+
 // activation of tags that are in use
 sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool allowUndefined)
 {
 	if(!definedTags.count(name) && allowUndefined)
 	{
-		// autocreate this tag based on the information contained in the name
-		// the name format is: name[N]{x|keyword1=xxx,keyword2=yyy}, where:
-		//	[] part is optional -- if not specified, the quantity is a scalar
-		//	N is the size of the array (integer)
-		//	x is the type of the array, and can be one of:
-		//		f -- (default), single precision float
-		//		g -- double precision float
-		//		d,i -- integer
-		//		s -- string
-		//
-		// The regex below matches: name, N, x as what[1],[2],[3], respectively
-		//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(\\w+=[^,]+)(?:,(\\w+=[^,]+))*)\\})?");
-		boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(?:\\s*(\\w+)\\s*=([^,]+))(?:,(?:\\s*(\\w+)\\s*=([^,]+)))*)?\\})?");
-		boost::smatch what;
-		if(boost::regex_match(name, what, e, boost::match_extra))
-		{
-#if 0
-			unsigned i, j;
-			std::cout << "** Match found **\n   Sub-Expressions:\n";
-			std::cout << "Searched string: " << name << "\n";
-			for(i = 0; i < what.size(); ++i)
-				std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
-#endif
-			// type/array dispatcher
-			std::string field = what[1];
-			size_t N = atoi(what[2].str().c_str());
-			char type = what[3].str()[0];
-
-			std::string tagClass, fmt;
-			for(int i = 4; i < what.size(); i += 2)
-			{
-				if(i+1 >= what.size()) { break; }
-				std::string key = what[i].str();
-				if(key.size() == 0) { continue; }	// nothing was found
-
-				     if(key == "class") { tagClass = what[i+1].str(); }
-				else if(key == "fmt")   { fmt = what[i+1].str(); }
-				else { THROW(EAny, "Unknown field definition key '" + key + "'."); }
-			}
-
-			MLOG(verb2) << "Autodefining tag " << name << " class=" << tagClass << ", fmt=" << fmt;
-			
-			switch(type)
-			{
-				case 'd': case 'i': defineArrayTag<int>(name, N, NULL, tagClass, fmt); break;
-				case 'g': 	    defineArrayTag<double>(name, N, NULL, tagClass, fmt); break;
-				case 's': 	    defineArrayTag<std::string>(name, N, NULL, tagClass, fmt); break;
-				case 'f': case 0:
-						    defineArrayTag<float>(name, N, NULL, tagClass, fmt); break;
-				default:
-					ASSERT(0);
-			}
-		}
-		else
-		{
-			MLOG(verb1) << "Failed to parse tag definition " << name;
-		}
+		createTag(name);
 	}
 
 	if(!definedTags.count(name))

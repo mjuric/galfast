@@ -329,15 +329,76 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 		struct tagdef
 		{
 			const std::string tagName;		// unique name of the tag
-			const size_t size;			// total size of the tag data (in bytes)
+			const size_t elementSize;		// size of one tag data element (in bytes).
+			size_t n;				// number of data elements (1 if tag holds a scalar, >1 if array)
+			const size_t size;			// total size of the tag data (in bytes). size = elementSize*n
+			std::string tagType;			// type of this tag (corresponds to types in textual tag definition)
+			const tagclass *tagClass;		// tagClass of this tagdef
+			std::string formatString;		// io::formatter format string for the tag
+
+			const tagdef *aliasee;			// the tag being aliased by this one
+			size_t aliasingIndex;			// array element this tag is aliasing (if this tag is an alias). -1 for all.
+			std::vector<tagdef*> aliases;		// list of tags aliasing this one
+
 			size_t offset;				// the offset of this tag, if active, -1 otherwise
 			std::vector<size_t*> offset_vars;	// variable to update with tag offset, if/when this tag gets activated
-			const tagclass *tagClass;		// tagClass of this tagdef
-			size_t n;				// number of data elements (1 if tag holds a scalar, >1 if array)
 		protected:
-			std::string formatString;		// io::formatter format string for the tag
+			tagdef(const tagdef &);
+			tagdef &operator =(const tagdef &);
 		public:
+			void copydef(const tagdef *t)
+			{
+				// copy all metadata from t, except list of aliases, class, tagName, offset_vars, and data element size related fields
+				formatString = t->formatString;
+				tagType = t->tagType;
 
+				aliasee = t;
+			}
+
+			std::ostream &serializeDefinition(std::ostream &out, bool includeAliases = true) const
+			{
+				out << tagName;
+				if(n != 1)	// array
+				{
+					out << '[' << n << ']';
+				}
+
+				std::ostringstream ss; // attributes
+				ss << "{" << tagType << "|";
+				std::string sep = "";
+				if(tagClass)
+				{
+					ss << sep << "class=" << tagClass->className; sep = ";";
+				}
+				if(!formatString.empty())
+				{
+					ss << sep << "fmt=" << formatString; sep = ";";
+				}
+				if(includeAliases)
+				{
+					std::string sep1 = "";
+					FOREACH(aliases)
+					{
+						ss << sep1 << (*i)->tagName;
+						if((*i)->aliasingIndex != -1)
+						{
+							ss << "=" << (*i)->aliasingIndex;
+						}
+						sep1 = ",";
+					}
+				}
+				ss << "}";
+				std::string s = ss.str();
+				if(s.length() > 3) { out << s; }
+				
+				return out;
+			}
+			std::string definitionText(bool includeAliases = true) const
+			{
+				std::ostringstream ss;
+				serializeDefinition(ss, includeAliases);
+				return ss.str();
+			}
 			const std::string &getFormatString() const
 			{
 				if(!formatString.empty()) { return formatString; }
@@ -346,10 +407,12 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				return dummy;
 			}
 			size_t count() const { return n; }
+			#if 0
 			std::string cannonicalTagName() const
 			{
 				return tagName.substr(0, tagName.find('['));
 			}
+			#endif
 
 			virtual void  serialize1(const void *, peyton::io::obstream &) const = 0;
 			virtual void  serialize2(const void *, std::ostream &) const = 0;
@@ -359,12 +422,11 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			virtual void* constructor(void *) = 0;
 			virtual void  destructor(void *val) = 0;
 			virtual void  copy(void *dest, void *src) = 0;
+			virtual tagdef* clone(const std::string &aliasName) = 0;
+			virtual tagdef* cloneScalar(const std::string &aliasName) = 0;
 
-			tagdef(const std::string &tid, const size_t s, const tagclass *tagClass_ = NULL, const std::string &fmt = "")
-				: tagName(tid), size(s), offset(-1), tagClass(tagClass_), formatString(fmt) {}
-		protected:
-			tagdef(const tagdef &);
-			tagdef &operator =(const tagdef &);
+			tagdef(const std::string &tid, const tagclass *tagClass_, const size_t es, const size_t n_ = 1)
+				: tagName(tid), elementSize(es), size(es*n_), n(n_), offset(-1), tagClass(tagClass_), aliasee(NULL), aliasingIndex(-1) {}
 		};
 		template<typename T> struct tagdefT : public tagdef
 		{
@@ -376,8 +438,10 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			virtual void* constructor(void *p)  { return new (p) T(); }
 			virtual void  destructor(void *val) { reinterpret_cast<T*>(val)->~T(); }
 			virtual void  copy(void *dest, void *src) { *reinterpret_cast<T*>(dest) = *reinterpret_cast<T*>(src); }
+			virtual tagdef* clone(const std::string &aliasName) { tagdefT<T> *r = new tagdefT<T>(aliasName, tagClass); r->copydef(this); return r; }
+			virtual tagdef* cloneScalar(const std::string &aliasName) { return clone(aliasName); }
 
-			tagdefT(const std::string &tid, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T), tagClass_, fmt) {}
+			tagdefT(const std::string &tid, const tagclass *tagClass_ = NULL) : tagdef(tid, tagClass_, sizeof(T)) {}
 		};
 		// simple array of types T
 		template<typename T> struct tagdefTA : public tagdef
@@ -390,8 +454,10 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 			virtual void* constructor(void *p)  { FOR(0,n) { new (reinterpret_cast<T*>(p)+i) T(); } }
 			virtual void  destructor(void *val) { FOR(0,n) { reinterpret_cast<T*>(val)[i].~T(); } }
 			virtual void  copy(void *dest, void *src) { FOR(0,n) { reinterpret_cast<T*>(dest)[i] = reinterpret_cast<T*>(src)[i];} }
+			virtual tagdef* clone(const std::string &aliasName) { tagdefTA<T> *r = new tagdefTA<T>(aliasName, n, tagClass); r->copydef(this); return r; }
+			virtual tagdef* cloneScalar(const std::string &aliasName) { tagdefT<T> *r = new tagdefT<T>(aliasName, tagClass); r->copydef(this); return r; }
 
-			tagdefTA(const std::string &tid, size_t n_, const tagclass *tagClass_ = NULL, const std::string &fmt = "") : tagdef(tid, sizeof(T)*n_, tagClass_, fmt) { n = n_; }
+			tagdefTA(const std::string &tid, size_t n_, const tagclass *tagClass_ = NULL) : tagdef(tid, tagClass_, sizeof(T), n_) { }
 		};
 
 		struct factory_t	// singleton used to initialize arrays
@@ -425,6 +491,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				return defineTagClass(className);
 			}
 
+#if 0
 			// helpers for tag definitions
 			template<typename T> void defineScalarTag(const std::string &tagName, size_t *offset_var = NULL, const std::string &type = "", const std::string &fmt = "")
 			{
@@ -442,6 +509,8 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 				definedTags[tagName] = td;
 			}
+#endif
+			tagdef *createTag(const std::string &stringDef, size_t *offset_var = NULL);
 
 			// activation of tags that are in use
 			tagdef *useTagRaw(const std::string &name, bool allowUndefined = false);
@@ -461,23 +530,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 
 				return td;
 			}
-			tagdef *aliasTag(const std::string &name, const std::string &alias)
-			{
-				ASSERT(definedTags.count(name));
-				ASSERT(definedTags.count(alias));
-				
-				tagdef *td = definedTags[name];
-				ASSERT(td->offset != -1);		// the tag alias target has to be in use
-
-				tagdef *atd = definedTags[alias];
-				ASSERT(atd->offset == -1);		// the alias must be unused
-				ASSERT(atd->size == td->size);		// alias and the aliased tag must be of same size
-				
-				atd->offset = td->offset;		// let the alias know where in the index it is
-				FOREACH(atd->offset_vars) { **i = atd->offset; }	// notify aliases' listeners
-				tagAliases[alias] = name;
-				return atd;
-			}
+			tagdef *aliasTag(const std::string &name, const std::string &alias, const size_t idx = -1);
 			size_t getOffset(const std::string &name)
 			{
 				ASSERT(definedTags.count(name));
@@ -528,7 +581,8 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				{
 					if(!first) out << " ";
 					tagdef *td = i->second;
-					out << td->tagName;
+					//out << td->tagName;
+					td->serializeDefinition(out);
 					first = false;
 				}
 				if(tagAliases.size())
@@ -576,7 +630,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 					if(idx == std::string::npos) { ASSERT(0); continue; }
 					tagName = aliasName.substr(idx+1);
 					aliasName = aliasName.substr(0, idx);
-					aliasTag(tagName, aliasName);
+					aliasTag(tagName, aliasName, -1);
 				} while(ss >> aliasName);
 				return in;
 			}
@@ -618,6 +672,7 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineTagClass("velocity",      "% 7.1f");	// -1234.1
 				defineTagClass("flags",         "% 4d");	// 1234
 
+#if 0
 				//std::cerr << "Factory: defining tags\n";
 				defineScalarTag<int>("comp", &ovars[0], "", "%3d");
 				defineScalarTag<float>("extinction.r", &ovars[1], "magnitude");
@@ -636,14 +691,33 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				defineScalarTag<float>("SDSSri", &ovars[SDSS_BASE+2], "color");		// LF color
 				defineArrayTag<float>("SDSSugriz[5]", 5, &ovars[SDSS_BASE+3], "magnitude");	// SDSS ugriz colors
 
-				// LSST
-//				defineScalarTag<float>("absLSSTr", &ovars[IVAR_COLOR]);	// absolute magnitude
-//				defineScalarTag<float>("LSSTr", &ovars[IVAR_MAG]);	// LSST r band
-
 				// built-in generics
 				defineScalarTag<float>("color", &ovars[IVAR_COLOR], "color");	// generic
 				defineScalarTag<float>("mag",   &ovars[IVAR_MAG], "magnitude");	// generic
 				defineScalarTag<float>("absmag", &ovars[IVAR_ABSMAG], "magnitude"); // absolute magnitude in IVAR_MAG's band
+#else
+				//std::cerr << "Factory: defining tags\n";
+				createTag("comp{type=int,fmt=%3d}", &ovars[0]);
+				createTag("radec[2]{class=astrometry}", &ovars[2]);
+				createTag("lb[2]{class=astrometry}", &ovars[3]);
+				createTag("XYZ[3]{class=position}", &ovars[4]);
+				createTag("FeH{type=float,fmt=% 5.2f}", &ovars[5]);
+				createTag("vcyl[3]{class=velocity}", &ovars[6]);
+				createTag("pmlb[3]{class=propermotion}", &ovars[8]);
+				createTag("pmradec[3]{class=propermotion}", &ovars[9]);
+				createTag("star_name{type=string}", &ovars[DEBUG_BASE+0]);	// test thingee
+
+				// SDSS
+				createTag("absSDSSr{class=magnitude}", &ovars[SDSS_BASE+0]);		// absolute magnitude
+				createTag("SDSSr{class=magnitude}", &ovars[SDSS_BASE+1]);		// SDSS r band
+				createTag("SDSSri{class=color}", &ovars[SDSS_BASE+2]);			// LF color
+				createTag("SDSSugriz[5]{class=magnitude}", &ovars[SDSS_BASE+3]);	// SDSS ugriz colors
+
+				// built-in generics, typically aliased to something else
+				createTag("color{class=color}", &ovars[IVAR_COLOR]);	// generic
+				createTag("mag{class=magnitude}",   &ovars[IVAR_MAG]);	// generic
+				createTag("absmag{class=magnitude}", &ovars[IVAR_ABSMAG]); // absolute magnitude in IVAR_MAG's band
+#endif
 			}
 			~factory_t()
 			{

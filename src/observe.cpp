@@ -328,7 +328,7 @@ bool os_photometryErrors::prerun(const std::list<opipeline_stage *> &pipeline, s
 
 		if(availableErrors.count(td->tagName) == 0 ) { continue; }
 
-		std::string name = td->cannonicalTagName();
+		std::string name = td->tagName;
 		size_t size = td->size / td->count();
 		if(size == sizeof(float))
 		{
@@ -746,13 +746,13 @@ bool os_kinTMIII::init(const Config &cfg)
 class os_photometry : public osink
 {
 	protected:
-		std::string bandset;			// name of this filter set
+//		std::string bandset;			// name of this filter set
 		std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
 		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
 		std::string photoFlags;			// Name of the photometric flags field
 		int bidx;				// index of bootstrap band in bnames
 		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
-		size_t offset_mags;			// sstruct offset to magnitudes in computed bands [output]
+		std::vector<size_t> offset_mags;	// sstruct offset to magnitudes in computed bands [output]
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 		std::vector<std::vector<float> > clt;
@@ -780,7 +780,7 @@ class os_photometry : public osink
 		virtual bool init(const Config &cfg);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
-		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1), offset_mags(-1)
+		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1)
 		{
 			req.insert("FeH");
 		}
@@ -807,7 +807,7 @@ bool os_photometry::init(const Config &cfg)
 {
 	// band definitions
 	std::string tmp, bname;
-	cfg.get(bandset,   "bandset",   "LSSTugrizy");
+//	cfg.get(bandset,   "bandset",   "LSSTugrizy");
 
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
 	std::istringstream ss(tmp);
@@ -821,6 +821,7 @@ bool os_photometry::init(const Config &cfg)
 		THROW(EAny, "This module cannot handle more than " + str(Mr2col::maxcolors+1) + " bands.");
 	}
 
+#if 0
 	// check if the bandset has the number of bands appended
 	if(bandset.find('[') == std::string::npos || bandset.find(']') == std::string::npos)
 	{
@@ -833,7 +834,13 @@ bool os_photometry::init(const Config &cfg)
 	photoFlags = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
 	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
 	prov.insert(photoFlags);
-
+#else
+	// deduce photoFlags name
+	std::string bandsetname = bandset.substr(0, bandset.find('['));
+	photoFlags = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
+	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
+	prov.insert(photoFlags);
+#endif
 	// bootstap band setup
 	cfg.get(bband,   "bootstrap_band",   "LSSTr");
 	cfg.get(absbband,   "absband",   "abs"+bband);
@@ -845,6 +852,13 @@ bool os_photometry::init(const Config &cfg)
 		THROW(EAny, "Bootstrap band must be listed in the 'bands' keyword.");
 	}
 	bidx = b - bnames.begin();
+
+	// add all bands we're going to provide to prov array
+	FOREACH(bnames)
+	{
+		if(*i == bband) { continue; }
+		prov.insert(*i);
+	}
 
 	// sampling parameters
 	cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
@@ -981,7 +995,10 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	{
 		offset_mag    = sstruct::factory.getOffset(bband);
 		offset_absmag = sstruct::factory.getOffset(absbband);
-		offset_mags   = sstruct::factory.getOffset(bandset);
+		FOREACH(nbands)
+		{
+			offset_mags.push_back(sstruct::factory.getOffset(*i));
+		}
 		offset_photoflags = sstruct::factory.getOffset(photoFlags);
 	}
 
@@ -1009,12 +1026,16 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		}
 		// ug gr ri iz zy
 		// convert colors to apparent magnitudes
-		float *mags = s.getptr<float>(offset_mags);
+		//float *mags = s.getptr<float>(offset_mags);
 		FORj(b, 0, nbands)
 		{
+/*			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
+			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
+			mags[b] += bmag;*/
+			float &mag = s.get<float>(offset_mag[b]);
+			mag = bmag;
 			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
 			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
-			mags[b] += bmag;
 		}
 #if 0
 		FORj(b,0,ncolors)

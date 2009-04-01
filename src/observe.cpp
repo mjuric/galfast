@@ -805,6 +805,7 @@ struct colsplines
 
 bool os_photometry::init(const Config &cfg)
 {
+#if 0
 	// band definitions
 	std::string tmp, bname;
 //	cfg.get(bandset,   "bandset",   "LSSTugrizy");
@@ -984,12 +985,13 @@ bool os_photometry::init(const Config &cfg)
 	}
 	MLOG(verb1) << bandset << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb1) << bandset << ":    extrapolation fractions = " << nextrap;
-
+#endif
 	return true;
 }
 
 size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 {
+#if 0
 	const size_t nbands = bnames.size();
 	if(offset_mag == -1)
 	{
@@ -1050,6 +1052,7 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		mags[4] = r - ri - iz;*/
 	}
 
+#endif
 	return nextlink->push(in, count, rng);
 }
 
@@ -1354,6 +1357,122 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 
 	return nextlink->push(in, count, rng);
 }
+
+#if GPU
+// GPU Implementation Sketch
+
+typedef otable::column<double> cdouble;
+typedef otable::column<float> cfloat;
+
+size_t os_vel2pm::push2(xtable *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
+	//
+	// OUTPUT:
+	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
+	//	Radial velocity in km/s in pm[2]
+
+	push2<<<...>>>(in["lb"], in["vcyl"], in["XYZ"], in["pmlb"], in["pmradec"]);
+
+	return nextlink->push(in, count, rng);
+}
+
+#ifdef GPU
+	#define DECLARE_KERNEL(kernelName, ...) \
+		bool kernelName(size_t nthreads, __VA_ARGS__);
+
+	#define KERNEL(kernelName, ...) \
+		__global__ bool kernelName(__VA_ARGS__); \
+		bool kernelName(size_t nthreads, __VA_ARGS__) \
+		{ \
+			kernelName<<<1,1,1>>>(__VA_ARGS__); \
+		} \
+		__global__ bool kernelName(__VA_ARGS__)
+#else
+	#define DECLARE_KERNEL(kernelName, ...) \
+		bool kernelName(size_t nthreads, __VA_ARGS__);
+
+	#define KERNEL(kernelName, ...) \
+		__global__ bool kernelName##_aux(size_t nthreads, __VA_ARGS__); \
+		bool kernelName(size_t nthreads, __VA_ARGS__) \
+		{ \
+			for(int __i=0; __i != nthreads; __i++) \
+			{ \
+				kernelName##_aux(__VA_ARGS__); \
+			} \
+		} \
+		__global__ bool kernelName##_aux(size_t nthreads, __VA_ARGS__)
+#endif
+
+__constant__ float ctn_vLSR, ctn_u0, ctn_v0, ctn_w0;
+__global__ void kernel_os_vel2pm(const int coordsys, xdouble lb0, xfloat vcyl, xfloat XYZ, xfloat pmlb, xfloat pmradec)
+{
+	uint idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+	// fetch prerequisites
+	double l = rad(lb0(idx, 0));
+	double b = rad(lb0(idx, 1));
+
+	// convert the velocities from cylindrical to galactocentric cartesian system
+	float pm[3];
+	vel_cyl2xyz(pm[0], pm[1], pm[2],   vcyl(idx, 0), vcyl(idx, 1), vcyl(idx, 2),   XYZ(idx, 0), XYZ(idx, 1));
+
+	// switch to Solar coordinate frame
+	pm[0] -= ctn_u0;
+	pm[1] -= ctn_v0 + ctn_vLSR;
+	pm[2] -= ctn_w0;
+
+	// convert to velocities wrt. the observer
+	vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],   l, b);
+
+	// convert to proper motions
+	float D = sqrt(sqr(XYZ[0]) + sqr(XYZ[1]) + sqr(XYZ[2]));
+	pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
+	pm[1] /= 4.74 * D*1e-3;
+
+	// rotate to output coordinate system
+	switch(coordsys)
+	{
+	case GAL:
+		pmlb(idx, 0) = pm[0];
+		pmlb(idx, 1) = pm[1];
+		pmlb(idx, 2) = pm[2];
+		break;
+	case EQU:
+/*		THROW(EAny, "Output in equatorial system not implemented yet.");
+		array_copy(s.pmradec(), pm, 3);*/
+		break;
+	default:
+/*		THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");*/
+		break;
+	}
+}
+
+bool os_vel2pm::init(const Config &cfg)
+{
+	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	std::string cs;
+	cfg.get(cs, "coordsys", "gal");
+	if(cs == "gal") { coordsys = GAL; prov.insert("pmlb[3]"); }
+	else if(cs == "equ") { coordsys = EQU; prov.insert("pmradec[3]"); }
+	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
+
+	// LSR and peculiar Solar motion
+	cfg.get(vLSR, "vLSR", -220.0f);
+	cfg.get(u0,   "u0",    -10.0f);
+	cfg.get(v0,   "v0",     -5.3f);
+	cfg.get(w0,   "w0",      7.2f);
+
+	// upload to constant memory
+	cudaMemcpyToSymbol(ctn_vLSR, vLSR, 1);
+	cudaMemcpyToSymbol(ctn_u0, u0, 1);
+	cudaMemcpyToSymbol(ctn_v0, v0, 1);
+	cudaMemcpyToSymbol(ctn_w0, w0, 1);
+
+	return true;
+}
+#endif
 
 bool os_vel2pm::init(const Config &cfg)
 {

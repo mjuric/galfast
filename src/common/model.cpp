@@ -44,6 +44,593 @@
 
 using namespace std;
 
+
+///////////////////////////////////////////////
+otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback)
+{
+	// parse stringDef and create a corresponding tag instance
+	// the tag definition format is: ((class|column)) name [n] { field1=value1; field2=value2; ...}
+	std::istringstream ss(defs);
+	char c;
+	kv *kvobj = NULL;
+	std::string what, name;
+	int ncolumn = 0;
+	while(ss >> c)
+	{
+		// find out the metatype of object being parsed (class or column).
+		ss.unget();
+		if(c == '(') { ss >> what; }
+		else { what = "(column)"; }
+
+		// load the name of the object being parsed
+		name.clear();
+		ss >> c;	// eats any whitespace to next character
+		while(ss && (isalnum(c) || c == '_' || c == ':')) { name += c; ss.get(c); }
+		ss.unget();
+
+		// get or instantiate this object
+		if(what == "(class)")
+		{
+			if(!cclasses.count(name))
+			{
+				cclasses[name].reset(new columnclass(*this));
+			}
+			kvobj = cclasses[name].get();
+		}
+		else if(what == "(column)")
+		{
+			if(!columns.count(name))
+			{
+				columns[name].reset(new columndef(*this));
+			}
+			kvobj = columns[name].get();
+
+/*			if(setInputOn)
+			{
+				columns[name]->input = ncolumn;
+				ncolumn++;
+			}*/
+		}
+		else
+		{
+			THROW(EAny, "Expected 'class' or 'column', got " + what);
+		}
+		kvobj->set_property("__name__", name);
+
+		ss >> c;	// look for '[' or '{'
+		// special (traditional) syntax for arrays
+		if(c == '[' && what == "(column)")
+		{
+			size_t width;
+			ss >> width;
+			kvobj->set_property("n", str(width));
+			std::cerr << what << " " << name << ": [] =" << width << "\n";
+
+			ss >> c;	// look for ']'
+			if(c != ']') { THROW(EAny, "Expected ']', got " + str(c)); }
+
+			ss >> c;	// look for '{'
+		}
+
+		if(c != '{')
+		{
+			if(what == "(column)") { ss.unget(); if(cback) (*cback)(kvobj); continue; }	// bare column defininiton (without details)
+			THROW(EAny, "Expected '{', got " + str(c));
+		}
+
+		ss >> c;
+		while(c != '}')
+		{
+			ss.unget();
+
+			std::string key;
+			ss >> c; while(ss && (isalnum(c) || c == '_')) { key += c; ss.get(c); }
+			if(!ss) { THROW(EAny, "End of file while reading key name"); }
+			if(c != '=') { THROW(EAny, "Expected '=', got " + str(c)); }
+
+			std::string value;
+			ss >> c; while(ss && (c != ';' && c != '}')) { value += c; ss.get(c); }
+			if(!ss) { THROW(EAny, "End of file while reading field name"); }
+			if(c == '}') { ss.unget(); }
+
+			std::cerr << what << " " << name << ": " << key << "=" << value << "\n";
+			kvobj->set_property(key, value);
+
+			ss >> c;
+		}
+
+		if(cback) (*cback)(kvobj);
+	}
+	return kvobj;
+}
+
+//void serialize(fmtout &line, const size_t row) const;
+//void unserialize(std::istream &in, const size_t row);
+
+template<typename T>
+struct default_column_type_traits : public otable::column_type_traits
+{
+	virtual void  serialize(otable::fmtout &out, const std::string &format, const void *val) const { const T *v = reinterpret_cast<const T*>(val); out.printf(format, *v); }
+	virtual void  unserialize(void *val, std::istream &in) const { T *v = reinterpret_cast<T*>(val); in >> *v; }
+	virtual void* constructor(void *p) const { return new (p) T(); }
+	virtual void  destructor(void *val) const { reinterpret_cast<T*>(val)->~T(); }
+
+	default_column_type_traits(const std::string &name) : column_type_traits(name, sizeof(T)) {}
+};
+
+std::map<std::string, boost::shared_ptr<otable::column_type_traits> > otable::column_type_traits::defined_types;
+const otable::column_type_traits *otable::column_type_traits::get(const std::string &datatype)
+{
+	static bool initialized = false;
+	if(!initialized)
+	{
+		#define ADDTYPE(strT, T) defined_types[strT].reset(new default_column_type_traits<T>(strT));
+		ADDTYPE("int", int);
+		ADDTYPE("double", double);
+		ADDTYPE("char", char);
+		ADDTYPE("float", float);
+		#undef CREATETYPE
+		initialized = true;
+	}
+
+	if(!defined_types.count(datatype)) { THROW(EAny, "Unknown tag data type '" + datatype + "'"); }
+	return defined_types[datatype].get();
+}
+
+otable::columnclass::columnclass(otable &parent_)
+	: parent(parent_), kv("(class)")
+{
+	typeProxy = column_type_traits::get("float");	// default column type
+	ASSERT(typeProxy);
+}
+
+otable::columndef::~columndef()
+{
+	dealloc();
+}
+
+otable::columndef::columndef(otable &parent_)
+	: parent(parent_), kv("(column)")
+{
+	// defaults
+	columnClass = parent.cclasses["default"].get();
+	width = 1;	// scalar
+// 	output = AUTO;
+// 	input = NO;
+
+	// unitinialized stuff
+	data = NULL;
+	pitch = 0;
+	length = 0;
+}
+
+void otable::columndef::alloc(const size_t len)
+{
+	dealloc();
+
+	const column_type_traits *tt = type();
+	size_t elementSize = tt->elementSize;
+
+	length = len;
+	pitch = elementSize*length;
+	data = malloc(pitch*width);
+
+	for(size_t i = 0; i != width; i++)
+	{
+		for(size_t j = 0; j != length; j++)
+		{
+			void *Aij = (char*)data + pitch*i + elementSize*j;
+			tt->constructor(Aij);
+		}
+	}
+}
+
+void otable::columndef::dealloc()
+{
+	if(!data) { return; }
+
+	const column_type_traits *tt = type();
+	size_t elementSize = tt->elementSize;
+
+	for(size_t i = 0; i != width; i++)
+	{
+		for(size_t j = 0; j != length; j++)
+		{
+			void *Aij = (char*)data + pitch*i + elementSize*j;
+			tt->destructor(Aij);
+		}
+	}
+
+	free(data);
+	data = NULL;
+}
+
+
+void otable::columnclass::set_property(const std::string &key, const std::string &value)
+{
+	if(key == "__name__")
+	{
+		if(className.empty()) { className = value; }
+		return;
+	}
+
+	if(key == "alias")
+	{
+		if(!parent.columns.count(value))
+		{
+			ASSERT(!className.empty());
+			parent.columns[value] = parent.columns[className];
+		}
+		ASSERT(parent.columns[value] == parent.columns[className]);
+	}
+
+	if(key == "fmt") { formatString = value; return; }
+
+	if(key == "type")
+	{
+		typeProxy = column_type_traits::get(value);
+		ASSERT(typeProxy);
+		return;
+	}
+}
+
+void otable::columndef::set_property(const std::string &key, const std::string &value)
+{
+	if(key == "fmt") { formatString = value; return; }
+
+	if(key == "__name__")
+	{
+		if(columnName.empty()) { columnName = value; }
+
+		return;
+	}
+
+	if(key == "class")
+	{
+		ASSERT(parent.cclasses.count(value));
+		dealloc();
+		columnClass = parent.cclasses[value].get();
+		return;
+	}
+
+	if(key == "n") // vector width
+	{
+		dealloc();
+		width = atoi(value.c_str());
+		ASSERT(width > 1);
+		return;
+	}
+	if(key == "type")
+	{
+		dealloc();
+		typeProxy = column_type_traits::get(value);
+		return;
+	}
+}
+
+void otable::columndef::serialize(fmtout &line, const size_t row) const
+{
+	const column_type_traits *tt = type();
+	char *at = (char*)data + tt->elementSize*row;
+	const std::string &fmt = getFormatString();
+	FOR(0, width)
+	{
+		tt->serialize(line, fmt, at);
+		at += pitch;
+	}
+}
+void otable::columndef::unserialize(std::istream &in, const size_t row)
+{
+	const column_type_traits *tt = type();
+	char *at = (char*)data + tt->elementSize*row;
+	FOR(0, width)
+	{
+		tt->unserialize(at, in);
+		at += pitch;
+	}
+}
+
+void otable::columndef::serialize_def(std::ostream &out) const
+{
+	out << columnName;
+	if(width > 1) { out << "[" << width << "]"; }
+
+	const otable::columndef *dflt = NULL;
+	if(parent.columns.count("default::" + columnName))
+	{
+		dflt = parent.columns.at("default::" + columnName).get();
+	}
+
+	std::stringstream ss;
+	// keywords that have changed from their defaults
+	#define DFLT(var) (dflt && dflt->var == var)
+	if(typeProxy                           && !DFLT(typeProxy))    { ss << "type=" << typeProxy->typeName << ";"; }
+	if(columnClass->className != "default" && !DFLT(columnClass))  { ss << "class=" << columnClass->className << ";"; }
+	if(!formatString.empty()               && !DFLT(formatString)) { ss << "fmt=" << formatString << ";"; }
+	#undef DFLT
+
+	// aliases
+	FOREACH(parent.columns)
+	{
+		if(i->second.get() != this) { continue; }
+		if(i->first == columnName) { continue; }
+		ss << "alias=" << i->first << ";";
+	}
+
+	// output details only if they differ from defaults
+	std::string details = ss.str();
+	if(!details.empty())
+	{
+		out << "{" << details << "}";
+	}
+}
+
+// struct cmp_out
+// {
+// 	bool operator()(const otable::columndef *a, const otable::columndef *b) const { return a->output < b->output; }
+// 	cmp_out() {}
+// };
+
+void otable::getColumnsForOutput(std::vector<const columndef*> &outColumns) const
+{
+	FOREACH(colOutput)
+	{
+		if(columns.count(*i)) { outColumns.push_back(columns.at(*i).get()); }
+	}
+/*	std::multiset<columndef*, cmp_out> mset;
+	FOREACH(columns) { mset.insert(i->second.get()); }
+
+	FOREACH(mset)
+	{
+		if((*i)->output < 0) { continue; }
+		outColumns.push_back(*i);
+	}*/
+}
+
+std::ostream& otable::serialize_header(std::ostream &out) const
+{
+	std::vector<const columndef*> outColumns;
+	getColumnsForOutput(outColumns);
+
+	out << "# ";
+	FOREACH(outColumns)
+	{
+		(*i)->serialize_def(out);
+		out << " ";
+	}
+	out << "\n";
+	return out;
+}
+
+// serialization/unserialization routines
+std::ostream& otable::serialize_body(std::ostream& out) const
+{
+	std::vector<const columndef*> outColumns;
+	getColumnsForOutput(outColumns);
+
+	FORj(row, 0, nrows)
+	{
+		fmtout line;
+		FOREACH(outColumns)
+		{
+			(*i)->serialize(line, row);
+		}
+		out << line.c_str() << "\n";
+	}
+	return out;
+};
+
+/*struct cmp_in
+{
+	bool operator()(const otable::columndef *a, const otable::columndef *b) const { return a->input < b->input; }
+	cmp_in() {}
+};
+*/
+void otable::getColumnsForInput(std::vector<columndef*> &inColumns)
+{
+	FOREACH(colInput)
+	{
+		ASSERT(columns.count(*i));
+//		inColumns.push_back(columns.at(*i).get());
+		inColumns.push_back(&getColumn(*i));
+	}
+/*	std::multiset<columndef*, cmp_in> mset;
+	FOREACH(columns) { mset.insert(i->second.get()); }
+
+	FOREACH(mset)
+	{
+		if((*i)->input < 0) { continue; }
+		inColumns.push_back(*i);
+	}*/
+}
+
+struct record_loaded_columns : public otable::parse_callback
+{
+	std::vector<otable::columndef *> columns;
+
+	virtual bool operator()(otable::kv *kvobj)
+	{
+//		std::cout << "META: " << kvobj->what << "\n";
+		if(kvobj->what != "(column)") return true;
+		columns.push_back(static_cast<otable::columndef*>(kvobj));
+
+		return true;
+	}
+};
+
+std::istream& otable::unserialize_header(std::istream &in)
+{
+	// gobble-up an optional the comment sign
+	char c;
+	in >> c;
+	if(c != '#') { in.unget(); }
+
+	// gobble up the rest of the line, where we expect the definitions to sit
+	std::string line;
+	getline(in, line);
+
+	record_loaded_columns lc;
+	parse(line, &lc);
+	FOREACH(lc.columns)
+	{
+		colInput.push_back((*i)->columnName);
+		colOutput.push_back((*i)->columnName);	// Output all unserialized columns by default
+	}
+
+	return in;
+}
+
+std::istream& otable::unserialize_body(std::istream& in)
+{
+	std::vector<columndef*> inColumns;
+	getColumnsForInput(inColumns);
+
+	nrows = 0;
+	FORj(row, 0, length)	// read at most length rows
+	{
+		bool first = true;
+		FOREACH(inColumns)
+		{
+			(*i)->unserialize(in, row);
+			if(!in) { break; }
+			first = false;
+		}
+		if(!in) {
+			if(!first) { THROW(EAny, "Incomplete last line."); }
+			break;
+		}
+		nrows++;
+	}
+
+	if(!in && !in.eof()) { THROW(EAny, "Error after reading " + str(nrows) + " rows."); }
+
+	return in;
+};
+
+size_t otable::set_output(const std::string &colname, bool output)
+{
+	std::vector<std::string>::iterator it = find(colOutput.begin(), colOutput.end(), colname);
+	if(it != colOutput.end())
+	{
+		if(output) { return it - colOutput.begin(); }
+		colOutput.erase(it);
+		return -1;
+	}
+
+	if(output)
+	{
+		colOutput.push_back(colname);
+		return colOutput.size()-1;
+	}
+
+	return -1;
+}
+
+size_t otable::set_output_all(bool output)
+{
+	// output all columns that are in use
+	colOutput.clear();
+	FOREACH(columns)
+	{
+		if(i->first != i->second->columnName) { continue; }
+		if(i->second->capacity() == 0) { continue; }
+		set_output(i->first, output);
+	}
+}
+
+otable::columndef &otable::add_column(const std::string &coldef)
+{
+	columndef *col = (columndef *)parse("(column) " + coldef);
+	ASSERT(col != NULL);
+	return *col;
+}
+
+/*struct save_column_default : public otable::parse_callback
+{
+	otable &parent;
+	save_column_default(otable &p) : parent(p) {}
+
+	virtual bool operator()(otable::kv *kvobj)
+	{
+		if(kvobj->what != "(column)") return true;
+		otable::columndef *col = (otable::columndef*)kvobj;
+
+		boost::shared_ptr<columndef *col> dflt(col->clone("default::" + col->columnName));
+		parent.add_column(dflt);
+
+		return true;
+	}
+};
+*/
+void otable::init()
+{
+	// definition of built-in classes and column defaults
+//	save_column_default cd(*this);
+
+	parse(
+	"(class) default      {}" 		// NOTE: This class must come be defined before any columns are ever instantiated
+	"(class) magnitude    {fmt=% 7.3f;}" 			// -12.345
+	"(class) color        {fmt=% 6.3f;}"			// -12.345
+	"(class) astrometry   {fmt=% 13.8f; type=double;}"	// -123.12345678
+	"(class) position     {fmt=% 10.2f;}"			// -123456.78
+	"(class) propermotion {fmt=% 7.1f;}"			// -1234.1
+	"(class) velocity     {fmt=% 7.1f;}"			// -1234.1
+	"(class) flags        {fmt=% 4d; type=int;}"		// 1234
+
+	// definition of built-in fields
+	"(column) comp          {type=int; fmt=%3d;}"
+	"(column) radec[2]      {class=astrometry;}"
+	"(column) lb[2]         {class=astrometry;}"
+	"(column) XYZ [3]       {class=position;}"
+	"(column) FeH           {fmt=% 5.2f;}"
+	"(column) vcyl[3]       {class=velocity;}"
+	"(column) pmlb[3]       {class=propermotion;}"
+	"(column) pmradec[3]    {class=propermotion;}"
+	"(column) star_name[40] {type=char;}"
+//	&cd
+	);
+
+	// store these column definitions as defaults
+	typeof(columns) tmp(columns);
+	FOREACH(tmp)
+	{
+		if(i->second->columnName != i->first) { continue; } // skip aliases
+
+		std::string newName = "default::" + i->first;
+		columns[newName] = i->second->clone(newName);
+	}
+}
+
+otable::columndef &otable::getColumn(const std::string &name)
+{
+	// Auto-create if needed
+	if(!columns.count(name))
+	{
+		// autocreate
+		add_column(name);
+	}
+	ASSERT(columns.count(name));
+ 	columndef &col = *columns[name].get();
+
+// 	// Auto-enable column output
+// 	if(col.output == columndef::AUTO)
+// 	{
+// 		// set output to yes, unless overridden
+// 		col.output = columndef::YES;
+// 	}
+
+	// Auto-create column data
+	if(col.length != length)
+	{
+		col.alloc(length);
+		ASSERT(col.length == length);
+	}
+
+	return col;
+}
+
+///////////////////////////////////////////////
+
 // helpers for tag definitions
 template<typename T>
 sstruct::tagdef* createTag_aux(const std::string &tagName, sstruct::tagclass *tagClass, const size_t n = 1)
@@ -156,7 +743,7 @@ sstruct::tagdef *sstruct::factory_t::createTag(const std::string &stringDef, siz
 	}
 }
 
-sstruct::tagdef *sstruct::factory_t::aliasTag(const std::string &name, const std::string &alias, const size_t idx = -1)
+sstruct::tagdef *sstruct::factory_t::aliasTag(const std::string &name, const std::string &alias, const size_t idx)
 {
 	ASSERT(definedTags.count(name));
 	tagdef *td = definedTags[name];

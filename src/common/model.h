@@ -30,6 +30,7 @@
 #include <valarray>
 
 #include <boost/array.hpp>
+#include <boost/shared_ptr.hpp>
 
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
@@ -250,6 +251,281 @@ template<typename T, std::size_t N>
 			return in;
 		}
 
+class otable
+{
+public:
+	class fmtout
+	{
+	protected:
+		static const size_t BUFMAX = 20000;
+		char buf[BUFMAX+1];	// line buffer
+		size_t pos;
+	public:
+		fmtout() : pos(0) {}
+		const char *c_str() const { return buf; }
+
+		size_t prep_buf()
+		{
+			if(pos == BUFMAX)
+			{
+				// This should really never happen ...
+				buf[BUFMAX] = 0;
+				THROW(peyton::exceptions::EAny, "Line buffer exhausted");
+			}
+
+			// Spaces between fields
+			if(pos != 0) { buf[pos] = ' '; pos++; }
+			return BUFMAX - pos;
+		}
+
+		template<typename T>
+		int printf_aux(char *dest, size_t len, const char *fmt, const T &v)
+		{
+			// Default action: explode, because this has to be overloaded for
+			// every printf-legal type
+			THROW(peyton::exceptions::EAny, "Internal error");
+		}
+
+		int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+		int printf_aux(char *dest, size_t maxlen, const char *fmt, const float &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+		int printf_aux(char *dest, size_t maxlen, const char *fmt, const int &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+
+		template<typename T>
+		int printf(const std::string &fmt, const T &v)
+		{
+			size_t len = prep_buf();
+
+			if(!fmt.size())
+			{
+				// No format specification -- revert to iostreams
+				std::ostringstream ss;
+				ss << v;
+				std::string out = ss.str();
+				strncpy(buf+pos, out.c_str(), std::min(len, out.size()));
+				pos += out.size();
+			}
+			else
+			{
+				// sprintf format specified, use it
+				printf_aux(buf+pos, len, fmt.c_str(), v);
+			}
+		}
+	};
+
+	struct column_type_traits
+	{
+		const std::string typeName;
+		const size_t elementSize;
+
+		virtual void  serialize(fmtout &out, const std::string &format, const void *val) const = 0;
+		virtual void  unserialize(void *val, std::istream &in) const = 0;
+		virtual void* constructor(void *p) const = 0;
+		virtual void  destructor(void *val) const = 0;
+
+		static const column_type_traits *get(const std::string &datatype);
+	protected:
+		static std::map<std::string, boost::shared_ptr<column_type_traits> > defined_types;
+		column_type_traits(const std::string &name, const size_t size) : typeName(name), elementSize(size) {}
+	};
+
+protected:
+	class kv
+	{
+	public:
+		std::string what;
+	protected:
+		friend class otable;
+
+		virtual void set_property(const std::string &key, const std::string &value) = 0;
+		virtual void serialize_def(std::ostream &out) const = 0;
+
+		kv(const std::string &what_) : what(what_) {}
+	};
+
+	class columnclass : public kv
+	{
+	protected:
+		friend class otable;
+
+		otable &parent;
+		std::string className;			// primary name of this class (e.g., "photometry", "color", "astrometry", ...)
+
+		std::string formatString;		// default format of fields of this class
+		const column_type_traits *typeProxy;	// default datatype of field of this class
+
+		columnclass(otable &parent_);
+
+		virtual void set_property(const std::string &key, const std::string &value);
+		virtual void serialize_def(std::ostream &out) const
+		{
+			out << className << "{";
+
+			// aliases
+			FOREACH(parent.cclasses)
+			{
+				if(i->second.get() != this) { continue; }
+				if(i->first == className) { continue; }
+				out << "alias=" << i->first << ";";
+			}
+
+			// keywords
+			if(!formatString.empty()) { out << "fmt=" << formatString << ";"; }
+
+			out << "}";
+		}
+	};
+
+protected:
+	template<typename T> struct column
+	{
+		T *base;
+		size_t pitch;
+
+		column(void *b, size_t p = 0) : base((T*)b), pitch(p) {}
+
+		T &operator()(const size_t row, const size_t elem)	// 2D column accessor
+		{
+			return *((T*)((char*)base + elem * pitch) + row);
+		}
+
+		T &operator()(const size_t i)	// 1D column accessor (i == the row)
+		{
+			return base[i];
+		}
+	};
+
+	struct columndef : public kv
+	{
+	protected:
+		friend class otable;
+		friend struct save_column_default;
+
+		std::string columnName;				// primary name of the column
+		size_t width;					// number of data elements (1 scalar, >1 if array)
+
+		const columnclass *columnClass;			// class of this column (note: it's never NULL)
+		const column_type_traits *typeProxy;		// a proxy for type's serialization/construction/properties (note: must be accessed through type())
+		std::string formatString;			// io::formatter format string of the column (note: must be accessed through getFormatString())
+
+		otable &parent;					// parent table of this column
+
+	protected:
+		//boost::shared_ptr<columndef> clone(const std::string &newColumnName) const;
+		boost::shared_ptr<columndef> clone(const std::string &newColumnName) const
+		{
+			boost::shared_ptr<columndef> c(new columndef(parent));
+			c->columnName = newColumnName;
+
+			c->width = width;
+			c->columnClass = columnClass;
+			c->formatString = formatString;
+			c->typeProxy = typeProxy;
+
+			return c;
+		}
+
+		const std::string &getFormatString() const
+		{
+			if(!formatString.empty()) { return formatString; }
+			return columnClass->formatString;
+		}
+
+		const column_type_traits *type() const
+		{
+			return typeProxy ? typeProxy : columnClass->typeProxy;
+		}
+
+		/*
+			Note: The data is stored in 'structure of arrays format'. E.g., if
+			this column is a vector of double[3], and the length of the table is 4,
+			the memory layout is:
+				11 21 31 41 xx
+				12 22 32 42 xx
+				13 23 33 43 xx
+			where xx is some possible padding to ensure proper word-alignment
+			of adjacent rows.
+
+			The memory location of element j in row i, use:
+				Aij = data + pitch*i + elementSize*j
+		*/
+		void *data;			// the actual data
+		size_t length;			// length of the column (the number of rows)
+		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)
+
+// 		const static int NO = -2;
+// 		const static int AUTO = -1;
+// 		const static int YES = 0;
+// 		int input, output;		// may contain NO, AUTO or then column number for input/output
+
+		friend struct cmp_in;
+		friend struct cmp_out;
+
+	protected:
+		columndef(otable &parent_);
+
+		void alloc(const size_t len);
+		void dealloc();
+
+		virtual void set_property(const std::string &key, const std::string &value);
+		template<typename T> column<T> dataptr() { return column<T>(data, pitch); }
+	public:
+		~columndef();
+		columndef &add_alias(const std::string &name)		// add an additional name (alias) to this column
+		{
+			set_property("alias", name);
+		}
+		void serialize(fmtout &line, const size_t row) const;	// write out the element at row row
+		void unserialize(std::istream &in, const size_t row);	// read in an element into row row
+		virtual void serialize_def(std::ostream &out) const;	// write out the definition of this column
+		size_t capacity() const { return length; }
+	};
+	friend struct cmp_in;
+	friend struct cmp_out;
+	friend struct record_loaded_columns;
+	friend struct save_column_default;
+
+	std::map<std::string, boost::shared_ptr<columnclass> > cclasses;
+	std::map<std::string, boost::shared_ptr<columndef> > columns;
+	size_t length;	// maximum number of rows in the table
+	size_t nrows;	// rows actually in the table
+	std::vector<std::string> colInput, colOutput;
+
+public:
+	struct parse_callback { virtual bool operator()(kv *kvobj) = 0; };
+	
+protected:
+	void init();
+	kv *parse(const std::string &defs, parse_callback *cback = NULL);
+
+	columndef &getColumn(const std::string &name);
+	void getColumnsForOutput(std::vector<const columndef*> &cols) const;	// aux helper
+	void getColumnsForInput(std::vector<columndef*> &cols);			// aux helper
+public:
+	// column lookup by name
+	template<typename T>
+	column<T> operator[](const std::string &name)
+	{
+		return getColumn(name).dataptr<T>();
+	}
+
+	columndef &add_column(const std::string &coldef);
+	size_t set_output(const std::string &colname, bool output);
+	size_t set_output_all(bool output = true);
+	bool del_column(const std::string &name);
+
+	otable(const size_t len)
+	{
+		length = len;
+		init();
+	}
+
+	// serialization/unserialization routines
+	std::ostream& serialize_header(std::ostream &out) const;
+	std::istream& unserialize_header(std::istream &in);
+
+	std::ostream& serialize_body(std::ostream& out) const;
+	std::istream& unserialize_body(std::istream& in);
+};
 
 class sstruct	// "Smart struct" -- a structure with variable number (in runtime) of predefined members
 {
@@ -491,25 +767,6 @@ class sstruct	// "Smart struct" -- a structure with variable number (in runtime)
 				return defineTagClass(className);
 			}
 
-#if 0
-			// helpers for tag definitions
-			template<typename T> void defineScalarTag(const std::string &tagName, size_t *offset_var = NULL, const std::string &type = "", const std::string &fmt = "")
-			{
-				tagdef *td = new tagdefT<T>(tagName, getTagClass(type), fmt);
-				if(offset_var) { td->offset_vars.push_back(offset_var); }
-
-				definedTags[tagName] = td;
-			}
-			template<typename T> void defineArrayTag(const std::string &tagName, const size_t n, size_t *offset_var = NULL, const std::string &type = "", const std::string &fmt = "")
-			{
-				if(n == 0) { return defineScalarTag<T>(tagName, offset_var, type, fmt); }
-
-				tagdef *td = new tagdefTA<T>(tagName, n, getTagClass(type), fmt);
-				if(offset_var) { td->offset_vars.push_back(offset_var); }
-
-				definedTags[tagName] = td;
-			}
-#endif
 			tagdef *createTag(const std::string &stringDef, size_t *offset_var = NULL);
 
 			// activation of tags that are in use

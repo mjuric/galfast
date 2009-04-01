@@ -653,11 +653,13 @@ void pdfinfo(std::ostream &out, const std::string &pdffile);
 
 void test_kin();
 void test_tags();
+void test_otable();
 int main(int argc, char **argv)
 {
 try
 {
 	test_kin();
+	test_otable();
 //	test_tags(); return 0;
 
 	std::string argv0 = argv[0];

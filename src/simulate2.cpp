@@ -1032,7 +1032,12 @@ void sky_generator::montecarlo(star_output_function &out)
 	static const int Kbatch = 20000000;
 
 	// prepare output
+#if OTABLE
+	otable result;
+	result.add_column("lb");
+#else
 	sstruct::factory.useTag("lb[2]");
+#endif
 	std::string
 		colorName = pdfs[0]->galmodel().color(),
 		magName = pdfs[0]->galmodel().band(),
@@ -1040,12 +1045,18 @@ void sky_generator::montecarlo(star_output_function &out)
 	MLOG(verb1) << "color=" << colorName;
 	MLOG(verb1) << "mag=" << magName;
 	MLOG(verb1) << "absmag=" << absmagName;
+#if OTABLE
+	result.add_column(colorName).add_alias("color");
+	result.add_column(absmagName).add_alias("absmag");
+	result.add_column(magName).add_alias("mag");
+#else
 	sstruct::factory.useTag(colorName, true);
 	sstruct::factory.useTag(absmagName, true);
 	sstruct::factory.useTag(magName, true);
 	sstruct::factory.aliasTag(absmagName, "absmag");
 	sstruct::factory.aliasTag(colorName,  "color");
 	sstruct::factory.aliasTag(magName,    "mag");
+#endif
 
 	FOR(0, pdfs.size())
 	{
@@ -1057,7 +1068,11 @@ void sky_generator::montecarlo(star_output_function &out)
 		}
 		pdfs[i]->galmodel().setup_tags(sstruct::factory);
 	}
+#if OTABLE
+	out.output_header(result);
+#else
 	out.output_header(sstruct::factory);
+#endif
 
 	// do catalog generation
 	int K = 0, Ngen = 0;
@@ -1328,6 +1343,30 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		tick.tick();
 	}
 	tick.close();
+}
+
+void test_otable()
+{
+//	return;
+
+	otable result(10);
+	std::string text =
+		"# lb[2]{type=float;fmt=% .3f} SDSSu SDSSg SDSSr test[3]\n"
+		"1.11 2.22	1 2 3	1.2 2.3 3.4\n"
+		"2.11 4.22	2 5 8	2.2 3.3 4.4\n"
+		"3.11 5.22	3 6 9	2.2 3.3 4.4\n"
+		"4.11 6.22	4 7 0	2.2 3.3 4.4\n";
+
+	std::istringstream in(text.c_str());
+	result.unserialize_header(in);
+	result.add_column("addition");
+	result.unserialize_body(in);
+
+//	result.set_output_all();
+	result.serialize_header(std::cout);
+	result.serialize_body(std::cout);
+
+	exit(-1);
 }
 
 void test_tags()

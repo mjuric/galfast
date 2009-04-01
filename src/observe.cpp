@@ -23,8 +23,6 @@
 #ifdef COMPILE_SIMULATE_X
 #define COMPILING_SIMULATE
 
-#include "gsl/gsl_randist.h"
-
 #include "gpc_cpp.h"
 
 #include <boost/shared_ptr.hpp>
@@ -70,59 +68,13 @@ const std::string &datadir()
 	return dd;
 }
 
-class osink;
-class opipeline_stage
-{
-	protected:
-		std::set<std::string> prov, req;
-
-		osink *nextlink;
-	public:
-		void chain(osink *nl) { nextlink = nl; }
-		virtual int run(gsl_rng *rng) = 0;
-
-	public:
-		static boost::shared_ptr<opipeline_stage> create(const std::string &name);
-		virtual const std::string &name() const = 0;
-		virtual const std::string &type() const { static std::string s("stage"); return s; }
-
-	public:
-		virtual bool init(const Config &cfg) = 0;
-		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory);
-//		const std::set<std::string> &provides() const { return prov; }
-		const std::set<std::string> &requires() const { return req; }
-
-		bool satisfied_with(const std::set<std::string> &haves);
-//		bool provides_any_of(const std::set<std::string> &needs, std::string &which);
-
-		static const int PRIORITY_INPUT      = -10000;
-		static const int PRIORITY_STAR       =      0;
-		static const int PRIORITY_INSTRUMENT =   1000;
-		static const int PRIORITY_OUTPUT     =  10000;
-		virtual int priority() { return PRIORITY_STAR; }
-
-	public:
-		bool inits(const std::string &cfgstring) { return inits(cfgstring.c_str()); }
-		bool inits(const char *cfgstring)
-		{
-			std::istringstream ss(cfgstring);
-			Config cfg;
-			cfg.load(ss);
-			return init(cfg);
-		}
-
-		opipeline_stage() : nextlink(NULL)
-		{
-		}
-};
-
-bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory)
+bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
 {
 	// use tags which the stage will provide
 	FOREACH(prov)
 	{
 		if(i->at(0) == '_') { continue; }
-		factory.useTag(*i, true);
+		t.use_column(*i);	// just touch the column to initialize it
 	}
 
 	return true;
@@ -151,21 +103,6 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 }
 #endif
 
-class osink : public opipeline_stage
-{
-	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng) = 0;
-
-	public:
-		virtual int run(gsl_rng *rng) { THROW(ENotImplemented, "We should have never gotten here"); } // we should never reach this place
-
-	public:
-		osink() : opipeline_stage()
-		{
-			req.insert("_source");
-		}
-};
-
 // add Fe/H information
 class os_FeH : public osink
 {
@@ -174,8 +111,8 @@ protected:
 	double Hmu, muInf, DeltaMu;
 
 public:
-	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg);
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
 	os_FeH() : osink()
@@ -186,51 +123,48 @@ public:
 	}
 };
 
-size_t os_FeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
-	for(size_t i=0; i != count; i++)
+		
+	// fetch prerequisites
+	using namespace column_types;
+	cint   comp  = in.col<int>("comp");
+	cfloat XYZ   = in.col<float>("XYZ");
+	cfloat FeH   = in.col<float>("FeH");
+
+	for(size_t row=begin; row != end; row++)
 	{
-		sstruct &s = in[i];
-
-		// fetch prerequisites
-		const int component = s.component();
-		float Z = s.XYZ()[2];
-		float &FeH = s.FeH();
-
-		switch(component)
+		switch(comp[row])
 		{
 			case BahcallSoneira_model::THIN:
 			case BahcallSoneira_model::THICK: {
 				// choose the gaussian to draw from
-				double p = gsl_rng_uniform(rng)*(A[0]+A[1]);
+				double p = rng.uniform()*(A[0]+A[1]);
 				int i = p < A[0] ? 0 : 1;
 
 				// calculate mean
-				double muD = muInf + DeltaMu*exp(-fabs(Z)/Hmu);		// Bond et al. A2
+				double muD = muInf + DeltaMu*exp(-fabs(XYZ(row, 2))/Hmu);		// Bond et al. A2
 				double aZ = muD - 0.067;
 
 				// draw
-				FeH = gsl_ran_gaussian(rng, sigma[i]);
-				FeH += aZ + offs[i];
-/*				if(FeH > 0 && Z > 900) { std::cerr << Z << " : " << FeH << " " << muD << " " << aZ << " " << offs[i] << " " << i << "\n"; }
-				if(FeH > 0 && Z > 900) { std::cerr << muInf << " " << DeltaMu << " " << abs(Z/1000) << " " << Hmu << " " << -abs(Z/1000)/Hmu << " " << i << "\n"; }*/
+				FeH[row] = rng.gaussian(sigma[i]) + aZ + offs[i];
 			} break;
 			case BahcallSoneira_model::HALO:
-				FeH = offs[2] + gsl_ran_gaussian(rng, sigma[2]);
+				FeH[row] = offs[2] + rng.gaussian(sigma[2]);
 				break;
 			default:
 				THROW(ENotImplemented, "We should have never gotten here");
 		}
 	}
 
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_FeH::init(const Config &cfg)
+bool os_FeH::init(const Config &cfg, otable &t)
 {
 	cfg.get(A[0],     "A0",     0.63);
 	cfg.get(sigma[0], "sigma0", 0.20);
@@ -261,7 +195,7 @@ bool os_FeH::init(const Config &cfg)
 	return true;
 }
 
-
+#if 0
 // add photometric errors information
 class os_photometryErrors : public osink
 {
@@ -282,7 +216,7 @@ protected:
 
 public:
 	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg);
+	virtual bool init(const Config &cfg, otable &t);
 	virtual bool prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory);
 	virtual const std::string &name() const { static std::string s("photometryErrors"); return s; }
 	virtual int priority() { return PRIORITY_INSTRUMENT; }	// ensure this stage has the least priority
@@ -349,7 +283,7 @@ bool os_photometryErrors::prerun(const std::list<opipeline_stage *> &pipeline, s
 	}
 }
 
-bool os_photometryErrors::init(const Config &cfg)
+bool os_photometryErrors::init(const Config &cfg, otable &t)
 {
 	// Expected configuration format:
 	// 	<photosys>.<bandidx>.file = banderrs.txt
@@ -395,7 +329,7 @@ class os_fixedFeH : public osink
 
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
+		virtual bool init(const Config &cfg, otable &t, otable &t);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
 		os_fixedFeH() : osink(), FeH(0)
@@ -421,7 +355,7 @@ size_t os_fixedFeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	return nextlink->push(in, count, rng);
 }
 
-bool os_fixedFeH::init(const Config &cfg)
+bool os_fixedFeH::init(const Config &cfg, otable &t)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(FeH, "FeH", 0.f);
@@ -514,7 +448,7 @@ class os_kinTMIII : public osink
 
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
+		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
 		os_kinTMIII() : osink()
@@ -684,7 +618,7 @@ void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, gs
 
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
-bool os_kinTMIII::init(const Config &cfg)
+bool os_kinTMIII::init(const Config &cfg, otable &t)
 {
 	cfg.get(fk           , "fk"           , 3.0);
 	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0);
@@ -777,7 +711,7 @@ class os_photometry : public osink
 		}
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
+		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
 		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1)
@@ -803,7 +737,7 @@ struct colsplines
 	spline &operator [](const size_t i) { return s[i]; }
 };
 
-bool os_photometry::init(const Config &cfg)
+bool os_photometry::init(const Config &cfg, otable &t)
 {
 #if 0
 	// band definitions
@@ -1071,7 +1005,7 @@ class os_ugriz : public osink
 		float ri2iz(float ri);
 	public:
 		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
+		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("ugriz"); return s; }
 
 		os_ugriz() : osink()
@@ -1229,7 +1163,7 @@ size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	return nextlink->push(in, count, rng);
 }
 
-bool os_ugriz::init(const Config &cfg)
+bool os_ugriz::init(const Config &cfg, otable &t)
 {
 	std::string gi2Mr_str, FeH2dMr_str;
 	cfg.get(gi2Mr_str,   "gi2Mr",   "-0.56 14.32 -12.97 6.127 -1.267 0.0967");
@@ -1258,7 +1192,7 @@ public:
 
 public:
 	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg);
+	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
 	os_vel2pm() : osink(), coordsys(GAL)
@@ -1364,7 +1298,7 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 typedef otable::column<double> cdouble;
 typedef otable::column<float> cfloat;
 
-size_t os_vel2pm::push2(xtable *&in, const size_t count, gsl_rng *rng)
+size_t os_vel2pm::push(otable *&in)
 {
 	// ASSUMPTIONS:
 	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
@@ -1373,9 +1307,9 @@ size_t os_vel2pm::push2(xtable *&in, const size_t count, gsl_rng *rng)
 	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
 	//	Radial velocity in km/s in pm[2]
 
-	push2<<<...>>>(in["lb"], in["vcyl"], in["XYZ"], in["pmlb"], in["pmradec"]);
+	push2<<<...>>>((gpu_rng *)in.rng->deviceobject(), in["lb"], in["vcyl"], in["XYZ"], in["pmlb"], in["pmradec"]);
 
-	return nextlink->push(in, count, rng);
+	return nextlink->push2(in, rng);
 }
 
 #ifdef GPU
@@ -1406,8 +1340,10 @@ size_t os_vel2pm::push2(xtable *&in, const size_t count, gsl_rng *rng)
 #endif
 
 __constant__ float ctn_vLSR, ctn_u0, ctn_v0, ctn_w0;
-__global__ void kernel_os_vel2pm(const int coordsys, xdouble lb0, xfloat vcyl, xfloat XYZ, xfloat pmlb, xfloat pmradec)
+__global__ void kernel_os_vel2pm(gpu_rng_state rng, const int coordsys, xdouble lb0, xfloat vcyl, xfloat XYZ, xfloat pmlb, xfloat pmradec)
 {
+	rng.load();
+
 	uint idx = blockIdx.x*blockDim.x + threadIdx.x;
 
 	// fetch prerequisites
@@ -1447,9 +1383,11 @@ __global__ void kernel_os_vel2pm(const int coordsys, xdouble lb0, xfloat vcyl, x
 /*		THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");*/
 		break;
 	}
+
+	rng.store();
 }
 
-bool os_vel2pm::init(const Config &cfg)
+bool os_vel2pm::init(const Config &cfg, otable &t)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
@@ -1474,7 +1412,7 @@ bool os_vel2pm::init(const Config &cfg)
 }
 #endif
 
-bool os_vel2pm::init(const Config &cfg)
+bool os_vel2pm::init(const Config &cfg, otable &t)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
@@ -1505,7 +1443,7 @@ public:
 
 public:
 	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg);
+	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
 	os_gal2other() : osink(), coordsys(GAL)
@@ -1555,7 +1493,7 @@ size_t os_gal2other::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	return nextlink->push(in, count, rng);
 }
 
-bool os_gal2other::init(const Config &cfg)
+bool os_gal2other::init(const Config &cfg, otable &t)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
@@ -1594,7 +1532,7 @@ public:
 
 public:
 	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg);
+	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("photoErrors"); return s; }
 
 	os_photoErrors() : osink()
@@ -1641,7 +1579,7 @@ size_t os_photoErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	return nextlink->push(in, count, rng);
 }
 
-bool os_photoErrors::init(const Config &cfg)
+bool os_photoErrors::init(const Config &cfg, otable &t)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(cs, "coordsys", "gal");
@@ -1650,6 +1588,7 @@ bool os_photoErrors::init(const Config &cfg)
 }
 #endif
 
+#endif
 // in/out ends of the chain
 class os_textout : public osink
 {
@@ -1668,8 +1607,8 @@ class os_textout : public osink
 		std::map<size_t, std::string> outputsI;
 
 	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual bool init(const Config &cfg, otable &t);
 		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
 		virtual const std::string &name() const { static std::string s("textout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
@@ -1679,28 +1618,31 @@ class os_textout : public osink
 		}
 };
 
-size_t os_textout::push(sstruct *&data, const size_t count, gsl_rng *rng)
+size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
 	if(tick.step <= 0) { tick.open("Processing", 10000); }
 
 	if(!headerWritten)
 	{
-		out.out() << "# " << sstruct::factory << "\n";
+		out.out() << "# ";
+		t.serialize_header(out.out());
+		out.out() << "\n";
 		headerWritten = true;
 	}
 
-	size_t cnt = 0;
-	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }
+/*	size_t cnt = 0;
+	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }*/
+	t.serialize_body(out.out(), from, to);
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
-	delete [] data;
-	data = NULL;
+// 	delete [] data;
+// 	data = NULL;
 
-	return count;
+	return to - from;
 }
 
-bool os_textout::init(const Config &cfg)
+bool os_textout::init(const Config &cfg, otable &t)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 //	out.open(cfg["filename"].c_str());
@@ -1735,38 +1677,34 @@ class osource : public opipeline_stage
 class os_textin : public osource
 {
 	protected:
-//		std::ifstream in;
 		flex_input in;
 
 	public:
-		virtual bool init(const Config &cfg);
-		virtual int run(gsl_rng *rng);
+		virtual bool init(const Config &cfg, otable &t);
+		virtual size_t run(otable &t, rng_t &rng);
 		virtual const std::string &name() const { static std::string s("textin"); return s; }
 		virtual const std::string &type() const { static std::string s("input"); return s; }
 
 		os_textin() {};
 };
 
-bool os_textin::init(const Config &cfg)
+bool os_textin::init(const Config &cfg, otable &t)
 {
 	const char *fn = cfg["filename"].c_str();
 	in.open(fn);
 	if(!in.in()) { THROW(EFile, "Failed to open '" + (std::string)fn + "' for input."); }
 
-	in.in() >> sstruct::factory;
+	t.unserialize_header(in.in());
 	return in.in();
 }
 
-int os_textin::run(gsl_rng *rng)
+size_t os_textin::run(otable &t, rng_t &rng)
 {
-	size_t block = 10000;
-
 	size_t total = 0;
 	do {
-		sstruct *data = sstruct::create(block);
-		size_t cnt = 0;
-		while(cnt < block && in.in() >> data[cnt]) { cnt++; }
-		total += nextlink->push(data, cnt, rng);
+		t.clear();
+		t.unserialize_body(in.in());
+		total += nextlink->process(t, 0, t.size(), rng);
 	} while(in.in());
 
 	return total;
@@ -1778,14 +1716,16 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 
 	if(name == "textin") { s.reset(new os_textin); }
 	else if(name == "textout") { s.reset(new os_textout); }
+	else if(name == "FeH") { s.reset(new os_FeH); }
+#if 0
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
 	else if(name == "photometry") { s.reset(new os_photometry); }
-	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
 //	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
+#endif
 	else { THROW(EAny, "Module " + name + " unknown."); }
 
 	ASSERT(name == s->name());
@@ -1800,11 +1740,11 @@ class opipeline
 
 	public:
 		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
-		int run(gsl_rng *rng);
+		virtual size_t run(otable &t, rng_t &rng);
 };
 
 // construct the pipeline based on requirements and provisions
-int opipeline::run(gsl_rng *rng)
+size_t opipeline::run(otable &t, rng_t &rng)
 {
 	// form a priority queue of requested stages. The priorities ensure that _output stage
 	// will end up last (as well as allow some control of which stage executes first if
@@ -1821,7 +1761,7 @@ int opipeline::run(gsl_rng *rng)
 	{
 		// get all currently available (used) tags
 		std::set<std::string> haves;
-		sstruct::factory.gettags(haves);
+		t.get_used_columns(haves);
 
 		// debugging output
 		std::ostringstream ss;
@@ -1842,9 +1782,9 @@ int opipeline::run(gsl_rng *rng)
 				THROW(EAny, "Another module already provides " + which + ", that " + s.name() + " is trying to provide");
 			}
 #endif
-			// initialize this pipeline stage (this typically useTag-s any new tags
-			// that this stage will add)
-			s.prerun(pipeline, sstruct::factory);
+			// initialize this pipeline stage (this typically adds and uses the columns
+			// this stage will add)
+			s.prerun(pipeline, t);
 
 			// append to pipeline
 			pipeline.push_back(&s);
@@ -1882,9 +1822,10 @@ int opipeline::run(gsl_rng *rng)
 	}
 	MLOG(verb1) << "Postprocessing module chain: " << ss.str();
 
-	return source->run(rng);
+	return source->run(t, rng);
 }
 
+#if 0
 void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output)
 {
 	Config cfg; cfg.load(conffn);
@@ -1919,13 +1860,13 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 		pipe.add(stage);
 	}
 
-	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
-	gsl_rng_set(rng, seed);
+	rng_gsl_t rng(seed);
 
-	int nstars = pipe.run(rng);
+	static const size_t Kbatch = 100000;
+	otable t(Kbatch);
+
+	int nstars = pipe.run(t, rng);
 	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
-
-	gsl_rng_free(rng);
 #if 0
 	cfg.get(Ar,	"Ar", 		0.);	// extinction
 
@@ -1960,7 +1901,7 @@ void observe_catalog(const std::string &conffn, const std::string &input, const 
 					<< "\n";
 #endif
 }
-
+#endif
 
 void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
 {
@@ -1969,6 +1910,11 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	int seed;
 	std::string inmod, outmod;
 	cfg.get(seed,	  "seed", 	  42);
+	rng_gsl_t rng(seed);
+
+	// output table
+	static const size_t Kbatch = 100000;
+	otable t(Kbatch);
 
 	// merge-in any modules included from the config file via the 'modules' keyword
 	// modules keyword may either contain the module name (in which case the config
@@ -2038,18 +1984,13 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
 		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
 
-		if(!stage->init(modcfg)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "Loaded " << name << " (module type: " << stage->type() << ")";
 
 		pipe.add(stage);
 	}
 
-	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
-	gsl_rng_set(rng, seed);
-
-	int nstars = pipe.run(rng);
+	int nstars = pipe.run(t, rng);
 	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
-
-	gsl_rng_free(rng);
 }
 #endif

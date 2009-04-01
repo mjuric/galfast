@@ -658,7 +658,7 @@ int main(int argc, char **argv)
 {
 try
 {
-	test_kin();
+//	test_kin();
 	test_otable();
 //	test_tags(); return 0;
 
@@ -853,9 +853,10 @@ try
 
 		if(!simpleOutput)
 		{
-			std::cerr << "DMM output.\n";
+			THROW(EAny, "DMM output support has been discontinued");
+/*			std::cerr << "DMM output.\n";
 			star_output_to_dmm cat_out(output + "/uniq_objects.dmm", output + "/uniq_observations.dmm", true);
-			skygen.montecarlo(cat_out);
+			skygen.montecarlo(cat_out);*/
 		}
 		else
 		{

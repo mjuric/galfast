@@ -37,6 +37,7 @@
 #include <gsl/gsl_interp.h>
 #include <gsl/gsl_spline.h>
 #include <gsl/gsl_rng.h>
+#include <gsl/gsl_randist.h>
 
 #include <astro/types.h>
 #include <astro/system/config.h>
@@ -251,83 +252,118 @@ template<typename T, std::size_t N>
 			return in;
 		}
 
+// thin random number generator abstraction
+struct rng_t
+{
+	virtual float uniform() = 0;
+	virtual float gaussian(const float sigma) = 0;
+	virtual ~rng_t() {}
+};
+
+struct rng_gsl_t : public rng_t
+{
+	bool own;
+	gsl_rng *rng;
+
+	rng_gsl_t(gsl_rng *r, bool own_ = false) : rng(r), own(own_) {}
+	rng_gsl_t(unsigned long int seed)
+		: own(true), rng(NULL)
+	{
+		rng = gsl_rng_alloc(gsl_rng_default);
+		gsl_rng_set(rng, seed);
+	}
+
+	virtual ~rng_gsl_t() { if(own && rng) gsl_rng_free(rng); }
+
+	virtual float uniform()
+	{
+		return (float)gsl_rng_uniform(rng);
+	}
+	virtual float gaussian(const float sigma) { return (float)gsl_ran_gaussian(rng, sigma); }
+};
+
+class fmtout
+{
+protected:
+	static const size_t BUFMAX = 20000;
+	char buf[BUFMAX+1];	// line buffer
+	size_t pos;
+public:
+	fmtout() : pos(0) {}
+	const char *c_str() const { return buf; }
+
+	size_t prep_buf()
+	{
+		if(pos == BUFMAX)
+		{
+			// This should really never happen ...
+			buf[BUFMAX] = 0;
+			THROW(peyton::exceptions::EAny, "Line buffer exhausted");
+		}
+
+		// Spaces between fields
+		if(pos != 0) { buf[pos] = ' '; pos++; }
+		return BUFMAX - pos;
+	}
+
+	template<typename T>
+	int printf_aux(char *dest, size_t len, const char *fmt, const T &v)
+	{
+		// Default action: explode, because this has to be overloaded for
+		// every printf-legal type
+		THROW(peyton::exceptions::EAny, "Internal error");
+	}
+
+	int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+	int printf_aux(char *dest, size_t maxlen, const char *fmt, const float &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+	int printf_aux(char *dest, size_t maxlen, const char *fmt, const int &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+
+	template<typename T>
+	int printf(const std::string &fmt, const T &v)
+	{
+		size_t len = prep_buf();
+
+		if(!fmt.size())
+		{
+			// No format specification -- revert to iostreams
+			std::ostringstream ss;
+			ss << v;
+			std::string out = ss.str();
+			strncpy(buf+pos, out.c_str(), std::min(len, out.size()));
+			pos += out.size();
+		}
+		else
+		{
+			// sprintf format specified, use it
+			printf_aux(buf+pos, len, fmt.c_str(), v);
+		}
+	}
+};
+
+struct column_type_traits
+{
+	const std::string typeName;
+	const size_t elementSize;
+
+	virtual void  serialize(fmtout &out, const std::string &format, const void *val) const = 0;
+	virtual void  unserialize(void *val, std::istream &in) const = 0;
+	virtual void* constructor(void *p) const = 0;
+	virtual void  destructor(void *val) const = 0;
+
+	static const column_type_traits *get(const std::string &datatype);
+	template<typename T> static const column_type_traits *get() { ASSERT(0); }
+protected:
+	static std::map<std::string, boost::shared_ptr<column_type_traits> > defined_types;
+	column_type_traits(const std::string &name, const size_t size) : typeName(name), elementSize(size) {}
+};
+// These are C type->traits mappings. Specialize them for each datatype supported by column_type_traits::get
+template<> const column_type_traits *column_type_traits::get<float>();
+template<> const column_type_traits *column_type_traits::get<int>();
+template<> const column_type_traits *column_type_traits::get<double>();
+template<> const column_type_traits *column_type_traits::get<char>();
+
 class otable
 {
-public:
-	class fmtout
-	{
-	protected:
-		static const size_t BUFMAX = 20000;
-		char buf[BUFMAX+1];	// line buffer
-		size_t pos;
-	public:
-		fmtout() : pos(0) {}
-		const char *c_str() const { return buf; }
-
-		size_t prep_buf()
-		{
-			if(pos == BUFMAX)
-			{
-				// This should really never happen ...
-				buf[BUFMAX] = 0;
-				THROW(peyton::exceptions::EAny, "Line buffer exhausted");
-			}
-
-			// Spaces between fields
-			if(pos != 0) { buf[pos] = ' '; pos++; }
-			return BUFMAX - pos;
-		}
-
-		template<typename T>
-		int printf_aux(char *dest, size_t len, const char *fmt, const T &v)
-		{
-			// Default action: explode, because this has to be overloaded for
-			// every printf-legal type
-			THROW(peyton::exceptions::EAny, "Internal error");
-		}
-
-		int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
-		int printf_aux(char *dest, size_t maxlen, const char *fmt, const float &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
-		int printf_aux(char *dest, size_t maxlen, const char *fmt, const int &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
-
-		template<typename T>
-		int printf(const std::string &fmt, const T &v)
-		{
-			size_t len = prep_buf();
-
-			if(!fmt.size())
-			{
-				// No format specification -- revert to iostreams
-				std::ostringstream ss;
-				ss << v;
-				std::string out = ss.str();
-				strncpy(buf+pos, out.c_str(), std::min(len, out.size()));
-				pos += out.size();
-			}
-			else
-			{
-				// sprintf format specified, use it
-				printf_aux(buf+pos, len, fmt.c_str(), v);
-			}
-		}
-	};
-
-	struct column_type_traits
-	{
-		const std::string typeName;
-		const size_t elementSize;
-
-		virtual void  serialize(fmtout &out, const std::string &format, const void *val) const = 0;
-		virtual void  unserialize(void *val, std::istream &in) const = 0;
-		virtual void* constructor(void *p) const = 0;
-		virtual void  destructor(void *val) const = 0;
-
-		static const column_type_traits *get(const std::string &datatype);
-	protected:
-		static std::map<std::string, boost::shared_ptr<column_type_traits> > defined_types;
-		column_type_traits(const std::string &name, const size_t size) : typeName(name), elementSize(size) {}
-	};
-
 protected:
 	class kv
 	{
@@ -375,7 +411,7 @@ protected:
 		}
 	};
 
-protected:
+public:
 	template<typename T> struct column
 	{
 		T *base;
@@ -385,15 +421,18 @@ protected:
 
 		T &operator()(const size_t row, const size_t elem)	// 2D column accessor
 		{
+/*			const size_t off = elem * pitch + row*sizeof(T);
+			return *(T*)(((char*)base) + off);*/
 			return *((T*)((char*)base + elem * pitch) + row);
 		}
 
-		T &operator()(const size_t i)	// 1D column accessor (i == the row)
+		T &operator[](const size_t i)	// 1D column accessor (i == the row)
 		{
 			return base[i];
 		}
 	};
-
+	
+protected:
 	struct columndef : public kv
 	{
 	protected:
@@ -452,11 +491,6 @@ protected:
 		size_t length;			// length of the column (the number of rows)
 		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)
 
-// 		const static int NO = -2;
-// 		const static int AUTO = -1;
-// 		const static int YES = 0;
-// 		int input, output;		// may contain NO, AUTO or then column number for input/output
-
 		friend struct cmp_in;
 		friend struct cmp_out;
 
@@ -467,7 +501,14 @@ protected:
 		void dealloc();
 
 		virtual void set_property(const std::string &key, const std::string &value);
-		template<typename T> column<T> dataptr() { return column<T>(data, pitch); }
+		template<typename T> column<T> dataptr()
+		{
+			ASSERT(column_type_traits::get<T>() == type())
+			{
+				std::cerr << "Attempting to access a " << type()->typeName << " column as " << column_type_traits::get<T>()->typeName << "\n";
+			}
+			return column<T>(data, pitch);
+		}
 	public:
 		~columndef();
 		columndef &add_alias(const std::string &name)		// add an additional name (alias) to this column
@@ -491,6 +532,17 @@ protected:
 	std::vector<std::string> colInput, colOutput;
 
 public:
+	size_t size() const { return nrows; }
+	size_t capacity() const { return length; }
+	void clear() { nrows = 0; }
+	size_t add_row()
+	{
+		size_t tmp = nrows++;
+		if(nrows > capacity()) { THROW(peyton::exceptions::EAny, "Maximum number of rows in otable reached"); }
+		return tmp;
+	}
+
+public:
 	struct parse_callback { virtual bool operator()(kv *kvobj) = 0; };
 	
 protected:
@@ -500,33 +552,107 @@ protected:
 	columndef &getColumn(const std::string &name);
 	void getColumnsForOutput(std::vector<const columndef*> &cols) const;	// aux helper
 	void getColumnsForInput(std::vector<columndef*> &cols);			// aux helper
+
 public:
 	// column lookup by name
 	template<typename T>
-	column<T> operator[](const std::string &name)
+	column<T> col(const std::string &name)
 	{
 		return getColumn(name).dataptr<T>();
 	}
 
-	columndef &add_column(const std::string &coldef);
-	size_t set_output(const std::string &colname, bool output);
-	size_t set_output_all(bool output = true);
-	bool del_column(const std::string &name);
+	columndef &use_column(const std::string &coldef, bool setOutput = true);
+	size_t get_used_columns(std::set<std::string> &cols) const;		// returns the list of columns in use
+	void alias_column(const std::string &column, const std::string &alias)
+	{
+		getColumn(column).add_alias(alias);
+	}
+//	bool del_column(const std::string &name);
 
 	otable(const size_t len)
 	{
-		length = len;
+		length = len; nrows = 0;
 		init();
 	}
 
 	// serialization/unserialization routines
 	std::ostream& serialize_header(std::ostream &out) const;
 	std::istream& unserialize_header(std::istream &in);
-
-	std::ostream& serialize_body(std::ostream& out) const;
+	std::ostream& serialize_body(std::ostream& out, size_t from = 0, size_t to = -1) const;
 	std::istream& unserialize_body(std::istream& in);
+	size_t set_output(const std::string &colname, bool output);
+	size_t set_output_all(bool output = true);
 };
 
+// convenience typedefs
+namespace column_types
+{
+	typedef otable::column<double> cdouble;
+	typedef otable::column<int> cint;
+	typedef otable::column<float> cfloat;
+};
+
+class osink;
+class opipeline_stage
+{
+	protected:
+		std::set<std::string> prov, req;
+
+		osink *nextlink;
+	public:
+		void chain(osink *nl) { nextlink = nl; }
+		virtual size_t run(otable &t, rng_t &rng) = 0;
+
+	public:
+		static boost::shared_ptr<opipeline_stage> create(const std::string &name);
+		virtual const std::string &name() const = 0;
+		virtual const std::string &type() const { static std::string s("stage"); return s; }
+
+	public:
+		virtual bool init(const peyton::system::Config &cfg, otable &t) = 0;
+		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, otable &t);
+		const std::set<std::string> &requires() const { return req; }
+
+		bool satisfied_with(const std::set<std::string> &haves);
+
+		static const int PRIORITY_INPUT      = -10000;
+		static const int PRIORITY_STAR       =      0;
+		static const int PRIORITY_INSTRUMENT =   1000;
+		static const int PRIORITY_OUTPUT     =  10000;
+		virtual int priority() { return PRIORITY_STAR; }
+
+	public:
+		bool inits(const std::string &cfgstring, otable &t) { return inits(cfgstring.c_str(), t); }
+		bool inits(const char *cfgstring, otable &t)
+		{
+			std::istringstream ss(cfgstring);
+			peyton::system::Config cfg;
+			cfg.load(ss);
+			return init(cfg, t);
+		}
+
+		opipeline_stage() : nextlink(NULL)
+		{
+		}
+};
+
+class osink : public opipeline_stage
+{
+	public:
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng) = 0;
+
+	public:
+		virtual size_t run(otable &t, rng_t &rng) { THROW(peyton::exceptions::ENotImplemented, "We should have never gotten here"); } // we should never reach this place
+
+	public:
+		osink() : opipeline_stage()
+		{
+			req.insert("_source");
+		}
+};
+
+
+#if 0
 class sstruct	// "Smart struct" -- a structure with variable number (in runtime) of predefined members
 {
 	protected:
@@ -1162,6 +1288,7 @@ inline OSTREAM(const sstruct &ss) { return ss.serialize(out); }
 inline ISTREAM(sstruct &ss) { return ss.unserialize(in); }
 inline OSTREAM(const sstruct::factory_t &ss) { return ss.serialize(out); }
 inline ISTREAM(sstruct::factory_t &ss) { return ss.unserialize(in); }
+#endif
 
 class galactic_model
 {
@@ -1176,8 +1303,10 @@ public:
 	const std::string &color() const { return m_color; }
 
 public:
-	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);	// by default, adds comp=0 and XYZ tags
-	virtual bool setup_tags(sstruct::factory_t &factory);	// by default, sets up comp and XYZ[3] tags
+	//virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);	// by default, adds comp=0 and XYZ tags
+	//virtual bool setup_tags(sstruct::factory_t &factory);	// by default, sets up comp and XYZ[3] tags
+	virtual bool add_details(otable &out, rng_t &rng) {};	// does nothing by default
+	//virtual bool setup_details(otable &out);	// by default, sets up comp and XYZ[3] tags
 
 public:
 	virtual double absmag(double ri) { ASSERT(paralax_loaded); return paralax.Mr(ri); }
@@ -1208,8 +1337,10 @@ public:
 public:
 	static const int THIN = 0, THICK = 1, HALO = 2;
 
-	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
+//	virtual bool draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng);
 	virtual const std::string &name() const { static std::string s = "BahcallSoneira"; return s; }
+	virtual bool add_details(otable &out, rng_t &rng);	// by default, adds comp=0 and XYZ tags
+	//virtual bool setup_details(otable &out);	// by default, sets up comp and XYZ[3] tags
 public:
 	BahcallSoneira_model();
 	BahcallSoneira_model(peyton::system::Config &cfg);

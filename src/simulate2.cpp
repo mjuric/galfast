@@ -904,7 +904,7 @@ peyton::io::ibstream &model_pdf::unserialize(peyton::io::ibstream &in)
 }
 
 sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
-: rng(NULL), nstars(0)
+: nstars(0)
 #if 0
 		, flags(0)
 #endif
@@ -917,8 +917,9 @@ sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
 	// random number generator
 	int seed;
 	cfg.get(seed,	"seed", 	42);
-	rng = gsl_rng_alloc(gsl_rng_default);
-	gsl_rng_set(rng, seed);
+/*	gsl_rng *grng = gsl_rng_alloc(gsl_rng_default);
+	gsl_rng_set(grng, seed);*/
+	rng.reset(new rng_gsl_t(seed));
 
 	// load pdfs
 /*	ASSERT(cfg.count("pdfs"));
@@ -974,7 +975,6 @@ sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
 
 sky_generator::~sky_generator()
 {
-	if(rng != NULL) { gsl_rng_free(rng); }
 }
 
 struct null_deleter
@@ -1001,6 +1001,7 @@ void sky_generator::add_pdf(boost::shared_ptr<model_pdf> &pdf)
 
 // generate K stars in model-sky given in $prefix.pdf.dat
 // file, precalculated with preconstruct_mpdf
+#define OTABLE 1
 void sky_generator::montecarlo(star_output_function &out)
 {
 	ASSERT(pdfs.size() != 0);
@@ -1032,12 +1033,9 @@ void sky_generator::montecarlo(star_output_function &out)
 	static const int Kbatch = 20000000;
 
 	// prepare output
-#if OTABLE
-	otable result;
-	result.add_column("lb");
-#else
-	sstruct::factory.useTag("lb[2]");
-#endif
+	otable t(Kbatch);
+	t.use_column("lb");
+
 	std::string
 		colorName = pdfs[0]->galmodel().color(),
 		magName = pdfs[0]->galmodel().band(),
@@ -1045,18 +1043,10 @@ void sky_generator::montecarlo(star_output_function &out)
 	MLOG(verb1) << "color=" << colorName;
 	MLOG(verb1) << "mag=" << magName;
 	MLOG(verb1) << "absmag=" << absmagName;
-#if OTABLE
-	result.add_column(colorName).add_alias("color");
-	result.add_column(absmagName).add_alias("absmag");
-	result.add_column(magName).add_alias("mag");
-#else
-	sstruct::factory.useTag(colorName, true);
-	sstruct::factory.useTag(absmagName, true);
-	sstruct::factory.useTag(magName, true);
-	sstruct::factory.aliasTag(absmagName, "absmag");
-	sstruct::factory.aliasTag(colorName,  "color");
-	sstruct::factory.aliasTag(magName,    "mag");
-#endif
+
+	t.use_column(colorName);  t.alias_column(colorName, "color");
+	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
+	t.use_column(magName);	  t.alias_column(magName, "mag");
 
 	FOR(0, pdfs.size())
 	{
@@ -1066,33 +1056,30 @@ void sky_generator::montecarlo(star_output_function &out)
 		if(pdfs[i]->galmodel().color() != pdfs[0]->galmodel().color()) {
 			THROW(EAny, "Colors in models of " + pdfs[0]->name() + " and " + pdfs[i]->name() + " differ (" + pdfs[0]->galmodel().color() + " vs. " + pdfs[i]->galmodel().color() + ")");
 		}
-		pdfs[i]->galmodel().setup_tags(sstruct::factory);
+//		pdfs[i]->galmodel().setup_tags(sstruct::factory);
 	}
-#if OTABLE
-	out.output_header(result);
-#else
-	out.output_header(sstruct::factory);
-#endif
 
 	// do catalog generation
 	int K = 0, Ngen = 0;
 	while(K < Ktotal)
 	{
+		t.clear();
 		int Kstep = std::min(Kbatch, Ktotal - K);
+		Ngen += montecarlo_batch(t, Kstep, modelCPDF, allowMisses);
+
+		if(K == 0) { out.output_header(t); }
+		out.output(t);
+
 		K += Kstep;
-		Ngen += montecarlo_batch(out, Kstep, modelCPDF, allowMisses);
 	}
-	
+
 	MLOG(verb1) << "Generated " << Ngen << " stars.";
 }
 
-int sky_generator::montecarlo_batch(star_output_function &out, int K, const std::vector<double> &modelCPDF, bool allowMisses)
+int sky_generator::montecarlo_batch(otable &t, int K, const std::vector<double> &modelCPDF, bool allowMisses)
 {
 	// clear output vectors
-	FOREACH(stars)
-	{
-		(*i)->clear();
-	}
+	FOREACH(stars) { (*i)->clear(); }
 
 	// preallocate memory to avoid subsequent frequent reallocation
 	FOR(0, modelCPDF.size())
@@ -1113,13 +1100,13 @@ int sky_generator::montecarlo_batch(star_output_function &out, int K, const std:
 	int Kgen = 0;
 	FOR(0, K)
 	{
-		double u = gsl_rng_uniform(rng);
+		double u = rng->uniform();
 		ITER(modelCPDF) ix = upper_bound(modelCPDF.begin(), modelCPDF.end(), u); --ix;
 		int idx = ix - modelCPDF.begin();
 //		std::cerr << "Model index : " << idx << "\n";
 
 		model_pdf::star s;
-		bool succ = pdfs[idx]->draw_position(s, rng);
+		bool succ = pdfs[idx]->draw_position(s, *rng);
 		if(!succ)
 		{
 			if(!allowMisses) { --i; }
@@ -1134,12 +1121,11 @@ int sky_generator::montecarlo_batch(star_output_function &out, int K, const std:
 	}
 	tick.close();
 
-	// 2nd stage - draw magnitudes and write output
+	// 2nd stage - draw magnitudes and store output
 	FOR(0, pdfs.size())
 	{
-		pdfs[i]->draw_magnitudes(*stars[i], rng);
-//		observe(*stars[i], pdfs[i]->proj, out);
-		draw_stars(*stars[i], pdfs[i]->galmodel(), pdfs[i]->proj, out);
+		pdfs[i]->draw_magnitudes(*stars[i], *rng);
+		draw_stars(*stars[i], pdfs[i]->galmodel(), pdfs[i]->proj, t);
 
 		MLOG(verb1) << "model " << pdfs[i]->name() << " : " << stars[i]->size() << " stars (" <<
 			100. * double(stars[i]->size()) / Kgen << "%)";
@@ -1148,21 +1134,21 @@ int sky_generator::montecarlo_batch(star_output_function &out, int K, const std:
 	return Kgen;
 }
 
-bool model_pdf::draw_position(star &s, gsl_rng *rng)
+bool model_pdf::draw_position(star &s, rng_t &rng)
 {
 	// pick x
-	double ux = gsl_rng_uniform(rng);
+	double ux = rng.uniform();
 	ITER(xpdf) ix = upper_bound(xpdf.begin(), xpdf.end(), ux, less_S<Sx>()); --ix;
 	const Sx &X = **ix;
 
 	// pick y, given an x
-	double uy = gsl_rng_uniform(rng);
+	double uy = rng.uniform();
 	ITER(X.ypdf) iy = upper_bound(X.ypdf.begin(), X.ypdf.end(), uy, less_S<Sy>()); --iy;
 	const Sy &Y = **iy;
 
 	// draw the exact location within the [x,x+dx], [y,y+dy] rectangle
-	s.x = skymap.x0 + skymap.dx*(X.X + gsl_rng_uniform(rng));
-	s.y = skymap.y0 + skymap.dx*(Y.Y + gsl_rng_uniform(rng));
+	s.x = skymap.x0 + skymap.dx*(X.X + rng.uniform());
+	s.y = skymap.y0 + skymap.dx*(Y.Y + rng.uniform());
 
 	// check that the star is inside survey footprint, reject if it's not
 	gpc_polygon &poly = skymap.skymap[std::make_pair(X.X, Y.Y)].poly;
@@ -1174,11 +1160,11 @@ bool model_pdf::draw_position(star &s, gsl_rng *rng)
 	}
 
 	// pick ri bin
-	double uri = gsl_rng_uniform(rng);
+	double uri = rng.uniform();
 	ITER(Y.ripdf) iri = upper_bound(Y.ripdf.begin(), Y.ripdf.end(), uri); --iri;
 	int riidx = iri - Y.ripdf.begin();
 	// pick ri within [ri, ri+dri)
-	double ri = ri0 + dri*(riidx + gsl_rng_uniform(rng));
+	double ri = ri0 + dri*(riidx + rng.uniform());
 	ASSERT(ri0+riidx*dri <= ri && ri <= ri0+dri+riidx*dri);
 	s.ri = ri;
 	
@@ -1186,7 +1172,7 @@ bool model_pdf::draw_position(star &s, gsl_rng *rng)
 }
 
 // assigns magnitudes to objects in stars vector
-void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, gsl_rng *rng)
+void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng)
 {
 	MLOG(verb1) << "Sorting...";
 
@@ -1220,39 +1206,28 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, gsl_rng *rn
 			}*/
 		}
 		// draw the magnitude
-		double um = gsl_rng_uniform(rng);
+		double um = rng.uniform();
 		s.m = mspl(um);
 //		std::cout << um << " " << s.m << "\n";
 		tick.tick();
 	}
 }
 
-star_output_to_dmm::star_output_to_dmm(const std::string &objcat, const std::string &obscat, bool create)
-{
-	if(create)
-	{
-		out.create(objcat);
-		starmags.create(obscat);
-	} else {
-		out.open(objcat, "rw");
-		starmags.open(obscat, "rw");
-	}
-	out.setmaxwindows(2);
-	starmags.setmaxwindows(2);
-}
-
-void star_output_to_textstream::output_header(const sstruct::factory_t &factory)
+void star_output_to_textstream::output_header(const otable &t)
 {
 	// simple ascii-text dump
 	//out << "# l    b    ri     r  " << factory << "\n";
-	out << "# " << factory << "\n";
+	out << "# ";
+	t.serialize_header(out);
+	out << "\n";
+	out.flush();
 }
 
-void star_output_to_textstream::output(sstruct &t)
+void star_output_to_textstream::output(const otable &t)
 {
 	// simple ascii-text dump
 //	out << deg(l) << " " << deg(b) << " " << ri << " " << r << " " << t << "\n";
-	out << t << "\n";
+	t.serialize_body(out);
 }
 
 void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
@@ -1298,12 +1273,17 @@ void sky_generator::draw_companion(float &g, float &r, float &i, Radians l, Radi
 	float u, g, r, i, z;
 #endif
 
-void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf)
+void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, otable &t)
 {
 	ticker tick("Writing", 10000);
 
-	std::auto_ptr<sstruct> tagptr(sstruct::create());
-	sstruct &t = *tagptr;
+	using namespace column_types;
+	cdouble lb    = t.col<double>("lb");
+	cfloat color  = t.col<float>("color");
+	cfloat mag    = t.col<float>("mag");
+	cfloat absmag = t.col<float>("absmag");
+	cfloat XYZ    = t.col<float>("XYZ");	t.set_output("XYZ", true);
+	cint comp     = t.col<int>("comp");	t.set_output("comp", true);
 
 	const static double Rg = coord_pack::Rg;
 	FORj(j, 0, stars.size())
@@ -1327,27 +1307,31 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		double y =    - D*sl*cb;
 		double z =      D*sb;
 
-		// draw model-dependent tags
-		model.draw_tag(t, x, y, z, s.ri, rng);
-
-		// write out this star and its tags
-		double  *lb = t.lb();
-		      lb[0] = deg(l);
-		      lb[1] = deg(b);
-		t.color()   = s.ri;
-		t.mag()     = s.m;
-		t.absmag()  = Mr;
-		sf.output(t);
+		// store this star
+		size_t row = t.add_row();
+		lb(row, 0)  = deg(l);
+		lb(row, 1)  = deg(b);
+//		std::cerr << lb(row, 0) << " " << lb(row, 1) << "\n";
+		color[row]  = s.ri;
+		mag[row]    = s.m;
+		absmag[row] = Mr;
+		comp[row] = 0;
+		XYZ(row, 0) = x;
+		XYZ(row, 1) = y;
+		XYZ(row, 2) = z;
 
 		// user interface stuff
 		tick.tick();
 	}
 	tick.close();
+
+	// add any model-dependent details
+	model.add_details(t, *rng);
 }
 
 void test_otable()
 {
-//	return;
+	return;
 
 	otable result(10);
 	std::string text =
@@ -1359,16 +1343,19 @@ void test_otable()
 
 	std::istringstream in(text.c_str());
 	result.unserialize_header(in);
-	result.add_column("addition");
+	result.use_column("addition");
 	result.unserialize_body(in);
 
 //	result.set_output_all();
+	std::cout << "# ";
 	result.serialize_header(std::cout);
+	std::cout << "\n";
 	result.serialize_body(std::cout);
 
 	exit(-1);
 }
 
+#if 0
 void test_tags()
 {
 	if(0) {
@@ -1449,6 +1436,7 @@ void test_tags()
 		delete [] tag;
 	}
 }
+#endif
 
 #if 0
 void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf)
@@ -1609,7 +1597,8 @@ void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::m
 	std::cerr << "\n";
 }
 #endif
-				     
+
+#if 0
 void star_output_to_dmm::output(sstruct &t)
 {
 	THROW(ENotImplemented, "Output to DMM with galactic model tags not implemented. Aborting.");
@@ -1647,6 +1636,7 @@ void star_output_to_dmm::close()
 	out.close();
 	starmags.close();
 }
+#endif
 
 void pdfinfo(std::ostream &out, const std::string &pdffile)
 {

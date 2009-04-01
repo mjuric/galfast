@@ -148,9 +148,9 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 //void unserialize(std::istream &in, const size_t row);
 
 template<typename T>
-struct default_column_type_traits : public otable::column_type_traits
+struct default_column_type_traits : public column_type_traits
 {
-	virtual void  serialize(otable::fmtout &out, const std::string &format, const void *val) const { const T *v = reinterpret_cast<const T*>(val); out.printf(format, *v); }
+	virtual void  serialize(fmtout &out, const std::string &format, const void *val) const { const T *v = reinterpret_cast<const T*>(val); out.printf(format, *v); }
 	virtual void  unserialize(void *val, std::istream &in) const { T *v = reinterpret_cast<T*>(val); in >> *v; }
 	virtual void* constructor(void *p) const { return new (p) T(); }
 	virtual void  destructor(void *val) const { reinterpret_cast<T*>(val)->~T(); }
@@ -158,8 +158,15 @@ struct default_column_type_traits : public otable::column_type_traits
 	default_column_type_traits(const std::string &name) : column_type_traits(name, sizeof(T)) {}
 };
 
-std::map<std::string, boost::shared_ptr<otable::column_type_traits> > otable::column_type_traits::defined_types;
-const otable::column_type_traits *otable::column_type_traits::get(const std::string &datatype)
+// These are C type->traits mappings. Specialize them for each datatype supported by column_type_traits::get
+// and declare them in model.h (or else it won't work!!)
+template<> const column_type_traits *column_type_traits::get<float>()  { return column_type_traits::get("float"); }
+template<> const column_type_traits *column_type_traits::get<int>()    { return column_type_traits::get("int"); }
+template<> const column_type_traits *column_type_traits::get<double>() { return column_type_traits::get("double"); }
+template<> const column_type_traits *column_type_traits::get<char>()   { return column_type_traits::get("char"); }
+
+std::map<std::string, boost::shared_ptr<column_type_traits> > column_type_traits::defined_types;
+const column_type_traits *column_type_traits::get(const std::string &datatype)
 {
 	static bool initialized = false;
 	if(!initialized)
@@ -194,11 +201,10 @@ otable::columndef::columndef(otable &parent_)
 {
 	// defaults
 	columnClass = parent.cclasses["default"].get();
-	width = 1;	// scalar
-// 	output = AUTO;
-// 	input = NO;
+	typeProxy = NULL;	// default to class type
+	width = 1;		// default to scalar
 
-	// unitinialized stuff
+	// data storage (unititialized)
 	data = NULL;
 	pitch = 0;
 	length = 0;
@@ -206,6 +212,9 @@ otable::columndef::columndef(otable &parent_)
 
 void otable::columndef::alloc(const size_t len)
 {
+	// do nothing if the length is OK
+	if(len == length) { return; }
+
 	dealloc();
 
 	const column_type_traits *tt = type();
@@ -245,23 +254,12 @@ void otable::columndef::dealloc()
 	data = NULL;
 }
 
-
 void otable::columnclass::set_property(const std::string &key, const std::string &value)
 {
 	if(key == "__name__")
 	{
 		if(className.empty()) { className = value; }
 		return;
-	}
-
-	if(key == "alias")
-	{
-		if(!parent.columns.count(value))
-		{
-			ASSERT(!className.empty());
-			parent.columns[value] = parent.columns[className];
-		}
-		ASSERT(parent.columns[value] == parent.columns[className]);
 	}
 
 	if(key == "fmt") { formatString = value; return; }
@@ -282,6 +280,17 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 	{
 		if(columnName.empty()) { columnName = value; }
 
+		return;
+	}
+
+	if(key == "alias")
+	{
+		if(!parent.columns.count(value))
+		{
+			ASSERT(!columnName.empty());
+			parent.columns[value] = parent.columns[columnName];
+		}
+		ASSERT(parent.columns[value] == parent.columns[columnName]);
 		return;
 	}
 
@@ -365,26 +374,12 @@ void otable::columndef::serialize_def(std::ostream &out) const
 	}
 }
 
-// struct cmp_out
-// {
-// 	bool operator()(const otable::columndef *a, const otable::columndef *b) const { return a->output < b->output; }
-// 	cmp_out() {}
-// };
-
 void otable::getColumnsForOutput(std::vector<const columndef*> &outColumns) const
 {
 	FOREACH(colOutput)
 	{
 		if(columns.count(*i)) { outColumns.push_back(columns.at(*i).get()); }
 	}
-/*	std::multiset<columndef*, cmp_out> mset;
-	FOREACH(columns) { mset.insert(i->second.get()); }
-
-	FOREACH(mset)
-	{
-		if((*i)->output < 0) { continue; }
-		outColumns.push_back(*i);
-	}*/
 }
 
 std::ostream& otable::serialize_header(std::ostream &out) const
@@ -392,23 +387,24 @@ std::ostream& otable::serialize_header(std::ostream &out) const
 	std::vector<const columndef*> outColumns;
 	getColumnsForOutput(outColumns);
 
-	out << "# ";
 	FOREACH(outColumns)
 	{
 		(*i)->serialize_def(out);
 		out << " ";
 	}
-	out << "\n";
 	return out;
 }
 
 // serialization/unserialization routines
-std::ostream& otable::serialize_body(std::ostream& out) const
+std::ostream& otable::serialize_body(std::ostream& out, size_t from, size_t to) const
 {
+	ASSERT(from >= 0);
+	if(to > size()) { to = size(); }
+
 	std::vector<const columndef*> outColumns;
 	getColumnsForOutput(outColumns);
 
-	FORj(row, 0, nrows)
+	FORj(row, from, to)
 	{
 		fmtout line;
 		FOREACH(outColumns)
@@ -420,28 +416,13 @@ std::ostream& otable::serialize_body(std::ostream& out) const
 	return out;
 };
 
-/*struct cmp_in
-{
-	bool operator()(const otable::columndef *a, const otable::columndef *b) const { return a->input < b->input; }
-	cmp_in() {}
-};
-*/
 void otable::getColumnsForInput(std::vector<columndef*> &inColumns)
 {
 	FOREACH(colInput)
 	{
 		ASSERT(columns.count(*i));
-//		inColumns.push_back(columns.at(*i).get());
 		inColumns.push_back(&getColumn(*i));
 	}
-/*	std::multiset<columndef*, cmp_in> mset;
-	FOREACH(columns) { mset.insert(i->second.get()); }
-
-	FOREACH(mset)
-	{
-		if((*i)->input < 0) { continue; }
-		inColumns.push_back(*i);
-	}*/
 }
 
 struct record_loaded_columns : public otable::parse_callback
@@ -538,37 +519,23 @@ size_t otable::set_output_all(bool output)
 	}
 }
 
-otable::columndef &otable::add_column(const std::string &coldef)
+otable::columndef &otable::use_column(const std::string &coldef, bool setOutput)
 {
 	columndef *col = (columndef *)parse("(column) " + coldef);
 	ASSERT(col != NULL);
+
+	col->alloc(length); // Ensure the column is allocated
+
+	if(setOutput) { set_output(col->columnName, true); }
+
 	return *col;
 }
 
-/*struct save_column_default : public otable::parse_callback
-{
-	otable &parent;
-	save_column_default(otable &p) : parent(p) {}
-
-	virtual bool operator()(otable::kv *kvobj)
-	{
-		if(kvobj->what != "(column)") return true;
-		otable::columndef *col = (otable::columndef*)kvobj;
-
-		boost::shared_ptr<columndef *col> dflt(col->clone("default::" + col->columnName));
-		parent.add_column(dflt);
-
-		return true;
-	}
-};
-*/
 void otable::init()
 {
 	// definition of built-in classes and column defaults
-//	save_column_default cd(*this);
-
 	parse(
-	"(class) default      {}" 		// NOTE: This class must come be defined before any columns are ever instantiated
+	"(class) default      {fmt=% 7.3f;}" 			// NOTE: This class must come be defined before any columns are ever instantiated
 	"(class) magnitude    {fmt=% 7.3f;}" 			// -12.345
 	"(class) color        {fmt=% 6.3f;}"			// -12.345
 	"(class) astrometry   {fmt=% 13.8f; type=double;}"	// -123.12345678
@@ -587,7 +554,6 @@ void otable::init()
 	"(column) pmlb[3]       {class=propermotion;}"
 	"(column) pmradec[3]    {class=propermotion;}"
 	"(column) star_name[40] {type=char;}"
-//	&cd
 	);
 
 	// store these column definitions as defaults
@@ -601,23 +567,27 @@ void otable::init()
 	}
 }
 
+size_t otable::get_used_columns(std::set<std::string> &cols) const
+{
+	cols.clear();
+	FOREACH(columns)
+	{
+		if(i->second->length == 0) { continue; }
+		cols.insert(i->first);
+	}
+	return cols.size();
+}
+
 otable::columndef &otable::getColumn(const std::string &name)
 {
 	// Auto-create if needed
 	if(!columns.count(name))
 	{
 		// autocreate
-		add_column(name);
+		use_column(name);
 	}
 	ASSERT(columns.count(name));
  	columndef &col = *columns[name].get();
-
-// 	// Auto-enable column output
-// 	if(col.output == columndef::AUTO)
-// 	{
-// 		// set output to yes, unless overridden
-// 		col.output = columndef::YES;
-// 	}
 
 	// Auto-create column data
 	if(col.length != length)
@@ -631,6 +601,7 @@ otable::columndef &otable::getColumn(const std::string &name)
 
 ///////////////////////////////////////////////
 
+#if 0
 // helpers for tag definitions
 template<typename T>
 sstruct::tagdef* createTag_aux(const std::string &tagName, sstruct::tagclass *tagClass, const size_t n = 1)
@@ -784,6 +755,7 @@ sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool all
 	if(td->offset != -1) { return td; }	// if already in use
 	return addTag(td);
 }
+#endif
 
 /////////////
 
@@ -1290,33 +1262,47 @@ BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
 // 	return paralax.Mr(ri);
 // }
 
+#if 0
 sstruct::factory_t sstruct::factory;
 std::map<sstruct *, char *> sstruct::owner;
+#endif
 
-bool BahcallSoneira_model::draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng)
+#if 1
+bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 {
-	galactic_model::draw_tag(t, x, y, z, ri, rng);
+//	galactic_model::add_details(out, row, x, y, z, ri, rng);
 
-	double r = sqrt(x*x + y*y);
+	using namespace column_types;
+	cfloat XYZ = t.col<float>("XYZ");
+	cint  comp = t.col<int>("comp");
 
-	double thin = m.rho_thin(r, z, 0);
-	double thick = m.rho_thick(r, z, 0);
-	double halo = m.rho_halo(r, z, 0);
-	double rho = thin+thick+halo;
+	for(size_t row = 0; row != t.size(); row++)
+	{
+		float x = XYZ(row, 0);
+		float y = XYZ(row, 1);
+		float z = XYZ(row, 2);
+		float r = sqrt(x*x + y*y);
 
-	double pthin  = thin / rho;
-	double pthick = (thin + thick) / rho;
+		float thin = m.rho_thin(r, z, 0);
+		float thick = m.rho_thick(r, z, 0);
+		float halo = m.rho_halo(r, z, 0);
+		float rho = thin+thick+halo;
 
-	double u = gsl_rng_uniform(rng);
-	if(u < pthin) { t.component() = THIN; }
-	else if(u < pthick) { t.component() = THICK; }
-	else { t.component() = HALO; }
+		float pthin  = thin / rho;
+		float pthick = (thin + thick) / rho;
+
+		float u = rng.uniform();
+		if(u < pthin) { comp[row] = THIN; }
+		else if(u < pthick) { comp[row] = THICK; }
+		else { comp[row] = HALO; }
+	}
 
 //	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
 //	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
 
 	return true;
 }
+#endif
 
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
@@ -1460,6 +1446,7 @@ galactic_model::galactic_model(peyton::system::Config &cfg)
 	}
 }
 
+#if 0
 bool galactic_model::setup_tags(sstruct::factory_t &factory)
 {
 	factory.useTag("comp");
@@ -1474,3 +1461,4 @@ bool galactic_model::draw_tag(sstruct &t, double x, double y, double z, double r
 
 	return true;
 }
+#endif

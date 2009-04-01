@@ -126,8 +126,8 @@ public:
 
 	// montecarlo generation functions
 	peyton::io::ibstream &unserialize(peyton::io::ibstream &in);
-	bool draw_position(star &s, gsl_rng *rng);
-	void draw_magnitudes(std::vector<model_pdf::star> &stars, gsl_rng *rng);
+	bool draw_position(star &s, rng_t &rng);
+	void draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng);
 
 	// accessors
 	const std::string &name() const { return pdfname; }
@@ -142,23 +142,13 @@ inline BISTREAM2(model_pdf &pdf) { return pdf.unserialize(in); }
 class sky_generator
 {
 protected:
-	gsl_rng *rng;
+//	gsl_rng *rng;
+	boost::shared_ptr<rng_t> rng;
 
 	std::vector<boost::shared_ptr<model_pdf> > pdfs;
 	std::vector<boost::shared_ptr<std::vector<model_pdf::star> > > stars;	// generated stars
 
 	int nstars;	///< number of stars to generate (read from config file)
-#if 0
-	conic_volume_map magerrs_cvm;
-	conic_volume_map_interpolator magerrs;
-	
-	double Ar;	///< extinction, conf["Ar"], default = 0
-protected:
-	double constant_photo_error;	///< photometric error to add to all magnitudes
-	double paralax_dispersion;	///< Gaussian dispersion of photometric paralax relation
-	int flags;
-	static const int APPLY_PHOTO_ERRORS		= 0x00000001;
-#endif
 public:
 	sky_generator(std::istream &in, const std::string &pdfs);
 
@@ -169,9 +159,8 @@ public:
 
 	~sky_generator();
 protected:
-	int montecarlo_batch(star_output_function &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
-	//void observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf);
-	void draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, star_output_function &sf);
+	int montecarlo_batch(otable &out, int Ktotal, const std::vector<double> &modelCPDF, bool allowMisses);
+	void draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, otable &out);
 	void draw_companion(float &gb, float &rb, float &ib, peyton::Radians l, peyton::Radians b, double dm /*distance modulus*/);
 };
 
@@ -181,24 +170,9 @@ struct star_output_function
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
 	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t) = 0;
-	virtual void output(sstruct &t) = 0;
-	virtual void output_header(const sstruct::factory_t &factory) {};
+	virtual void output(const otable &t) = 0;
+	virtual void output_header(const otable &t) {};
 	virtual ~star_output_function() {}
-};
-
-struct star_output_to_dmm : star_output_function
-{
-public:
-	proc_obs_info po_info;
-	peyton::system::DMMArray<mobject> out;
-	peyton::system::DMMArray<obsv_mag> starmags;
-public:
-	star_output_to_dmm(const std::string &objcat, const std::string &obscat, bool create);
-	void close();
-
-	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
-	virtual void output(sstruct &t);
-	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t);
 };
 
 struct star_output_to_textstream : star_output_function
@@ -209,9 +183,8 @@ public:
 	star_output_to_textstream(std::ostream &out_) : out(out_) {}
 
 	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
-	virtual void output(sstruct &t);
-	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t);
-	virtual void output_header(const sstruct::factory_t &factory);
+	virtual void output(const otable &t);
+	virtual void output_header(const otable &t);
 };
 
 void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output);

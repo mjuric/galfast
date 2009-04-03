@@ -29,6 +29,7 @@
 #include <boost/lambda/lambda.hpp>
 #include <sstream>
 
+#include "simulate_base.h"
 #include "simulate.h"
 #include "projections.h"
 #include "model.h"
@@ -36,6 +37,7 @@
 #include "analysis.h"
 #include "dm.h"
 #include "io.h"
+#include "gpu.h"
 
 #include <vector>
 #include <map>
@@ -86,6 +88,7 @@ bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 	{
 		if(!haves.count(*i)) {
 			DLOG(verb2) << "Failed on: " << *i;
+			std::cerr << "Failed on: " << *i << "\n";
 			return false;
 		}
 	}
@@ -104,12 +107,8 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 #endif
 
 // add Fe/H information
-class os_FeH : public osink
+class os_FeH : public osink, os_FeH_data
 {
-protected:
-	double A[2], sigma[3], offs[3];
-	double Hmu, muInf, DeltaMu;
-
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool init(const Config &cfg, otable &t);
@@ -119,10 +118,31 @@ public:
 	{
 		prov.insert("FeH");
 		req.insert("comp");
-		req.insert("XYZ[3]");
+		req.insert("XYZ");
 	}
 };
 
+#if 1
+namespace ct = column_types;
+void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint comp, ct::cfloat XYZ, ct::cfloat FeH);
+
+size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+	//	- all stars are main sequence
+		
+	// fetch prerequisites
+	using namespace column_types;
+	cint   comp  = in.col<int>("comp");
+	cfloat XYZ   = in.col<float>("XYZ");
+	cfloat FeH   = in.col<float>("FeH");
+
+	os_FeH_kernel(otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
+	return nextlink->process(in, begin, end, rng);
+}
+#else
 size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -163,27 +183,28 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	return nextlink->process(in, begin, end, rng);
 }
+#endif
 
 bool os_FeH::init(const Config &cfg, otable &t)
 {
-	cfg.get(A[0],     "A0",     0.63);
-	cfg.get(sigma[0], "sigma0", 0.20);
-	cfg.get(offs[0],  "offs0",  0.00);
-	cfg.get(A[1],     "A1",     0.37);
-	cfg.get(sigma[1], "sigma1", 0.20);
-	cfg.get(offs[1],  "offs1",  0.14);
+	cfg.get(A[0],     "A0",     0.63f);
+	cfg.get(sigma[0], "sigma0", 0.20f);
+	cfg.get(offs[0],  "offs0",  0.00f);
+	cfg.get(A[1],     "A1",     0.37f);
+	cfg.get(sigma[1], "sigma1", 0.20f);
+	cfg.get(offs[1],  "offs1",  0.14f);
 	
-	cfg.get(Hmu,      "Hmu",     500.);
-	cfg.get(muInf,    "muInf",  -0.82);
-	cfg.get(DeltaMu,  "deltaMu", 0.55);
+	cfg.get(Hmu,      "Hmu",     500.f);
+	cfg.get(muInf,    "muInf",  -0.82f);
+	cfg.get(DeltaMu,  "deltaMu", 0.55f);
 
 	// renormalize disk gaussian amplitudes to sum up to 1
 	double sumA = A[0] + A[1];
 	A[0] /= sumA; A[1] /= sumA;
 
 	// Halo configuration
-	cfg.get(sigma[2], "sigmaH",  0.30);
-	cfg.get(offs[2],  "offsH",  -1.46);
+	cfg.get(sigma[2], "sigmaH",  0.30f);
+	cfg.get(offs[2],  "offsH",  -1.46f);
 
 	// Output model parameters
 	MLOG(verb1) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
@@ -453,9 +474,9 @@ class os_kinTMIII : public osink
 
 		os_kinTMIII() : osink()
 		{
-			prov.insert("vcyl[3]");
+			prov.insert("vcyl");
 			req.insert("comp");
-			req.insert("XYZ[3]");
+			req.insert("XYZ");
 		}
 };
 
@@ -1197,9 +1218,9 @@ public:
 
 	os_vel2pm() : osink(), coordsys(GAL)
 	{
-		req.insert("lb[2]");
-		req.insert("XYZ[3]");
-		req.insert("vcyl[3]");
+		req.insert("lb");
+		req.insert("XYZ");
+		req.insert("vcyl");
 	}
 };
 
@@ -1448,7 +1469,7 @@ public:
 
 	os_gal2other() : osink(), coordsys(GAL)
 	{
-		req.insert("lb[2]");
+		req.insert("lb");
 	}
 };
 
@@ -1537,7 +1558,7 @@ public:
 
 	os_photoErrors() : osink()
 	{
-		req.insert("lb[2]");
+		req.insert("lb");
 	}
 };
 
@@ -1681,6 +1702,7 @@ class os_textin : public osource
 
 	public:
 		virtual bool init(const Config &cfg, otable &t);
+		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, otable &t);
 		virtual size_t run(otable &t, rng_t &rng);
 		virtual const std::string &name() const { static std::string s("textin"); return s; }
 		virtual const std::string &type() const { static std::string s("input"); return s; }
@@ -1688,13 +1710,20 @@ class os_textin : public osource
 		os_textin() {};
 };
 
+bool os_textin::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
+{
+	// this unserializes the header and fills the prov vector with columns this module will provide
+	t.unserialize_header(in.in(), &prov);
+
+	osource::prerun(pipeline, t);
+}
+
 bool os_textin::init(const Config &cfg, otable &t)
 {
 	const char *fn = cfg["filename"].c_str();
 	in.open(fn);
 	if(!in.in()) { THROW(EFile, "Failed to open '" + (std::string)fn + "' for input."); }
 
-	t.unserialize_header(in.in());
 	return in.in();
 }
 
@@ -1767,6 +1796,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		std::ostringstream ss;
 		FOREACH(haves) { ss << *i << " "; };
 		DLOG(verb2) << "haves: " << ss.str();
+		std::cerr << "haves: " << ss.str() << "\n";
 
 		// find next pipeline stage that is satisfied with the available tags
 		bool foundOne = false;

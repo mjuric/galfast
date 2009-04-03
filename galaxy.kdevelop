@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
-      <programargs>catalog catalog.conf sky.pdf.bin sky.cat.txt</programargs>
+      <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
@@ -56,7 +56,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog catalog.conf sky.pdf.bin sky.cat.txt</globaldebugarguments>
+      <globaldebugarguments>postprocess postprocess.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/workspace/job.11</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
@@ -87,18 +87,18 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
         <ldflags>-rdynamic</ldflags>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-Wno-deprecated</cflags>
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>

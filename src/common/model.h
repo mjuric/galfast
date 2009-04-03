@@ -47,6 +47,7 @@
 #include <astro/exceptions.h>
 
 #include "paralax.h"
+#include "column.h"
 
 struct rzpixel
 {
@@ -258,6 +259,11 @@ struct rng_t
 	virtual float uniform() = 0;
 	virtual float gaussian(const float sigma) = 0;
 	virtual ~rng_t() {}
+	operator gpu_rng_t()
+	{
+		float v = uniform();
+		return gpu_rng_t(*(uint32_t*)&v);
+	}
 };
 
 struct rng_gsl_t : public rng_t
@@ -411,27 +417,6 @@ protected:
 		}
 	};
 
-public:
-	template<typename T> struct column
-	{
-		T *base;
-		size_t pitch;
-
-		column(void *b, size_t p = 0) : base((T*)b), pitch(p) {}
-
-		T &operator()(const size_t row, const size_t elem)	// 2D column accessor
-		{
-/*			const size_t off = elem * pitch + row*sizeof(T);
-			return *(T*)(((char*)base) + off);*/
-			return *((T*)((char*)base + elem * pitch) + row);
-		}
-
-		T &operator[](const size_t i)	// 1D column accessor (i == the row)
-		{
-			return base[i];
-		}
-	};
-	
 protected:
 	struct columndef : public kv
 	{
@@ -577,19 +562,11 @@ public:
 
 	// serialization/unserialization routines
 	std::ostream& serialize_header(std::ostream &out) const;
-	std::istream& unserialize_header(std::istream &in);
+	std::istream& unserialize_header(std::istream &in, std::set<std::string> *columns = NULL);
 	std::ostream& serialize_body(std::ostream& out, size_t from = 0, size_t to = -1) const;
 	std::istream& unserialize_body(std::istream& in);
 	size_t set_output(const std::string &colname, bool output);
 	size_t set_output_all(bool output = true);
-};
-
-// convenience typedefs
-namespace column_types
-{
-	typedef otable::column<double> cdouble;
-	typedef otable::column<int> cint;
-	typedef otable::column<float> cfloat;
 };
 
 class osink;
@@ -647,7 +624,7 @@ class osink : public opipeline_stage
 	public:
 		osink() : opipeline_stage()
 		{
-			req.insert("_source");
+//			req.insert("_source");
 		}
 };
 

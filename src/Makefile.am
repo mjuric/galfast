@@ -2,6 +2,13 @@ bin_PROGRAMS = galaxy unique.x binning.x tobinary.x schlegel.x pm.x dm raytrace.
 galaxy_SOURCES = galaxy.cpp
 EXTRA_DIST = ri_prior.txt
 
+## SUFFIXES = .cu
+.cu.o:
+	$(NVCC) -o $@ -c $(NVCCFLAGS) $(INCLUDES) $<
+
+.cu.lo:
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) $(INCLUDES) $<
+
 # set the include path found by configure
 INCLUDES = -I$(top_srcdir)/src/common -I/usr/include/sqlplus/ -I/usr/include/mysql/ $(all_includes)
 
@@ -38,13 +45,15 @@ selector_x_LDADD = $(top_builddir)/src/common/libcommon.a \
 model_x_SOURCES =  model.cpp
 explore_maps_x_SOURCES =  explore_maps.cpp
 explore_maps_x_LDADD = $(top_builddir)/src/common/libcommon.a
-noinst_HEADERS = phObjc.h remap.h vrml.h tests.cpp vrml.cpp simulate.h
+noinst_HEADERS = phObjc.h remap.h simulate.h simulate_base.h tests.cpp vrml.cpp \
+	vrml.h
 merge_volumes_x_SOURCES =  merge_volumes.cpp
 merge_volumes_x_LDADD = $(top_builddir)/src/common/libcommon.a
 fitscatread_x_SOURCES =  fitscatread.cpp
 fitscatread_x_LDADD = $(top_builddir)/src/common/libcommon.a
 mlcolor_x_LDADD = $(top_builddir)/src/common/libcommon.a
-simulate_x_SOURCES = observe.cpp simulate.cpp simulate.h simulate2.cpp
+simulate_x_SOURCES = observe.cpp simulate.cpp simulate_gpu.cu simulate.h \
+	simulate2.cpp
 simulate_x_LDADD = $(top_builddir)/src/gpc/libgpc.a \
 	$(top_builddir)/src/common/libcommon.a
 locusfit_x_SOURCES =  locusfit.cpp

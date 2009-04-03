@@ -278,7 +278,8 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 
 	if(key == "__name__")
 	{
-		if(columnName.empty()) { columnName = value; }
+		ASSERT(columnName.empty() || columnName == value);
+		columnName = value;
 
 		return;
 	}
@@ -439,7 +440,7 @@ struct record_loaded_columns : public otable::parse_callback
 	}
 };
 
-std::istream& otable::unserialize_header(std::istream &in)
+std::istream& otable::unserialize_header(std::istream &in, std::set<std::string> *columns)
 {
 	// gobble-up an optional the comment sign
 	char c;
@@ -455,8 +456,10 @@ std::istream& otable::unserialize_header(std::istream &in)
 	FOREACH(lc.columns)
 	{
 		colInput.push_back((*i)->columnName);
-		colOutput.push_back((*i)->columnName);	// Output all unserialized columns by default
+		if(columns) { columns->insert((*i)->columnName); }
 	}
+
+	colOutput = colInput;	// Output all unserialized columns by default
 
 	return in;
 }

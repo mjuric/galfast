@@ -18,7 +18,22 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#include "config.h"
+
 #include <iostream>
+#include <fstream>
+
+#include <astro/exceptions.h>
+#include <astro/util.h>
+#include <astro/math.h>
+#include <astro/system/log.h>
+#include <astro/useall.h>
+
+#include <vector>
+
+#include "gpu.h"
+
+#include <cuda_runtime.h>
 
 ///////////////////////////////////////////////////////////
 // CUDA helpers
@@ -77,3 +92,98 @@ bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededth
 	return true;
 }
 
+//////////////////////////////////////////////
+
+GPUMM gpuMMU;
+
+size_t GPUMM::allocated() const
+{
+	size_t total = 0;
+	FOREACH(gpuPtrs)
+	{
+		total += i->second.ptr.memsize();
+	}
+	return total;
+}
+
+// garbage collection: free GPU memory that has been synced to the host or released
+void GPUMM::gc()
+{
+	std::vector<void*> toDelete;
+	FOREACH(gpuPtrs)
+	{
+		gpu_ptr &g = i->second;
+		if(g.lastop != SYNCED_TO_HOST || g.lastop != RELEASED_TO_HOST) { continue; }
+
+		cudaFree(g.ptr.base);
+		toDelete.push_back(i->first);
+	}
+	FOREACH(toDelete)
+	{
+		gpuPtrs.erase(*i);
+	}
+}
+
+// copies the data to GPU device, allocating GPU memory if necessary
+xptr<void> GPUMM::syncToDevice_aux(const xptr<void> &hptr)
+{
+	// get GPU buffer
+	gpu_ptr &g = gpuPtrs[hptr.base];
+	if(!g.ptr.elementSize())
+	{
+		// check if any GC is needed
+		size_t total = allocated();
+		size_t newmem = hptr.memsize();
+		if(total + newmem > gc_treshold) { gc(); }
+
+		// allocate GPU memory
+		g.ptr = hptr;
+#if 0
+		cudaError err = cudaMallocPitch(&g.ptr.base, &g.ptr.pitch(), hptr.ncols() * hptr.elementSize(), hptr.nrows());
+#else
+		cudaError err = cudaMalloc(&g.ptr.base, hptr.memsize());
+#endif
+		if(err != cudaSuccess)
+		{
+			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+		}
+	}
+
+	// sync GPU with host, if needed
+	if(g.lastop != SYNCED_TO_DEVICE)
+	{
+#if 0
+		cudaError err = cudaMemcpy2D(g.ptr.base, g.ptr.pitch(), hptr.base, hptr.pitch(), hptr.width()*hptr.elementSize(), hptr.height(), cudaMemcpyHostToDevice);
+#else
+		cudaError err = cudaMemcpy(g.ptr.base, hptr.base, hptr.memsize(), cudaMemcpyHostToDevice);
+#endif
+		if(err != cudaSuccess)
+		{
+			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+		}
+		g.lastop = SYNCED_TO_DEVICE;
+	}
+
+	return g.ptr;
+}
+
+void GPUMM::syncToHost_aux(xptr<void> &hptr)
+{
+	// get GPU buffer
+	if(!gpuPtrs.count(hptr.base)) { return; }
+	gpu_ptr &g = gpuPtrs[hptr.base];
+
+	if(g.lastop != SYNCED_TO_HOST)
+	{
+#if 0
+		cudaError err = cudaMemcpy2D(hptr.base, hptr.pitch(), g.ptr.base, g.ptr.pitch(), hptr.width()*hptr.elementSize(), hptr.height(), cudaMemcpyDeviceToHost);
+#else
+		cudaError err = cudaMemcpy(hptr.base, g.ptr.base, hptr.memsize(), cudaMemcpyDeviceToHost);
+#endif
+		if(err != cudaSuccess)
+		{
+			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+		}
+		g.lastop = SYNCED_TO_HOST;
+	}
+}

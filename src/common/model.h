@@ -425,7 +425,6 @@ protected:
 		friend struct save_column_default;
 
 		std::string columnName;				// primary name of the column
-		size_t width;					// number of data elements (1 scalar, >1 if array)
 
 		const columnclass *columnClass;			// class of this column (note: it's never NULL)
 		const column_type_traits *typeProxy;		// a proxy for type's serialization/construction/properties (note: must be accessed through type())
@@ -473,8 +472,10 @@ protected:
 				Aij = data + pitch*i + elementSize*j
 		*/
 		void *data;			// the actual data
+		size_t width;			// number of data elements (1 scalar, >1 if array)
 		size_t length;			// length of the column (the number of rows)
 		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)
+// 		column<char>	ptr;
 
 		friend struct cmp_in;
 		friend struct cmp_out;
@@ -492,7 +493,9 @@ protected:
 			{
 				std::cerr << "Attempting to access a " << type()->typeName << " column as " << column_type_traits::get<T>()->typeName << "\n";
 			}
-			return column<T>(data, pitch);
+			xptr<T> ptr(sizeof(T), length, width, pitch, (T*)data);
+			return column<T>(ptr);
+			//return column<T>(data, pitch);
 		}
 	public:
 		~columndef();

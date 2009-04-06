@@ -93,10 +93,11 @@ if test "x$with_cuda" != xno; then
   CUDA_CFLAGS="-I$with_cuda/include"
   CUDA_LIBS="-L$with_cuda/lib -lcudart"
   NVCC="$with_cuda/bin/nvcc"
-  NVCCFLAGS="-O2 -use_fast_math"
+  NVCCFLAGS="-O0 -g --device-emulation"
   HAVE_CUDA=yes
   AC_DEFINE(HAVE_CUDA, 1, [NVIDIA CUDA (GPU) support])
   AC_MSG_RESULT([CUDA found, compiling GPU support])
+  CPPFLAGS="$CPPFLAGS -I$with_cuda/include"
 else
   CUDA_CFLAGS=
   CUDA_LIBS=

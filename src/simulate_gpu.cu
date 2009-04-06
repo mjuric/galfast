@@ -26,7 +26,7 @@
 namespace ct = column_types;
 KERNEL(
 	ks,
-	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint comp, ct::cfloat XYZ, ct::cfloat FeH),
+	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH),
 	os_FeH_kernel,
 	(ks, par, rng, comp, XYZ, FeH)
 )
@@ -35,7 +35,8 @@ KERNEL(
 	if(row == (uint32_t)(-1)) { return; }
 	rng.load(ks);
 
-	switch(comp.val(row))
+	float feh;
+	switch(comp[row])
 	{
 		case 0: // BahcallSoneira_model::THIN:
 		case 1: // BahcallSoneira_model::THICK:
@@ -49,15 +50,16 @@ KERNEL(
 			float aZ = muD - 0.067f;
 
 			// draw
-			FeH[row] = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
+			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
 		} break;
 		case 2: //BahcallSoneira_model::HALO:
-			FeH[row] = par.offs[2] + rng.gaussian(par.sigma[2]);
+			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
 			break;
 		default:
 			//THROW(ENotImplemented, "We should have never gotten here");
-			FeH[row] = -9999.f;
+			feh = -9999.f;
 			break;
 	}
+	FeH[row] = feh;
 }
 

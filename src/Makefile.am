@@ -4,6 +4,7 @@ EXTRA_DIST = ri_prior.txt
 
 ## SUFFIXES = .cu
 .cu.o:
+	$(NVCC) -o $<.ptx -ptx -arch sm_13 $(INCLUDES) $<
 	$(NVCC) -o $@ -c $(NVCCFLAGS) $(INCLUDES) $<
 
 .cu.lo:

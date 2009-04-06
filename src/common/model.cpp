@@ -221,7 +221,14 @@ void otable::columndef::alloc(const size_t len)
 	size_t elementSize = tt->elementSize;
 
 	length = len;
+
 	pitch = elementSize*length;
+	if(pitch % 128)
+	{
+		// round up to 128-byte boundary, to optimize GPU memory access
+		pitch += 128 - (pitch % 128);
+	}
+
 	data = malloc(pitch*width);
 
 	for(size_t i = 0; i != width; i++)
@@ -323,6 +330,10 @@ void otable::columndef::serialize(fmtout &line, const size_t row) const
 	const column_type_traits *tt = type();
 	char *at = (char*)data + tt->elementSize*row;
 	const std::string &fmt = getFormatString();
+
+	// GPU accel: ensure this column is in CPU memory
+	...TODO...
+
 	FOR(0, width)
 	{
 		tt->serialize(line, fmt, at);

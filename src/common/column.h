@@ -4,26 +4,62 @@
 #include "gpu.h"
 
 template<typename T>
-struct column
+struct column_gpu
 {
 	T *base;
-	size_t pitch;
+	uint32_t pitch;
 
-	column(void *b, size_t p = 0) : base((T*)b), pitch(p) {}
-
-	__device__ T &operator()(const size_t row, const size_t elem)	// 2D column accessor
+	__device__ T &operator()(const size_t row, const size_t elem)	// 2D table column accessor
 	{
 		return *((T*)((char*)base + elem * pitch) + row);
 	}
-
-	__device__ T &operator[](const size_t i)	// 1D column accessor (i == the row)
+	__device__ T &operator[](const size_t i)	// 1D table column accessor (i == the table row)
 	{
 		return base[i];
 	}
-	
-	__device__ T &val(const size_t i)	// 1D column accessor (i == the row)
+
+	column_gpu(xptr<T> &ptr) : base(ptr.get()), pitch(ptr.pitch()) {}
+};
+
+template<typename T>
+struct column
+{
+	typedef column_gpu<T> gpu_t;
+
+	xptr<T> base;
+	bool onGPU;
+
+	column(const xptr<T> &b) : base(b)
 	{
-		return base[i];
+		// check if there's a GPU version of this pointer
+		onGPU = gpuMMU.lastOp(base) == GPUMM::SYNCED_TO_DEVICE;
+	}
+
+	__host__ T& operator()(const size_t row, const size_t elem)	// 2D column accessor
+	{
+		if(onGPU)
+		{
+			gpuMMU.syncToHost(base);
+			onGPU = false;
+		}
+		return *((T*)((char*)base.get() + elem * base.pitch()) + row);
+	}
+
+	__host__ T &operator[](const size_t i)	// 1D column accessor (i == the row)
+	{
+		if(onGPU)
+		{
+			gpuMMU.syncToHost(base);
+			onGPU = false;
+		}
+		return base.get()[i];
+	}
+
+	operator gpu_t()
+	{
+		xptr<T> gptr = gpuMMU.syncToDevice(base);
+		onGPU = true;
+		return gpu_t(gptr);
 	}
 };
 

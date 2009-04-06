@@ -124,7 +124,7 @@ public:
 
 #if 1
 namespace ct = column_types;
-void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint comp, ct::cfloat XYZ, ct::cfloat FeH);
+void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH);
 
 size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
@@ -1943,7 +1943,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	rng_gsl_t rng(seed);
 
 	// output table
-	static const size_t Kbatch = 100000;
+	static const size_t Kbatch = 99999;
 	otable t(Kbatch);
 
 	// merge-in any modules included from the config file via the 'modules' keyword

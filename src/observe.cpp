@@ -48,6 +48,7 @@
 #include <gsl/gsl_blas.h>
 #include <gsl/gsl_linalg.h>
 
+#include <astro/io/format.h>
 #include <astro/math.h>
 #include <astro/util.h>
 #include <astro/system/log.h>
@@ -139,7 +140,9 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &XYZ   = in.col<float>("XYZ");
 	cfloat &FeH   = in.col<float>("FeH");
 
+	swatch.start();
 	os_FeH_kernel(otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
+	swatch.stop();
 	return nextlink->process(in, begin, end, rng);
 }
 #else
@@ -1450,7 +1453,7 @@ bool os_vel2pm::init(const Config &cfg, otable &t)
 
 	return true;
 }
-
+#endif
 
 /////////////////////////////////////////////////////////////
 
@@ -1459,11 +1462,9 @@ class os_gal2other : public osink
 {
 public:
 	int coordsys;
-	static const int GAL = 0;
-	static const int EQU = 1;
 
 public:
-	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
@@ -1473,45 +1474,21 @@ public:
 	}
 };
 
-size_t os_gal2other::push(sstruct *&in, const size_t count, gsl_rng *rng)
+void os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out);
+size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	// ASSUMPTIONS:
-	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
-	//
-	// OUTPUT:
-	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
-	//	Radial velocity in km/s in pm[2]
-	if(coordsys != GAL)
+	using namespace column_types;
+	cdouble &lb   = in.col<double>("lb");
+
+	if(coordsys == EQU)
 	{
-		for(size_t i=0; i != count; i++)
-		{
-			sstruct &s = in[i];
-
-			// fetch prerequisites
-			const double *lb0 = s.lb(); double lb[2];
-			lb[0] = rad(lb0[0]);
-			lb[1] = rad(lb0[1]);
-
-			// rotate to output coordinate system
-			double *out;
-			switch(coordsys)
-			{
-			case EQU:
-				out = s.radec();
-				galequ(lb[0], lb[1], out[0], out[1]);
-				break;
-			default:
-				THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
-				break;
-			}
-
-			// convert to degrees
-			out[0] /= ctn::d2r;
-			out[1] /= ctn::d2r;
-		}
+		cdouble &out = in.col<double>("radec");
+		swatch.start();
+		os_gal2other_kernel(otable_ks(begin, end), coordsys, lb, out);
+		swatch.stop();
 	}
 
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
 bool os_gal2other::init(const Config &cfg, otable &t)
@@ -1526,7 +1503,7 @@ bool os_gal2other::init(const Config &cfg, otable &t)
 	return true;
 }
 
-
+#if 0
 /////////////////////////////////////////////////////////////
 #if 0
 // mix in photometric errors
@@ -1653,7 +1630,9 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 /*	size_t cnt = 0;
 	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }*/
+	swatch.start();
 	t.serialize_body(out.out(), from, to);
+	swatch.stop();
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
@@ -1731,8 +1710,10 @@ size_t os_textin::run(otable &t, rng_t &rng)
 {
 	size_t total = 0;
 	do {
+		swatch.start();
 		t.clear();
 		t.unserialize_body(in.in());
+		swatch.stop();
 		total += nextlink->process(t, 0, t.size(), rng);
 	} while(in.in());
 
@@ -1751,7 +1732,9 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "photometry") { s.reset(new os_photometry); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
+#endif
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
+#if 0
 //	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 #endif
@@ -1852,7 +1835,15 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	}
 	MLOG(verb1) << "Postprocessing module chain: " << ss.str();
 
-	return source->run(t, rng);
+	int ret = source->run(t, rng);
+
+	MLOG(verb2) << "Postprocessing times:";
+	FOREACH(pipeline)
+	{
+		MLOG(verb2) << io::format("  %10s: %f") << (*i)->name() << (*i)->getProcessingTime();
+	}
+
+	return ret;
 }
 
 #if 0

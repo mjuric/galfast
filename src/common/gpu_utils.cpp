@@ -91,6 +91,9 @@ bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededth
 	find_best_factorization(gridDim[0], gridDim[1], nblocks);
 	gridDim[2] = 1;
 
+	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
+			"), shmemPerBlock(" << staticShmemPerBlock << ") --> grid(" << gridDim[0] << ", " << gridDim[1] << ", " << gridDim[2] << ")";
+
 	return true;
 }
 
@@ -189,4 +192,5 @@ void GPUMM::syncToHost_aux(xptr &hptr)
 		g.lastop = SYNCED_TO_HOST;
 	}
 }
-#endif
+
+#endif // HAVE_CUDA

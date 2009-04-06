@@ -27,5 +27,7 @@ struct os_FeH_data
 	float Hmu, muInf, DeltaMu;
 };
 
+static const int GAL = 0;
+static const int EQU = 1;
 
 #endif

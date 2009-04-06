@@ -87,7 +87,7 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-xcuda --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>

@@ -21,6 +21,9 @@
 #include "config.h"
 
 #include <stdint.h>
+
+#include <astro/constants.h>
+
 #include "simulate_base.h"
 #include "column.h"
 #include "gpu.h"
@@ -65,3 +68,64 @@ KERNEL(
 	FeH[row] = feh;
 }
 
+
+// equgal - Equatorial to Galactic coordinates
+using namespace peyton;
+typedef double Radians;
+static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
+static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+static const double l0 = ctn::d2r * 32.932;
+
+inline __device__ double2 galequ(const double2 lb)
+{
+	const double cb = cos(lb.y);
+	const double sb = sin(lb.y);
+	const double cl = cos(lb.x-l0);
+	const double sl = sin(lb.x-l0);
+
+	// TODO: These should be precomputed constants
+	const double ce = cos(dngp);
+	const double se = sin(dngp);
+
+	double2 r;
+	r.x = atan2(
+			cb*cl,
+			sb*ce-cb*se*sl
+		) + angp;
+	r.y = asin(cb*ce*sl + sb*se);
+
+	while(r.x < 0.) { r.x += ctn::pi2; }
+	return r;
+}
+
+KERNEL(
+	ks,
+	os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out),
+	os_gal2other_kernel,
+	(ks, coordsys, lb0, out)
+)
+{
+	uint32_t row = ks.row();
+	if(row == (uint32_t)(-1)) { return; }
+
+	double2 lb, ret;
+
+	// convert to radians
+	lb.x = lb0(row, 0) * ctn::d2r;
+	lb.y = lb0(row, 1) * ctn::d2r;
+
+	// rotate to output coordinate system
+	switch(coordsys)
+	{
+	case EQU:
+		ret = galequ(lb);
+		break;
+	default:
+		ret.x = ret.y = -9999.;
+		break;
+	}
+
+	// convert to degrees
+	out(row, 0) = ret.x / ctn::d2r;
+	out(row, 1) = ret.y / ctn::d2r;
+}

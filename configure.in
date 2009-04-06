@@ -94,6 +94,7 @@ if test "x$with_cuda" != xno; then
   CUDA_LIBS="-L$with_cuda/lib -lcudart"
   NVCC="$with_cuda/bin/nvcc"
   NVCCFLAGS="-O0 -g --device-emulation"
+#  NVCCFLAGS="-O2 -g -arch sm_13"
   HAVE_CUDA=yes
   AC_DEFINE(HAVE_CUDA, 1, [NVIDIA CUDA (GPU) support])
   AC_MSG_RESULT([CUDA found, compiling GPU support])

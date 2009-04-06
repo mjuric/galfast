@@ -5,11 +5,12 @@ EXTRA_DIST = ri_prior.txt
 ## SUFFIXES = .cu
 if HAVE_CUDA
 .cu.o:
-	$(NVCC) -o $<.ptx -ptx -arch sm_13 -I$(top_builddir) $(INCLUDES) $<
-	$(NVCC) -o $@ -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $<
+	$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
+	$(NVCC) -o $@ -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
 
 .cu.lo:
-	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) $(INCLUDES) $<
+	$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
+	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $(CPPFLAGS)  $<
 else
 .cu.o:
 	touch $@

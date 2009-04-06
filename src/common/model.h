@@ -587,11 +587,13 @@ class opipeline_stage
 {
 	protected:
 		std::set<std::string> prov, req;
+		stopwatch swatch;			// times how long it takes to process() this stage
 
 		osink *nextlink;
 	public:
 		void chain(osink *nl) { nextlink = nl; }
 		virtual size_t run(otable &t, rng_t &rng) = 0;
+		float getProcessingTime() { return swatch.getTime(); }
 
 	public:
 		static boost::shared_ptr<opipeline_stage> create(const std::string &name);

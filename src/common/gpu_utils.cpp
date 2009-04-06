@@ -125,7 +125,7 @@ void GPUMM::gc()
 }
 
 // copies the data to GPU device, allocating GPU memory if necessary
-xptr<void> GPUMM::syncToDevice_aux(const xptr<void> &hptr)
+xptr GPUMM::syncToDevice_aux(const xptr &hptr)
 {
 	// get GPU buffer
 	gpu_ptr &g = gpuPtrs[hptr.base];
@@ -141,7 +141,7 @@ xptr<void> GPUMM::syncToDevice_aux(const xptr<void> &hptr)
 #if 0
 		cudaError err = cudaMallocPitch(&g.ptr.base, &g.ptr.pitch(), hptr.ncols() * hptr.elementSize(), hptr.nrows());
 #else
-		cudaError err = cudaMalloc(&g.ptr.base, hptr.memsize());
+		cudaError err = cudaMalloc((void**)&g.ptr.base, hptr.memsize());
 #endif
 		if(err != cudaSuccess)
 		{
@@ -167,7 +167,7 @@ xptr<void> GPUMM::syncToDevice_aux(const xptr<void> &hptr)
 	return g.ptr;
 }
 
-void GPUMM::syncToHost_aux(xptr<void> &hptr)
+void GPUMM::syncToHost_aux(xptr &hptr)
 {
 	// get GPU buffer
 	if(!gpuPtrs.count(hptr.base)) { return; }

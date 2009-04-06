@@ -439,7 +439,9 @@ protected:
 			boost::shared_ptr<columndef> c(new columndef(parent));
 			c->columnName = newColumnName;
 
-			c->width = width;
+			c->ptr.base = ptr.base;
+			c->ptr.base = NULL;
+
 			c->columnClass = columnClass;
 			c->formatString = formatString;
 			c->typeProxy = typeProxy;
@@ -471,11 +473,11 @@ protected:
 			The memory location of element j in row i, use:
 				Aij = data + pitch*i + elementSize*j
 		*/
-		void *data;			// the actual data
+/*		void *data;			// the actual data
 		size_t width;			// number of data elements (1 scalar, >1 if array)
 		size_t length;			// length of the column (the number of rows)
-		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)
-// 		column<char>	ptr;
+		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)*/
+ 		column<char>	ptr;
 
 		friend struct cmp_in;
 		friend struct cmp_out;
@@ -487,14 +489,15 @@ protected:
 		void dealloc();
 
 		virtual void set_property(const std::string &key, const std::string &value);
-		template<typename T> column<T> dataptr()
+		template<typename T> column<T> &dataptr()
 		{
 			ASSERT(column_type_traits::get<T>() == type())
 			{
 				std::cerr << "Attempting to access a " << type()->typeName << " column as " << column_type_traits::get<T>()->typeName << "\n";
 			}
-			xptr<T> ptr(sizeof(T), length, width, pitch, (T*)data);
-			return column<T>(ptr);
+			//xptr<T> ptr(sizeof(T), length, width, pitch, (T*)data);
+			//return column<T>(ptr);
+			return (column<T> &)ptr;
 			//return column<T>(data, pitch);
 		}
 	public:
@@ -506,7 +509,7 @@ protected:
 		void serialize(fmtout &line, const size_t row) const;	// write out the element at row row
 		void unserialize(std::istream &in, const size_t row);	// read in an element into row row
 		virtual void serialize_def(std::ostream &out) const;	// write out the definition of this column
-		size_t capacity() const { return length; }
+		size_t capacity() const { return ptr.nrows(); }
 	};
 	friend struct cmp_in;
 	friend struct cmp_out;
@@ -544,7 +547,7 @@ protected:
 public:
 	// column lookup by name
 	template<typename T>
-	column<T> col(const std::string &name)
+	column<T> &col(const std::string &name)
 	{
 		return getColumn(name).dataptr<T>();
 	}

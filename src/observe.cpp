@@ -135,9 +135,9 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		
 	// fetch prerequisites
 	using namespace column_types;
-	cint   comp  = in.col<int>("comp");
-	cfloat XYZ   = in.col<float>("XYZ");
-	cfloat FeH   = in.col<float>("FeH");
+	cint   &comp  = in.col<int>("comp");
+	cfloat &XYZ   = in.col<float>("XYZ");
+	cfloat &FeH   = in.col<float>("FeH");
 
 	os_FeH_kernel(otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);

@@ -9,10 +9,9 @@
 #endif*/
 // A pointer type that keeps the information of the type
 // and size of the array it's pointing to
-template<typename T>
 struct xptr
 {
-	T *base;		// data pointer
+	char *base;		// data pointer
 	uint32_t m_elementSize;	// size of array element (bytes)
 	uint32_t dim[2];	// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height
 	uint32_t m_pitch[1];	// array pitch (in bytes). pitch[1] == width of the padded row (in bytes)
@@ -22,27 +21,46 @@ struct xptr
 	uint32_t nrows()   const { return dim[1]; }
 	uint32_t width()   const { return dim[0]; }
 	uint32_t height()  const { return dim[1]; }
+	void set_height(uint32_t h) { dim[1] = h; }
 	uint32_t &pitch()  { return m_pitch[0]; }
 	uint32_t pitch()  const { return m_pitch[0]; }
 	uint32_t memsize() const { return nrows() * pitch(); }
+
+	template<typename T> const T *get() const { return (const T*)base; }
+	template<typename T> T *get() { return (T*)base; }
+
+	operator bool() const { return base; }
 	
-	const T *get() const { return base; }
-	T *get() { return base; }
+	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0) { init(es, ncol, nrow, p); }
+	~xptr()
+	{
+	}
 
-/*	operator T*() { return base; }
-	operator char*() { return (char *)base; }*/
-//	operator const xptr<void>&() const { return *(xptr<void> *)this; }
-//	template<typename TT> xptr<TT>& cvt() { return *(xptr<TT> *)this; }
-// 	T& operator [](uint32_t idx) { return base[idx]; }
-// 	T& operator [](uint32_t idx) const { return base[idx]; }
+	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1)
+	{
+		if(eSize == (size_t)-1) { eSize = elementSize(); } else { m_elementSize = eSize; }
+		if(ncol == (size_t)-1) { ncol = ncols(); } else { dim[0] = ncol; }
+		if(nrow == (size_t)-1) { nrow = nrows(); } else { dim[1] = nrow; }
+		if(ptch == (size_t)-1) { ptch = pitch(); } else { m_pitch[0] = ptch; }
 
-	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 0, size_t p = 0, T* d = NULL)
+		delete [] base;
+		base = new char[memsize()];
+	}
+	void free()
+	{
+		delete [] base;
+		base = NULL;
+	}
+
+	void init(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0)
 	{
 		m_elementSize = es;
 		dim[0] = ncol;
 		dim[1] = nrow;
 		m_pitch[0] = p;
-		base = d;
+		base = NULL;
+
+		if(memsize()) { alloc(); }
 	}
 };
 
@@ -59,7 +77,7 @@ struct GPUMM
 	static const int RELEASED_TO_HOST = 3;
 	struct gpu_ptr
 	{
-		xptr<void> ptr;
+		xptr ptr;
 		int lastop;
 
 		gpu_ptr() : lastop(NEWPTR) {}
@@ -68,29 +86,20 @@ struct GPUMM
 
 	size_t allocated() const;
 	void gc();	// do garbage collection
-	xptr<void> syncToDevice_aux(const xptr<void> &hptr);
-	void syncToHost_aux(xptr<void> &hptr);
+	xptr syncToDevice_aux(const xptr &hptr);
+	void syncToHost_aux(xptr &hptr);
 
-	template<typename T>
-	xptr<T> syncToDevice(const xptr<T> &ptr)
+	xptr syncToDevice(const xptr &ptr)
 	{
-		xptr<void> ret = syncToDevice_aux(*(const xptr<void> *)&ptr);
-		return *(xptr<T> *)&ret;
+		return syncToDevice_aux(ptr);
 	}
 
-	template<typename T>
-	void syncToHost(xptr<T> &ptr)
+	void syncToHost(xptr &ptr)
 	{
-		syncToHost_aux(*(xptr<void> *)&ptr);
+		syncToHost_aux(ptr);
 	}
 
-	template<typename T>
-	int lastOp(const xptr<T> &hptr)
-	{
-		return lastOp(*(const xptr<void> *)&hptr);
-	}
-	
-	int lastOp(const xptr<void> &hptr)
+	int lastOp(const xptr &hptr)
 	{
 		if(!gpuPtrs.count(hptr.base)) { return NOT_EXIST; }
 		return gpuPtrs[hptr.base].lastop;
@@ -194,13 +203,13 @@ typedef kernel_state otable_ks;
 		{ \
 			int dynShmemPerThread = 4;     /* built in the algorithm */ \
 		        int staticShmemPerBlock = 32;   /* read from .cubin file */ \
-		        int threadsPerBlock = 1; /* TODO: This should be computed as well */ \
+		        int threadsPerBlock = 4; /* TODO: This should be computed as well */ \
 			int gridDim[3]; \
 			calculate_grid_parameters(gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
 			\
 			dim3 grid; \
 			grid.x = gridDim[0]; grid.y = gridDim[1]; \
-			aux_##kName<<<1, 1, threadsPerBlock*dynShmemPerThread>>>kArgs; \
+			aux_##kName<<<grid, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
 		} \
 		__global__ void aux_##kDecl
 

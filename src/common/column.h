@@ -18,7 +18,7 @@ struct column_gpu
 		return base[i];
 	}
 
-	column_gpu(xptr<T> &ptr) : base(ptr.get()), pitch(ptr.pitch()) {}
+	column_gpu(xptr &ptr) : base(ptr.get<T>()), pitch(ptr.pitch()) {}
 };
 
 template<typename T>
@@ -26,41 +26,56 @@ struct column
 {
 	typedef column_gpu<T> gpu_t;
 
-	xptr<T> base;
+	xptr base;
 	bool onGPU;
 
-	column(const xptr<T> &b) : base(b)
+	size_t nrows() const { return base.width(); }
+	size_t width() const { return base.height(); }
+
+	column()
+	{
+		onGPU = false;
+	}
+
+	column(const xptr &b) : base(b)
 	{
 		// check if there's a GPU version of this pointer
 		onGPU = gpuMMU.lastOp(base) == GPUMM::SYNCED_TO_DEVICE;
 	}
 
-	__host__ T& operator()(const size_t row, const size_t elem)	// 2D column accessor
+	void toHost()
 	{
-		if(onGPU)
-		{
-			gpuMMU.syncToHost(base);
-			onGPU = false;
-		}
-		return *((T*)((char*)base.get() + elem * base.pitch()) + row);
+		if(!onGPU) return;
+		gpuMMU.syncToHost(base);
+		onGPU = false;
+	}
+	#ifndef __CUDACC__
+	T *get() { toHost(); return base.get<T>(); }
+
+	T& operator()(const size_t row, const size_t elem)	// 2D column accessor
+	{
+		toHost();
+		return *((T*)(base.get<char>() + elem * base.pitch()) + row);
 	}
 
-	__host__ T &operator[](const size_t i)	// 1D column accessor (i == the row)
+	T &operator[](const size_t i)	// 1D column accessor (i == the row)
 	{
-		if(onGPU)
-		{
-			gpuMMU.syncToHost(base);
-			onGPU = false;
-		}
-		return base.get()[i];
+		toHost();
+		return base.get<T>()[i];
 	}
+	#endif
 
+	// transfer data to GPU
 	operator gpu_t()
 	{
-		xptr<T> gptr = gpuMMU.syncToDevice(base);
+		xptr gptr = gpuMMU.syncToDevice(base);
 		onGPU = true;
 		return gpu_t(gptr);
 	}
+private:
+	// prevent copying
+	column(const column<T> &);
+	column<T>& operator=(const column<T> &a);
 };
 
 // convenience typedefs

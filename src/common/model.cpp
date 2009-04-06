@@ -202,40 +202,32 @@ otable::columndef::columndef(otable &parent_)
 	// defaults
 	columnClass = parent.cclasses["default"].get();
 	typeProxy = NULL;	// default to class type
-	width = 1;		// default to scalar
-
-	// data storage (unititialized)
-	data = NULL;
-	pitch = 0;
-	length = 0;
 }
 
-void otable::columndef::alloc(const size_t len)
+void otable::columndef::alloc(const size_t nrows)
 {
 	// do nothing if the length is OK
-	if(len == length) { return; }
+	if(nrows == ptr.nrows()) { return; }
 
 	dealloc();
 
 	const column_type_traits *tt = type();
 	size_t elementSize = tt->elementSize;
 
-	length = len;
-
-	pitch = elementSize*length;
+	size_t pitch = elementSize*nrows;
 	if(pitch % 128)
 	{
 		// round up to 128-byte boundary, to optimize GPU memory access
 		pitch += 128 - (pitch % 128);
 	}
+	ptr.base.alloc(elementSize, nrows, ptr.width(), pitch);
 
-	data = malloc(pitch*width);
-
-	for(size_t i = 0; i != width; i++)
+	char *base = ptr.base.get<char>();
+	for(size_t i = 0; i != ptr.width(); i++)
 	{
-		for(size_t j = 0; j != length; j++)
+		for(size_t j = 0; j != ptr.nrows(); j++)
 		{
-			void *Aij = (char*)data + pitch*i + elementSize*j;
+			void *Aij = base + pitch*i + elementSize*j;
 			tt->constructor(Aij);
 		}
 	}
@@ -243,22 +235,22 @@ void otable::columndef::alloc(const size_t len)
 
 void otable::columndef::dealloc()
 {
-	if(!data) { return; }
+	if(!ptr.base) { return; }
 
 	const column_type_traits *tt = type();
-	size_t elementSize = tt->elementSize;
-
-	for(size_t i = 0; i != width; i++)
+	size_t elementSize = ptr.base.elementSize();
+	size_t pitch = ptr.base.pitch();
+	char *base = ptr.base.get<char>();
+	for(size_t i = 0; i != ptr.width(); i++)
 	{
-		for(size_t j = 0; j != length; j++)
+		for(size_t j = 0; j != ptr.nrows(); j++)
 		{
-			void *Aij = (char*)data + pitch*i + elementSize*j;
+			void *Aij = base + pitch*i + elementSize*j;
 			tt->destructor(Aij);
 		}
 	}
 
-	free(data);
-	data = NULL;
+	ptr.base.free();
 }
 
 void otable::columnclass::set_property(const std::string &key, const std::string &value)
@@ -313,8 +305,9 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 	if(key == "n") // vector width
 	{
 		dealloc();
-		width = atoi(value.c_str());
+		int width = atoi(value.c_str());
 		ASSERT(width > 1);
+		ptr.base.set_height(width);
 		return;
 	}
 	if(key == "type")
@@ -328,33 +321,32 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 void otable::columndef::serialize(fmtout &line, const size_t row) const
 {
 	const column_type_traits *tt = type();
-	char *at = (char*)data + tt->elementSize*row;
+// 	char *at = (char*)data + tt->elementSize*row;
+	const char *at = ((column<char> &)ptr).get() + tt->elementSize*row;
 	const std::string &fmt = getFormatString();
 
-	// GPU accel: ensure this column is in CPU memory
-	...TODO...
-
-	FOR(0, width)
+	FOR(0, ptr.width())
 	{
 		tt->serialize(line, fmt, at);
-		at += pitch;
+		at += ptr.base.pitch();
 	}
 }
 void otable::columndef::unserialize(std::istream &in, const size_t row)
 {
 	const column_type_traits *tt = type();
-	char *at = (char*)data + tt->elementSize*row;
-	FOR(0, width)
+//	char *at = (char*)data + tt->elementSize*row;
+	char *at = ptr.get() + tt->elementSize*row;
+	FOR(0, ptr.width())
 	{
 		tt->unserialize(at, in);
-		at += pitch;
+		at += ptr.base.pitch();
 	}
 }
 
 void otable::columndef::serialize_def(std::ostream &out) const
 {
 	out << columnName;
-	if(width > 1) { out << "[" << width << "]"; }
+	if(ptr.width() > 1) { out << "[" << ptr.width() << "]"; }
 
 	const otable::columndef *dflt = NULL;
 	if(parent.columns.count("default::" + columnName))
@@ -586,7 +578,7 @@ size_t otable::get_used_columns(std::set<std::string> &cols) const
 	cols.clear();
 	FOREACH(columns)
 	{
-		if(i->second->length == 0) { continue; }
+		if(i->second->capacity() == 0) { continue; }
 		cols.insert(i->first);
 	}
 	return cols.size();
@@ -604,10 +596,10 @@ otable::columndef &otable::getColumn(const std::string &name)
  	columndef &col = *columns[name].get();
 
 	// Auto-create column data
-	if(col.length != length)
+	if(col.capacity() != length)
 	{
 		col.alloc(length);
-		ASSERT(col.length == length);
+		ASSERT(col.capacity() == length);
 	}
 
 	return col;
@@ -1287,8 +1279,8 @@ bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 //	galactic_model::add_details(out, row, x, y, z, ri, rng);
 
 	using namespace column_types;
-	cfloat XYZ = t.col<float>("XYZ");
-	cint  comp = t.col<int>("comp");
+	cfloat &XYZ = t.col<float>("XYZ");
+	cint  &comp = t.col<int>("comp");
 
 	for(size_t row = 0; row != t.size(); row++)
 	{

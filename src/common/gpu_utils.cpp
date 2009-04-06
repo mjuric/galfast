@@ -20,6 +20,8 @@
 
 #include "config.h"
 
+#if HAVE_CUDA
+
 #include <iostream>
 #include <fstream>
 
@@ -187,3 +189,4 @@ void GPUMM::syncToHost_aux(xptr &hptr)
 		g.lastop = SYNCED_TO_HOST;
 	}
 }
+#endif

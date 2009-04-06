@@ -1,21 +1,26 @@
 #ifndef __gpu_h
 #define __gpu_h
 
-#include <cuda_runtime.h>
-
-/*#ifndef __CUDACC__
+#if HAVE_CUDA
+	#include <cuda_runtime.h>
+#else
 	#define __device__
 	#define __host__
-#endif*/
+#endif
+
 // A pointer type that keeps the information of the type
 // and size of the array it's pointing to
 struct xptr
 {
+protected:
+	friend struct GPUMM;
+
 	char *base;		// data pointer
 	uint32_t m_elementSize;	// size of array element (bytes)
 	uint32_t dim[2];	// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height
 	uint32_t m_pitch[1];	// array pitch (in bytes). pitch[1] == width of the padded row (in bytes)
 
+public:
 	uint32_t elementSize() const { return m_elementSize; }
 	uint32_t ncols()   const { return dim[0]; }
 	uint32_t nrows()   const { return dim[1]; }
@@ -32,9 +37,6 @@ struct xptr
 	operator bool() const { return base; }
 	
 	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0) { init(es, ncol, nrow, p); }
-	~xptr()
-	{
-	}
 
 	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1)
 	{
@@ -46,11 +48,13 @@ struct xptr
 		delete [] base;
 		base = new char[memsize()];
 	}
+	
 	void free()
 	{
 		delete [] base;
 		base = NULL;
 	}
+	~xptr() { }
 
 	void init(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0)
 	{
@@ -64,7 +68,7 @@ struct xptr
 	}
 };
 
-#ifndef __CXUDACC__
+#if HAVE_CUDA
 #include <map>
 struct GPUMM 
 {
@@ -109,61 +113,10 @@ extern GPUMM gpuMMU;
 
 #endif
 
-#if 0
-template<typename T>
-device_ptr
-{
-	T *data;
-	int devId;
-};
-
-template typename<T>
-struct xptr : public xptr_base
-{
-	device_ptr<T> get(int devId)
-	{
-		return mm.get(this, devId);
-	}
-};
-
-struct gpu_mm
-{
-	struct {
-		void *ptr;
-		bool locked;
-		bool onGpu;
-
-		gpu_ptr(void ptr_, locked_ = false, ongpu = false) : ptr(ptr_), locked(locked_), onGpu(ongpu) { }
-	} gpu_ptr;
-	std::map<void *, gpu_ptr> host2gpu;
-
-	template<typename T>
-	struct {
-		T *gpu_ptr;
-		T *cpu_ptr;
-		gpu_mm &mm;
-		size_t refcnt;
-
-		locked_ptr(gpu_mm &mm_, void *c) : mm(mm), cpu_ptr((T*)c), gpu_ptr((T*)g)
-		{
-			gpu_mm.host2gpu[c]
-			gpu_mm.lock_aux(cpu_ptr);
-			refcnt = 1;
-		}
-		~locked_ptr() { mm.release_aux(cpu_ptr); }
-	} locked_ptr;
-
-	template<typename T> locked_ptr<T> lock(T *c)
-	{
-		return locked_ptr<T>(this, c);
-	}
-};
-#endif
-
 /* Support structures */
 struct kernel_state
 {
-#if 1
+#if HAVE_CUDA
 	__device__ uint32_t threadIndex() const
 	{
 		// this supports 2D grids with 1D blocks of threads
@@ -196,7 +149,7 @@ typedef kernel_state otable_ks;
 
 /*  Support macros  */
 
-#ifdef __CUDACC__
+#ifdef HAVE_CUDA
 	#define KERNEL(ks, kDecl, kName, kArgs) \
 		__global__ void aux_##kDecl; \
 		void kDecl \
@@ -213,32 +166,31 @@ typedef kernel_state otable_ks;
 		} \
 		__global__ void aux_##kDecl
 
-//			aux_##kName<<<grid, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs;
+	bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
 
 #else
 	#define DECLARE_KERNEL(kernelName, ...) \
 		void kernelName(__VA_ARGS__); \
 
-	#define KERNEL(ks, kDecl, kCall) \
+	#define KERNEL(ks, kDecl, kName, kArgs) \
 		void aux_##kDecl; \
 		void kDecl \
 		{ \
 			for(uint32_t __i=0; __i != ks.nthreads(); __i++) \
 			{ \
 				ks.set_threadIndex(__i); \
-				aux_##kCall; \
+				aux_##kName kArgs; \
 			} \
 		} \
 		void aux_##kDecl
 #endif
-
-bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
 
 // GPU random number generator abstraction
 #if __CUDACC__
 extern __shared__ char memory[];
 extern __shared__ int32_t mem_int32[];
 #endif
+#if HAVE_CUDA
 struct gpu_rng_t
 {
 	uint32_t seed;
@@ -320,5 +272,6 @@ struct gpu_rng_t
 		seed = s;
 	}
 };
+#endif
 
 #endif

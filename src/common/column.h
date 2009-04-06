@@ -37,17 +37,13 @@ struct column
 		onGPU = false;
 	}
 
-	column(const xptr &b) : base(b)
-	{
-		// check if there's a GPU version of this pointer
-		onGPU = gpuMMU.lastOp(base) == GPUMM::SYNCED_TO_DEVICE;
-	}
-
 	void toHost()
 	{
+	#if HAVE_CUDA
 		if(!onGPU) return;
 		gpuMMU.syncToHost(base);
 		onGPU = false;
+	#endif
 	}
 	#ifndef __CUDACC__
 	T *get() { toHost(); return base.get<T>(); }
@@ -68,9 +64,13 @@ struct column
 	// transfer data to GPU
 	operator gpu_t()
 	{
+	#if HAVE_CUDA
 		xptr gptr = gpuMMU.syncToDevice(base);
 		onGPU = true;
 		return gpu_t(gptr);
+	#else
+		return gpu_t(base);
+	#endif
 	}
 private:
 	// prevent copying

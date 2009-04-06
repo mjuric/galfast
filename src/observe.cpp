@@ -2023,4 +2023,9 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	int nstars = pipe.run(t, rng);
 	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
 }
+
+#ifndef HAVE_CUDA
+#include <simulate_gpu.cu>
+#endif
+
 #endif

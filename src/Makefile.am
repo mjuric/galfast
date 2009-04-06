@@ -3,12 +3,17 @@ galaxy_SOURCES = galaxy.cpp
 EXTRA_DIST = ri_prior.txt
 
 ## SUFFIXES = .cu
+if HAVE_CUDA
 .cu.o:
-	$(NVCC) -o $<.ptx -ptx -arch sm_13 $(INCLUDES) $<
-	$(NVCC) -o $@ -c $(NVCCFLAGS) $(INCLUDES) $<
+	$(NVCC) -o $<.ptx -ptx -arch sm_13 -I$(top_builddir) $(INCLUDES) $<
+	$(NVCC) -o $@ -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $<
 
 .cu.lo:
 	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) $(INCLUDES) $<
+else
+.cu.o:
+	touch $@
+endif
 
 # set the include path found by configure
 INCLUDES = -I$(top_srcdir)/src/common -I/usr/include/sqlplus/ -I/usr/include/mysql/ $(all_includes)

@@ -35,12 +35,30 @@
 
 stopwatch kernelRunSwatch;
 
-#if CPU_RNG
-int32_t gpu_rng_t::mem_int32[4096];
+// CUDA emulation for the CPU
+// Used by CPU versions of CUDA kernels
+__TLS char shmem[16384];
+namespace gpuemu	// prevent collision with nvcc's symbols
+{
+	__TLS uint3 blockIdx;
+	__TLS uint3 threadIdx;
+	__TLS uint3 blockDim;	// Note: uint3 instead of dim3, because __TLS variables have to be PODs
+	__TLS uint3 gridDim;		// Note: uint3 instead of dim3, because __TLS variables have to be PODs
+}
+
+__TLS int  active_compute_device;
+GPUMM gpuMMU;
+
+
+#if HAVE_CUDA || !ALIAS_GPU_RNG
+gpu_rng_t::gpu_rng_t(rng_t &rng)
+{
+	float v = rng.uniform();
+	seed = *(uint32_t*)&v;
+}
 #endif
 
 #if HAVE_CUDA
-
 
 #include <cuda_runtime.h>
 
@@ -105,17 +123,30 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 	return true;
 }
 
+static int cuda_initialized = 0;
+static int cuda_enabled = 0;
+bool gpuExecutionEnabled(const char *kernel)
+{
+	return cuda_enabled;
+}
+
 bool cuda_init()
 {
-	static int initialized = 0;
-	if(initialized) { return true; }
-	initialized = 1;
+	if(cuda_initialized) { return true; }
 
 	// get requested device from environment
 	const char *devStr = getenv("CUDA_DEVICE");
 	int dev = devStr == NULL ? 0 : atoi(devStr);
 	cudaError err;
 
+	// disable GPU acceleration
+	if(dev == -1)
+	{
+		cuda_initialized = 1;
+		cuda_enabled = 0;
+		return true;
+	}
+#if 0
 	// get device properties
 	cudaDeviceProp deviceProp;
 	err = cudaGetDeviceProperties(&deviceProp, dev);
@@ -123,16 +154,17 @@ bool cuda_init()
 
 	// use the device
 	MLOG(verb1) << io::format("Using GPU Device %d: \"%s\"") << dev << deviceProp.name;
+#endif
 	err = cudaSetDevice(dev);
 	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
 
+	cuda_initialized = 1;
+	cuda_enabled = 1;
 	return true;
 }
 
 
 //////////////////////////////////////////////
-
-GPUMM gpuMMU;
 
 size_t GPUMM::allocated() const
 {
@@ -163,7 +195,7 @@ void GPUMM::gc()
 }
 
 // copies the data to GPU device, allocating GPU memory if necessary
-xptr GPUMM::syncToDevice_aux(const xptr &hptr)
+xptr GPUMM::syncToDevice(const xptr &hptr)
 {
 	// get GPU buffer
 	gpu_ptr &g = gpuPtrs[hptr.base];
@@ -206,7 +238,7 @@ xptr GPUMM::syncToDevice_aux(const xptr &hptr)
 	return g.ptr;
 }
 
-void GPUMM::syncToHost_aux(xptr &hptr)
+void GPUMM::syncToHost(xptr &hptr)
 {
 	// get GPU buffer
 	if(!gpuPtrs.count(hptr.base)) { return; }

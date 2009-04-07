@@ -125,7 +125,8 @@ public:
 
 #if 1
 namespace ct = column_types;
-void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH);
+//void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH);
+DECLARE_KERNEL(os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH))
 
 size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
@@ -141,7 +142,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &FeH   = in.col<float>("FeH");
 
 	swatch.start();
-	os_FeH_kernel(otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
+	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	swatch.stop();
 	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	return nextlink->process(in, begin, end, rng);
@@ -1475,7 +1476,8 @@ public:
 	}
 };
 
-void os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out);
+DECLARE_KERNEL(os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out));
+
 size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	using namespace column_types;
@@ -1485,7 +1487,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	{
 		cdouble &out = in.col<double>("radec");
 		swatch.start();
-		os_gal2other_kernel(otable_ks(begin, end), coordsys, lb, out);
+		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
 		swatch.stop();
 		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	}
@@ -2021,9 +2023,5 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	int nstars = pipe.run(t, rng);
 	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
 }
-
-#ifndef HAVE_CUDA
-#include <simulate_gpu.cu>
-#endif
 
 #endif

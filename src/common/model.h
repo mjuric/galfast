@@ -253,26 +253,6 @@ template<typename T, std::size_t N>
 			return in;
 		}
 
-// thin random number generator abstraction
-struct rng_t
-{
-	virtual float uniform() = 0;
-	virtual float gaussian(const float sigma) = 0;
-	virtual ~rng_t() {}
-#if HAVE_CUDA || !ALIAS_GPU_RNG
-	operator gpu_rng_t()
-	{
-		float v = uniform();
-		return gpu_rng_t(*(uint32_t*)&v);
-	}
-#else
-	void load(const otable_ks &o) {}
-#endif
-};
-#if !HAVE_CUDA && ALIAS_GPU_RNG
-typedef rng_t &gpu_rng_t;
-#endif
-
 struct rng_gsl_t : public rng_t
 {
 	bool own;

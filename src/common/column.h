@@ -45,7 +45,8 @@ struct column
 		onGPU = false;
 	#endif
 	}
-	#ifndef __CUDACC__
+
+	#ifndef __CUDACC__ // because nvcc barfs on explicit template member-function calls
 	T *get() { toHost(); return base.get<T>(); }
 
 	T& operator()(const size_t row, const size_t elem)	// 2D column accessor
@@ -61,16 +62,20 @@ struct column
 	}
 	#endif
 
-	// transfer data to GPU
+	// GPU interface
 	operator gpu_t()
 	{
-	#if HAVE_CUDA
-		xptr gptr = gpuMMU.syncToDevice(base);
-		onGPU = true;
-		return gpu_t(gptr);
-	#else
-		return gpu_t(base);
-	#endif
+		if(gpuGetActiveDevice() >= 0)
+		{
+			xptr gptr = gpuMMU.syncToDevice(base);
+			onGPU = true;
+			return gpu_t(gptr);
+		}
+		else
+		{
+			toHost();
+			return gpu_t(base);
+		}
 	}
 private:
 	// prevent copying

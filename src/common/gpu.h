@@ -5,14 +5,35 @@
 #include <sys/time.h>
 #include <stdlib.h>
 
+// Possible states
+// #define HAVE_CUDA 1 -- CUDA support is on
+// 	#define BUILD_FOR_CPU 1	-- build CPU versions of kernels
+//
+// Note: __CUDACC__ will never be defined when BUILD_FOR_CPU is defined
+//
+
 #if HAVE_CUDA
 	#include <cuda_runtime.h>
 
 	bool cuda_init();
 #else
+	// Emulate CUDA types and keywords
+
 	#define __device__
 	#define __host__
+
 	struct double2 { double x, y; };
+	struct uint3 { unsigned int x, y, z; };
+
+	struct dim3
+	{
+		unsigned int x, y, z;
+		#if defined(__cplusplus)
+		dim3(unsigned int x = 1, unsigned int y = 1, unsigned int z = 1) : x(x), y(y), z(z) {}
+		dim3(uint3 v) : x(v.x), y(v.y), z(v.z) {}
+		operator uint3(void) { uint3 t; t.x = x; t.y = y; t.z = z; return t; }
+		#endif /* __cplusplus */
+	};
 #endif
 
 // Based on NVIDIA's LinuxStopWatch class
@@ -167,7 +188,6 @@ public:
 	}
 };
 
-#if HAVE_CUDA
 #include <map>
 struct GPUMM 
 {
@@ -178,6 +198,8 @@ struct GPUMM
 	static const int SYNCED_TO_DEVICE = 1;
 	static const int SYNCED_TO_HOST = 2;
 	static const int RELEASED_TO_HOST = 3;
+
+protected:
 	struct gpu_ptr
 	{
 		xptr ptr;
@@ -189,47 +211,46 @@ struct GPUMM
 
 	size_t allocated() const;
 	void gc();	// do garbage collection
-	xptr syncToDevice_aux(const xptr &hptr);
-	void syncToHost_aux(xptr &hptr);
-
-	xptr syncToDevice(const xptr &ptr)
-	{
-		return syncToDevice_aux(ptr);
-	}
-
-	void syncToHost(xptr &ptr)
-	{
-		syncToHost_aux(ptr);
-	}
-
+public:
+#if HAVE_CUDA
+	xptr syncToDevice(const xptr &hptr);
+	void syncToHost(xptr &hptr);
 	int lastOp(const xptr &hptr)
 	{
 		if(!gpuPtrs.count(hptr.base)) { return NOT_EXIST; }
 		return gpuPtrs[hptr.base].lastop;
 	}
+#else
+	xptr syncToDevice(const xptr &hptr) const { return hptr; }
+	void syncToHost(xptr &hptr) { }
+#endif
 };
 extern GPUMM gpuMMU;
 
+// For CPU versions of GPU algorithms
+#if !__CUDACC__
+//#define __TLS __thread
+#define __TLS
+namespace gpuemu // prevent collision with nvcc's symbols
+{
+	extern __TLS uint3 blockIdx;
+	extern __TLS uint3 threadIdx;
+	extern __TLS uint3 blockDim;		// Note: uint3 instead of dim3, because __TLS variables have to be PODs
+	extern __TLS uint3 gridDim;		// Note: uint3 instead of dim3, because __TLS variables have to be PODs
+}
+using namespace gpuemu;
 #endif
 
 /* Support structures */
 struct kernel_state
 {
-#if HAVE_CUDA
-	__device__ uint32_t threadIndex() const
+	__device__ uint32_t threadID() const
 	{
 		// this supports 2D grids with 1D blocks of threads
-		#if __CUDACC__
-		return (blockIdx.y * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
-		#else
-		assert(0);
-		#endif
+		// NOTE: This could/should be optimized to use __mul24
+		uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
+		return id;
 	}
-#else
-	uint32_t m_threadIndex;
-	uint32_t threadIndex() const { return m_threadIndex; }
-	void set_threadIndex(uint32_t idx) { m_threadIndex = idx; }
-#endif
 
 	uint32_t m_nthreads;
 	__host__ __device__ uint32_t nthreads() const
@@ -239,7 +260,7 @@ struct kernel_state
 
 	/////////////////////////
 	uint32_t begin;
-	__device__ uint32_t row() const { uint32_t row = threadIndex(); return row < nthreads() ? begin + row : (uint32_t)-1; }
+	__device__ uint32_t row() const { uint32_t row = threadID(); return row < nthreads() ? begin + row : (uint32_t)-1; }
 
 	kernel_state(uint32_t b, uint32_t e) : begin(b), m_nthreads(e - b) { }
 };
@@ -249,10 +270,73 @@ typedef kernel_state otable_ks;
 /*  Support macros  */
 
 extern stopwatch kernelRunSwatch;
-#ifdef HAVE_CUDA
+
+bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
+
+//
+// Support for run-time selection of execution on GPU or CPU
+//
+#if HAVE_CUDA
+	bool gpuExecutionEnabled(const char *kernel);
+
+	extern __TLS int  active_compute_device;		// helpers
+	inline int gpuGetActiveDevice() { return active_compute_device; }
+
+	struct activeDevice
+	{
+		int prev_active_device;
+
+		activeDevice(int dev)
+		{
+			prev_active_device = active_compute_device;
+			active_compute_device = dev;
+		}
+
+		~activeDevice()
+		{
+			active_compute_device = prev_active_device;
+		}
+	};
+#else
+	inline bool gpuExecutionEnabled(const char *kernel) { return false; }
+	inline int gpuGetActiveDevice() { return -1; }
+	struct activeDevice
+	{
+		activeDevice(int dev) {}
+	};
+#endif
+
+#if HAVE_CUDA
+	#define DECLARE_KERNEL(kDecl) \
+		void cpulaunch_##kDecl; \
+		void gpulaunch_##kDecl;
+
+	#define CALL_KERNEL(kName, ...) \
+		{ \
+			activeDevice dev(gpuExecutionEnabled(#kName)? 0 : -1); \
+			if(gpuGetActiveDevice() < 0) \
+			{ \
+				cpulaunch_##kName(__VA_ARGS__); \
+			} \
+			else \
+			{ \
+				gpulaunch_##kName(__VA_ARGS__); \
+			} \
+		}
+#else
+	// No CUDA
+	#define DECLARE_KERNEL(kDecl) \
+		void cpulaunch_##kDecl;
+
+	#define CALL_KERNEL(kName, ...) \
+		cpulaunch_##kName(__VA_ARGS__);
+#endif
+
+#if HAVE_CUDA && !BUILD_FOR_CPU
+	// Building GPU kernels
 	#define KERNEL(ks, kDecl, kName, kArgs) \
-		__global__ void aux_##kDecl; \
-		void kDecl \
+		__global__ void gpu_##kDecl; \
+		void gpulaunch_##kDecl \
 		{ \
 			int dynShmemPerThread = 4;      /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
@@ -261,63 +345,88 @@ extern stopwatch kernelRunSwatch;
 			calculate_grid_parameters(gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
 			\
 			kernelRunSwatch.start(); \
-			aux_##kName<<<gridDim, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
+			gpu_##kName<<<gridDim, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
 			cudaError err = cudaThreadSynchronize();\
 			if(err != cudaSuccess) { abort(); } \
 			kernelRunSwatch.stop(); \
 		} \
-		__global__ void aux_##kDecl
+		__global__ void gpu_##kDecl
+#endif
 
-	bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
+#if !HAVE_CUDA || BUILD_FOR_CPU
+	// Building CPU kernels
 
-#else
-	#define DECLARE_KERNEL(kernelName, ...) \
-		void kernelName(__VA_ARGS__); \
+/*	#if BUILD_FOR_CPU
+		// Building CPU kernels in CUDA-enabled binary*/
+		#define KERNEL_NAME(kDecl) cpulaunch_##kDecl
+// 	#else
+// 		// Building CPU kernels only
+// 		#define KERNEL_NAME(kDecl) kDecl
+// 	#endif
 
 	#define KERNEL(ks, kDecl, kName, kArgs) \
-		void aux_##kDecl; \
-		void kDecl \
+		void cpu_##kDecl; \
+		void KERNEL_NAME(kDecl) \
 		{ \
+			const int threadsPerBlock = 32; \
+			threadIdx.x = 0; \
+			blockIdx.x = blockIdx.y = blockIdx.z = 0; \
+			blockDim.x = threadsPerBlock; blockDim.y = blockDim.z = 1; \
+			gridDim.x = 512; gridDim.y = 512; gridDim.z = 1; \
 			kernelRunSwatch.start(); \
 			for(uint32_t __i=0; __i != ks.nthreads(); __i++) \
 			{ \
-				ks.set_threadIndex(__i); \
-				aux_##kName kArgs; \
+				if(0) { MLOG(verb1) << "t(" << threadIdx.x << "), b(" << blockIdx.x << "," << blockIdx.y << "," << blockIdx.z << ")"; } \
+				cpu_##kName kArgs; \
+				threadIdx.x++; \
+				if(threadIdx.x == blockDim.x) { threadIdx.x = 0; blockIdx.x++; } \
+				if(blockIdx.x  == gridDim.x) { blockIdx.x = 0;  blockIdx.y++; } \
+				if(blockIdx.y  == gridDim.y) { blockIdx.y = 0;  blockIdx.z++; } \
 			} \
 			kernelRunSwatch.stop(); \
 		} \
-		void aux_##kDecl
+		void cpu_##kDecl
 #endif
 
-// GPU random number generator abstraction
 #if __CUDACC__
-extern __shared__ char memory[];
-extern __shared__ int32_t mem_int32[];
+extern __shared__ char shmem[];
+#else
+extern __TLS char shmem[16384];
 #endif
-#define CPU_RNG (!HAVE_CUDA && !ALIAS_GPU_RNG)
+
+// thin random number generator abstraction
+struct rng_t
+{
+	virtual float uniform() = 0;
+	virtual float gaussian(const float sigma) = 0;
+	virtual ~rng_t() {}
+	// interface compatibility with gpu_rng_t
+	void load(const otable_ks &o) {}
+};
+#define ALIAS_GPU_RNG 0
+
+// GPU random number generator abstraction
+#if !HAVE_CUDA && ALIAS_GPU_RNG
+typedef rng_t &gpu_rng_t;
+#endif
+
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct gpu_rng_t
 {
 	uint32_t seed;
-	#if CPU_RNG
-	static int32_t mem_int32[4096];
-	struct { uint32_t x; } threadIdx;
-	#endif
 
-	gpu_rng_t(uint32_t s) : seed(s)
-	{
-	}
+	gpu_rng_t(uint32_t s) : seed(s) { }
+	gpu_rng_t(rng_t &rng);		// initialization constructor from existing rng
 
 	__device__ float uniform() const
 	{
-	#if __CUDACC__ || CPU_RNG
 		#define IA 16807
 		#define IM 2147483647
 		#define AM (1.0f/IM)
 		#define IQ 127773
 		#define IR 2836
 		#define MASK 123459876
-		#define idum mem_int32[threadIdx.x]
+		#define idum ((int32_t*)shmem)[threadIdx.x]
 
 		int32_t k;
 		float ans;
@@ -331,9 +440,6 @@ struct gpu_rng_t
 
 		#undef idum
 		return ans;
-	#else
-		assert(0);
-	#endif
 	}
 
 	__device__ float uniform_pos() const
@@ -364,23 +470,17 @@ struct gpu_rng_t
 
 	__device__ void load(kernel_state &ks)
 	{
-	#if CPU_RNG || __CUDACC__
-		mem_int32[ks.threadIndex()] = seed + ks.threadIndex();
-	#endif
-	#if CPU_RNG
-		threadIdx.x = ks.threadIndex();
-	#endif
+		((int32_t*)shmem)[threadIdx.x] = seed + ks.threadID();
 	}
 
 	__device__ void store(kernel_state &ks)
 	{
-	#if __CUDACC__
 		if(threadIdx.x == 0)
 		{
-			uint32_t *seeds = (uint32_t *)memory;
-			seed = seeds[0];
+			// This "stores" the RNG state by storing the current
+			// state of threadID=0 RNG, and disregarding the rest.
+			seed = ((uint32_t *)shmem)[0];
 		}
-	#endif
 	}
 
 	void srand(uint32_t s)
@@ -389,6 +489,5 @@ struct gpu_rng_t
 	}
 };
 #endif
-
 
 #endif

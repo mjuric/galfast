@@ -18,9 +18,13 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#ifndef __CONFIG_H
+#define __CONFIG_H
 #include "config.h"
+#endif
 
 #include <stdint.h>
+#include <math.h>
 
 #include <astro/constants.h>
 

@@ -3,14 +3,109 @@
 
 #include <time.h>
 #include <sys/time.h>
+#include <stdlib.h>
 
 #if HAVE_CUDA
 	#include <cuda_runtime.h>
+
+	bool cuda_init();
 #else
 	#define __device__
 	#define __host__
 	struct double2 { double x, y; };
 #endif
+
+// Based on NVIDIA's LinuxStopWatch class
+// TODO: Should be moved to libpeyton
+class stopwatch
+{
+protected:
+	struct timeval  start_time;	// Start of measurement
+	float  diff_time;		// Time difference between the last start and stop
+	float  total_time;		// TOTAL time difference between starts and stops
+	bool running;			// flag if the stop watch is running
+	int clock_sessions;		// Number of times clock has been started and stopped (for averaging)
+
+public:
+	stopwatch() :
+		start_time(),
+		diff_time(0.0),
+		total_time(0.0),
+		running(false),
+		clock_sessions(0)
+	{ }
+
+	// Start time measurement
+	void start()
+	{
+		gettimeofday( &start_time, 0);
+		running = true;
+	}
+
+	// Stop time measurement and increment add to the current diff_time summation
+	// variable. Also increment the number of times this clock has been run.
+	void stop()
+	{
+		diff_time = getDiffTime();
+		total_time += diff_time;
+		running = false;
+		clock_sessions++;
+	}
+
+	// Reset the timer to 0. Does not change the timer running state but does
+	// recapture this point in time as the current start time if it is running.
+	void reset()
+	{
+		diff_time = 0;
+		total_time = 0;
+		clock_sessions = 0;
+		if( running )
+		{
+			gettimeofday( &start_time, 0);
+		}
+	}
+
+	// Time in sec. after start. If the stop watch is still running (i.e. there
+	// was no call to stop()) then the elapsed time is returned added to the
+	// current diff_time sum, otherwise the current summed time difference alone
+	// is returned.
+	float getTime() const
+	{
+		// Return the TOTAL time to date
+		float retval = total_time;
+		if(running)
+		{
+			retval += getDiffTime();
+		}
+		return 0.001 * retval;
+	}
+
+	// Time in msec. for a single run based on the total number of COMPLETED runs
+	// and the total time.
+	float getAverageTime() const
+	{
+		return 0.001 * total_time/clock_sessions;
+	}
+
+	int nSessions() const
+	{
+		return clock_sessions;
+	}
+
+private:
+
+	// helpers functions
+
+	float getDiffTime() const
+	{
+		struct timeval t_time;
+		gettimeofday( &t_time, 0);
+
+		// time difference in milli-seconds
+		return  (float) (1000.0 * ( t_time.tv_sec - start_time.tv_sec)
+				+ (0.001 * (t_time.tv_usec - start_time.tv_usec)) );
+	}
+};
 
 // A pointer type that keeps the information of the type
 // and size of the array it's pointing to
@@ -153,6 +248,7 @@ typedef kernel_state otable_ks;
 
 /*  Support macros  */
 
+extern stopwatch kernelRunSwatch;
 #ifdef HAVE_CUDA
 	#define KERNEL(ks, kDecl, kName, kArgs) \
 		__global__ void aux_##kDecl; \
@@ -160,13 +256,17 @@ typedef kernel_state otable_ks;
 		{ \
 			int dynShmemPerThread = 4;      /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
-		        int threadsPerBlock = 64;       /* TODO: This should be computed as well */ \
+		        int threadsPerBlock = 128;      /* TODO: This should be computed as well */ \
 			int gridDim[3]; \
 			calculate_grid_parameters(gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
 			\
 			dim3 grid; \
 			grid.x = gridDim[0]; grid.y = gridDim[1]; \
+			kernelRunSwatch.start(); \
 			aux_##kName<<<grid, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
+			cudaError err = cudaThreadSynchronize();\
+			if(err != cudaSuccess) { abort(); } \
+			kernelRunSwatch.stop(); \
 		} \
 		__global__ void aux_##kDecl
 
@@ -180,11 +280,13 @@ typedef kernel_state otable_ks;
 		void aux_##kDecl; \
 		void kDecl \
 		{ \
+			kernelRunSwatch.start(); \
 			for(uint32_t __i=0; __i != ks.nthreads(); __i++) \
 			{ \
 				ks.set_threadIndex(__i); \
 				aux_##kName kArgs; \
 			} \
+			kernelRunSwatch.stop(); \
 		} \
 		void aux_##kDecl
 #endif
@@ -278,91 +380,5 @@ struct gpu_rng_t
 };
 #endif
 
-// Based on NVIDIA's LinuxStopWatch class
-// TODO: Should be moved to libpeyton
-class stopwatch
-{
-protected:
-	struct timeval  start_time;	// Start of measurement
-	float  diff_time;		// Time difference between the last start and stop
-	float  total_time;		// TOTAL time difference between starts and stops
-	bool running;			// flag if the stop watch is running
-	int clock_sessions;		// Number of times clock has been started and stopped (for averaging)
-
-public:
-	stopwatch() :
-		start_time(),
-		diff_time(0.0),
-		total_time(0.0),
-		running(false),
-		clock_sessions(0)
-	{ }
-
-	// Start time measurement
-	void start()
-	{
-		gettimeofday( &start_time, 0);
-		running = true;
-	}
-
-	// Stop time measurement and increment add to the current diff_time summation
-	// variable. Also increment the number of times this clock has been run.
-	void stop()
-	{
-		diff_time = getDiffTime();
-		total_time += diff_time;
-		running = false;
-		clock_sessions++;
-	}
-
-	// Reset the timer to 0. Does not change the timer running state but does
-	// recapture this point in time as the current start time if it is running.
-	void reset()
-	{
-		diff_time = 0;
-		total_time = 0;
-		clock_sessions = 0;
-		if( running )
-		{
-			gettimeofday( &start_time, 0);
-		}
-	}
-
-	// Time in sec. after start. If the stop watch is still running (i.e. there
-	// was no call to stop()) then the elapsed time is returned added to the
-	// current diff_time sum, otherwise the current summed time difference alone
-	// is returned.
-	float getTime() const
-	{
-		// Return the TOTAL time to date
-		float retval = total_time;
-		if(running)
-		{
-			retval += getDiffTime();
-		}
-		return 0.001 * retval;
-	}
-
-	// Time in msec. for a single run based on the total number of COMPLETED runs
-	// and the total time.
-	float getAverageTime() const
-	{
-		return 0.001 * total_time/clock_sessions;
-	}
-
-private:
-
-	// helpers functions
-
-	float getDiffTime() const
-	{
-		struct timeval t_time;
-		gettimeofday( &t_time, 0);
-
-		// time difference in milli-seconds
-		return  (float) (1000.0 * ( t_time.tv_sec - start_time.tv_sec)
-				+ (0.001 * (t_time.tv_usec - start_time.tv_usec)) );
-	}
-};
 
 #endif

@@ -75,6 +75,8 @@ typedef double Radians;
 static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
 static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
 static const double l0 = ctn::d2r * 32.932;
+static const double ce = 0.88998740217659689; // cos(dngp)
+static const double se = 0.45598511375586859; // sin(dngp)
 
 inline __device__ double2 galequ(const double2 lb)
 {
@@ -83,9 +85,9 @@ inline __device__ double2 galequ(const double2 lb)
 	const double cl = cos(lb.x-l0);
 	const double sl = sin(lb.x-l0);
 
-	// TODO: These should be precomputed constants
-	const double ce = cos(dngp);
-	const double se = sin(dngp);
+//	// TODO: These should be precomputed constants
+//	const double ce = cos(dngp);
+//	const double se = sin(dngp);
 
 	double2 r;
 	r.x = atan2(

@@ -37,6 +37,7 @@
 #include "model.h"
 #include "gpc_cpp.h"
 #include "io.h"
+#include "gpu.h"
 
 #include <astro/useall.h>
 using namespace std;
@@ -759,6 +760,15 @@ try
 	}
 
 	/////// Start your application code here
+	
+#if HAVE_CUDA
+	if(!cuda_init())
+	{
+		MLOG(verb1) << "Error initializing GPU acceleration. Aborting.";
+		return -1;
+	}
+#endif
+
 #if 0
 	if(cmd == "pskymap")
 	{

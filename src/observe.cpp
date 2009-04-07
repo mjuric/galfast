@@ -143,6 +143,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	swatch.start();
 	os_FeH_kernel(otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	swatch.stop();
+	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	return nextlink->process(in, begin, end, rng);
 }
 #else
@@ -1486,6 +1487,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		swatch.start();
 		os_gal2other_kernel(otable_ks(begin, end), coordsys, lb, out);
 		swatch.stop();
+		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	}
 
 	return nextlink->process(in, begin, end, rng);
@@ -1633,6 +1635,7 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	swatch.start();
 	t.serialize_body(out.out(), from, to);
 	swatch.stop();
+	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
@@ -1714,6 +1717,7 @@ size_t os_textin::run(otable &t, rng_t &rng)
 		t.clear();
 		t.unserialize_body(in.in());
 		swatch.stop();
+		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 		total += nextlink->process(t, 0, t.size(), rng);
 	} while(in.in());
 
@@ -1842,6 +1846,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	{
 		MLOG(verb2) << io::format("  %10s: %f") << (*i)->name() << (*i)->getProcessingTime();
 	}
+	MLOG(verb2) << "Pure kernel run time: " << kernelRunSwatch.getTime();
 
 	return ret;
 }
@@ -1934,7 +1939,9 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	rng_gsl_t rng(seed);
 
 	// output table
-	static const size_t Kbatch = 99999;
+//	static const size_t Kbatch = 99999;
+//	static const size_t Kbatch = 500000;
+	static const size_t Kbatch = 2500000 / 2;
 	otable t(Kbatch);
 
 	// merge-in any modules included from the config file via the 'modules' keyword

@@ -20,8 +20,6 @@
 
 #include "config.h"
 
-#if HAVE_CUDA
-
 #include <iostream>
 #include <fstream>
 
@@ -29,13 +27,19 @@
 #include <astro/util.h>
 #include <astro/math.h>
 #include <astro/system/log.h>
+#include <astro/io/format.h>
 #include <astro/useall.h>
 
 #include <vector>
-
 #include "gpu.h"
 
+stopwatch kernelRunSwatch;
+
+#if HAVE_CUDA
+
+
 #include <cuda_runtime.h>
+
 
 ///////////////////////////////////////////////////////////
 // CUDA helpers
@@ -91,11 +95,36 @@ bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededth
 	find_best_factorization(gridDim[0], gridDim[1], nblocks);
 	gridDim[2] = 1;
 
-	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
-			"), shmemPerBlock(" << staticShmemPerBlock << ") --> grid(" << gridDim[0] << ", " << gridDim[1] << ", " << gridDim[2] << ")";
+//	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
+//			"), shmemPerBlock(" << staticShmemPerBlock << ") --> grid(" << gridDim[0] << ", " << gridDim[1] << ", " << gridDim[2] << ")";
 
 	return true;
 }
+
+bool cuda_init()
+{
+	static int initialized = 0;
+	if(initialized) { return true; }
+	initialized = 1;
+
+	// get requested device from environment
+	const char *devStr = getenv("CUDA_DEVICE");
+	int dev = devStr == NULL ? 0 : atoi(devStr);
+	cudaError err;
+
+	// get device properties
+	cudaDeviceProp deviceProp;
+	err = cudaGetDeviceProperties(&deviceProp, dev);
+	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
+
+	// use the device
+	MLOG(verb1) << io::format("Using GPU Device %d: \"%s\"") << dev << deviceProp.name;
+	err = cudaSetDevice(dev);
+	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
+
+	return true;
+}
+
 
 //////////////////////////////////////////////
 
@@ -150,13 +179,14 @@ xptr GPUMM::syncToDevice_aux(const xptr &hptr)
 #endif
 		if(err != cudaSuccess)
 		{
-			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
 		}
 	}
 
 	// sync GPU with host, if needed
 	if(g.lastop != SYNCED_TO_DEVICE)
 	{
+//		MLOG(verb1) << "Syncing to device (" << hptr.memsize() << " bytes)";
 #if 0
 		cudaError err = cudaMemcpy2D(g.ptr.base, g.ptr.pitch(), hptr.base, hptr.pitch(), hptr.width()*hptr.elementSize(), hptr.height(), cudaMemcpyHostToDevice);
 #else
@@ -164,7 +194,7 @@ xptr GPUMM::syncToDevice_aux(const xptr &hptr)
 #endif
 		if(err != cudaSuccess)
 		{
-			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
 		}
 		g.lastop = SYNCED_TO_DEVICE;
 	}
@@ -187,7 +217,7 @@ void GPUMM::syncToHost_aux(xptr &hptr)
 #endif
 		if(err != cudaSuccess)
 		{
-			std::cerr << "CUDA Error: " << cudaGetErrorString(err) << "\n";
+			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
 		}
 		g.lastop = SYNCED_TO_HOST;
 	}

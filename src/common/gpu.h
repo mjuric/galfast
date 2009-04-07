@@ -257,20 +257,18 @@ extern stopwatch kernelRunSwatch;
 			int dynShmemPerThread = 4;      /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
 		        int threadsPerBlock = 128;      /* TODO: This should be computed as well */ \
-			int gridDim[3]; \
+			dim3 gridDim; \
 			calculate_grid_parameters(gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
 			\
-			dim3 grid; \
-			grid.x = gridDim[0]; grid.y = gridDim[1]; \
 			kernelRunSwatch.start(); \
-			aux_##kName<<<grid, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
+			aux_##kName<<<gridDim, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
 			cudaError err = cudaThreadSynchronize();\
 			if(err != cudaSuccess) { abort(); } \
 			kernelRunSwatch.stop(); \
 		} \
 		__global__ void aux_##kDecl
 
-	bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
+	bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
 
 #else
 	#define DECLARE_KERNEL(kernelName, ...) \
@@ -296,15 +294,23 @@ extern stopwatch kernelRunSwatch;
 extern __shared__ char memory[];
 extern __shared__ int32_t mem_int32[];
 #endif
-#if HAVE_CUDA
+#define CPU_RNG (!HAVE_CUDA && !ALIAS_GPU_RNG)
+#if HAVE_CUDA || !ALIAS_GPU_RNG
 struct gpu_rng_t
 {
 	uint32_t seed;
-	gpu_rng_t(uint32_t s) : seed(s) {}
+	#if CPU_RNG
+	static int32_t mem_int32[4096];
+	struct { uint32_t x; } threadIdx;
+	#endif
+
+	gpu_rng_t(uint32_t s) : seed(s)
+	{
+	}
 
 	__device__ float uniform() const
 	{
-	#if __CUDACC__
+	#if __CUDACC__ || CPU_RNG
 		#define IA 16807
 		#define IM 2147483647
 		#define AM (1.0f/IM)
@@ -325,6 +331,8 @@ struct gpu_rng_t
 
 		#undef idum
 		return ans;
+	#else
+		assert(0);
 	#endif
 	}
 
@@ -356,9 +364,11 @@ struct gpu_rng_t
 
 	__device__ void load(kernel_state &ks)
 	{
-	#if __CUDACC__
-		uint32_t *seeds = (uint32_t *)memory;
-		seeds[threadIdx.x] = seed + ks.threadIndex();
+	#if CPU_RNG || __CUDACC__
+		mem_int32[ks.threadIndex()] = seed + ks.threadIndex();
+	#endif
+	#if CPU_RNG
+		threadIdx.x = ks.threadIndex();
 	#endif
 	}
 

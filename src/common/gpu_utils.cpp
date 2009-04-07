@@ -35,6 +35,10 @@
 
 stopwatch kernelRunSwatch;
 
+#if CPU_RNG
+int32_t gpu_rng_t::mem_int32[4096];
+#endif
+
 #if HAVE_CUDA
 
 
@@ -48,7 +52,7 @@ stopwatch kernelRunSwatch;
 // Find the dimensions (bx,by) of a 2D grid of blocks that 
 // has as close to nblocks blocks as possible
 //
-void find_best_factorization(int &bx, int &by, int nblocks)
+void find_best_factorization(unsigned int &bx, unsigned int &by, int nblocks)
 {
 	bx = -1;
 	int best_r = 100000;
@@ -74,7 +78,7 @@ void find_best_factorization(int &bx, int &by, int nblocks)
 // Returns false if the requested number of threads are impossible to fit to
 // shared memory.
 //
-bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock)
+bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock)
 {
 	const int shmemPerMP =  16384;
 
@@ -92,8 +96,8 @@ bool calculate_grid_parameters(int gridDim[3], int threadsPerBlock, int neededth
 	if(nthreads % threadsPerBlock) { nblocks++; }
 
 	// calculate block dimensions so that there are as close to nblocks blocks as possible
-	find_best_factorization(gridDim[0], gridDim[1], nblocks);
-	gridDim[2] = 1;
+	find_best_factorization(gridDim.x, gridDim.y, nblocks);
+	gridDim.z = 1;
 
 //	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
 //			"), shmemPerBlock(" << staticShmemPerBlock << ") --> grid(" << gridDim[0] << ", " << gridDim[1] << ", " << gridDim[2] << ")";
@@ -224,3 +228,103 @@ void GPUMM::syncToHost_aux(xptr &hptr)
 }
 
 #endif // HAVE_CUDA
+
+#ifdef HAVE_CUDA
+cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream);
+cudaError_t cudaSetupArgument(const void *arg, size_t size, size_t offset);
+cudaError_t cudaLaunch(const char *entry);
+struct cudaFuncAttributes
+{
+	size_t constSizeBytes;
+	size_t localSizeBytes;
+	int maxThreadsPerBlock;
+	int numRegs;
+	size_t sharedSizeBytes;
+};
+typedef int cuda_stream_t;
+cudaError_t cudaFuncGetAttributes(cudaFuncAttributes *attr, const char *func)
+{
+	return cudaSuccess;
+}
+struct emptyArg {};
+
+#define CUDA_RETURN_ON_FAIL(x) \
+	{ cudaError_t ret_54e843 = (x); if(ret_54e843 != cudaSuccess) { return ret_54e843; } }
+
+namespace nv
+{
+	struct kernel
+	{
+		dim3 gridDim, blockDim;
+		size_t sharedMem;
+		cuda_stream_t stream;
+		size_t nthreads;
+		const char *name;
+		cudaError_t err;
+
+		kernel(const char *kernel_name_, size_t nthreads_, size_t sharedMem_ = 0, cuda_stream_t stream_ = -1)
+		: name(kernel_name_), nthreads(nthreads_), sharedMem(sharedMem_), stream(stream_)
+		{
+			int dev;
+			cudaGetDevice(&dev);
+			cudaDeviceProp dprop;
+			cudaGetDeviceProperties(&dprop, dev);
+
+			cudaFuncAttributes attr;
+			err = cudaFuncGetAttributes(&attr, name);
+			if(err != cudaSuccess) { return; }
+
+			// compute the number of threads per block
+			unsigned int nbreg = dprop.regsPerBlock / attr.numRegs; // Threads per block limit due to number of registers
+			unsigned int nbmem = (dprop.sharedMemPerBlock - attr.sharedSizeBytes) / sharedMem; // Threads per block limit due to shared mem. size
+			blockDim.x = attr.maxThreadsPerBlock;
+			blockDim.x = std::min(blockDim.x, nbreg);
+			blockDim.x = std::min(blockDim.x, nbmem);
+
+			// compute grid dimensions
+			calculate_grid_parameters(gridDim, blockDim.x, nthreads, sharedMem, attr.sharedSizeBytes);
+		}
+	};
+};
+
+template<typename T>
+inline cudaError_t bindKernelParam(const T &p, size_t &offs)
+{
+	cudaError_t ret = cudaSetupArgument(&p, sizeof(T), offs);
+	offs += sizeof(T);
+	return ret;
+}
+
+template<>
+inline cudaError_t  bindKernelParam(const emptyArg &p, size_t &offs)
+{
+	return cudaSuccess;
+}
+
+template<typename T1, typename T2, typename T3>
+cudaError_t callKernel3(const nv::kernel &kc, const T1 &v1, const T2 &v2, const T3 &v3)
+{
+	// setup launch configuration
+	if(kc.err) { return kc.err; }
+	CUDA_RETURN_ON_FAIL( cudaConfigureCall(kc.gridDim, kc.blockDim, kc.sharedMem, kc.stream) );
+
+	// push parameters to the stack
+	size_t offs = 0;
+	bindKernelParam(v1, offs);
+	bindKernelParam(v2, offs);
+	bindKernelParam(v3, offs);
+
+	// launch the kernel
+	return cudaLaunch(kc.name);
+}
+
+void test_cuda_caller()
+{
+	int var1;
+	double var2;
+	dim3 var3;
+
+	int nthreads = 10000;
+	callKernel3(nv::kernel("test_kernel", nthreads), var1, var2, var3);
+}
+#endif

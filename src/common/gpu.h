@@ -227,10 +227,11 @@ public:
 };
 extern GPUMM gpuMMU;
 
-// For CPU versions of GPU algorithms
-#if !__CUDACC__
 //#define __TLS __thread
 #define __TLS
+
+// For CPU versions of GPU algorithms
+#if !__CUDACC__
 namespace gpuemu // prevent collision with nvcc's symbols
 {
 	extern __TLS uint3 blockIdx;
@@ -241,17 +242,24 @@ namespace gpuemu // prevent collision with nvcc's symbols
 using namespace gpuemu;
 #endif
 
+inline __device__ uint32_t threadID()
+{
+	// this supports 3D grids with 1D blocks of threads
+	// NOTE: This could/should be optimized to use __mul24 (but be careful not to overflow a 24-bit number!)
+	// Number of cycles (I think...): 4*4 + 16 + 3*4
+/*	const uint32_t id =
+		  threadIdx.x
+		+ __umul24(blockDim.x, blockIdx.x)
+		+ __umul24(blockDim.x, blockIdx.y) * gridDim.x
+		+ __umul24(blockDim.x, blockIdx.z) * __umul24(gridDim.x, gridDim.y)*/
+	// 16 + 16 + 16 cycles (assuming MADD)
+	const uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
+	return id;
+}
+
 /* Support structures */
 struct kernel_state
 {
-	__device__ uint32_t threadID() const
-	{
-		// this supports 2D grids with 1D blocks of threads
-		// NOTE: This could/should be optimized to use __mul24
-		uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
-		return id;
-	}
-
 	uint32_t m_nthreads;
 	__host__ __device__ uint32_t nthreads() const
 	{
@@ -470,7 +478,7 @@ struct gpu_rng_t
 
 	__device__ void load(kernel_state &ks)
 	{
-		((int32_t*)shmem)[threadIdx.x] = seed + ks.threadID();
+		((int32_t*)shmem)[threadIdx.x] = seed + threadID();
 	}
 
 	__device__ void store(kernel_state &ks)

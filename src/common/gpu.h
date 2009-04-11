@@ -158,22 +158,8 @@ public:
 	
 	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0) { init(es, ncol, nrow, p); }
 
-	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1)
-	{
-		if(eSize == (size_t)-1) { eSize = elementSize(); } else { m_elementSize = eSize; }
-		if(ncol == (size_t)-1) { ncol = ncols(); } else { dim[0] = ncol; }
-		if(nrow == (size_t)-1) { nrow = nrows(); } else { dim[1] = nrow; }
-		if(ptch == (size_t)-1) { ptch = pitch(); } else { m_pitch[0] = ptch; }
-
-		delete [] base;
-		base = new char[memsize()];
-	}
-	
-	void free()
-	{
-		delete [] base;
-		base = NULL;
-	}
+	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1);
+	void free();
 	~xptr() { }
 
 	void init(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0)

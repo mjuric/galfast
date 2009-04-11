@@ -215,11 +215,11 @@ public:
 #if HAVE_CUDA
 	xptr syncToDevice(const xptr &hptr);
 	void syncToHost(xptr &hptr);
-	int lastOp(const xptr &hptr)
-	{
-		if(!gpuPtrs.count(hptr.base)) { return NOT_EXIST; }
-		return gpuPtrs[hptr.base].lastop;
-	}
+//	int lastOp(const xptr &hptr)
+//	{
+//		if(!gpuPtrs.count(hptr.base)) { return NOT_EXIST; }
+//		return gpuPtrs[hptr.base].lastop;
+//	}
 #else
 	xptr syncToDevice(const xptr &hptr) const { return hptr; }
 	void syncToHost(xptr &hptr) { }
@@ -247,13 +247,17 @@ inline __device__ uint32_t threadID()
 	// this supports 3D grids with 1D blocks of threads
 	// NOTE: This could/should be optimized to use __mul24 (but be careful not to overflow a 24-bit number!)
 	// Number of cycles (I think...): 4*4 + 16 + 3*4
-/*	const uint32_t id =
+#if 0 && __CUDACC__
+	// This below is untested...
+	const uint32_t id =
 		  threadIdx.x
 		+ __umul24(blockDim.x, blockIdx.x)
 		+ __umul24(blockDim.x, blockIdx.y) * gridDim.x
-		+ __umul24(blockDim.x, blockIdx.z) * __umul24(gridDim.x, gridDim.y)*/
-	// 16 + 16 + 16 cycles (assuming MADD)
+		+ __umul24(blockDim.x, blockIdx.z) * __umul24(gridDim.x, gridDim.y);
+#else
+	// 16 + 16 + 16 cycles (assuming FMAD)
 	const uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
+#endif
 	return id;
 }
 

@@ -146,14 +146,16 @@ bool cuda_init()
 		cuda_enabled = 0;
 		return true;
 	}
-#if 0
+#if !CUDA_DEVEMU
 	// get device properties
 	cudaDeviceProp deviceProp;
 	err = cudaGetDeviceProperties(&deviceProp, dev);
 	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
 
 	// use the device
-	MLOG(verb1) << io::format("Using GPU Device %d: \"%s\"") << dev << deviceProp.name;
+	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"") << dev << deviceProp.name;
+#else
+	MLOG(verb1) << "Using CUDA Device Emulation";
 #endif
 	err = cudaSetDevice(dev);
 	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
@@ -262,6 +264,7 @@ void GPUMM::syncToHost(xptr &hptr)
 #endif // HAVE_CUDA
 
 #ifdef HAVE_CUDA
+#if CUDART_VERSION < 2020
 cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream);
 cudaError_t cudaSetupArgument(const void *arg, size_t size, size_t offset);
 cudaError_t cudaLaunch(const char *entry);
@@ -278,6 +281,8 @@ cudaError_t cudaFuncGetAttributes(cudaFuncAttributes *attr, const char *func)
 {
 	return cudaSuccess;
 }
+#endif
+
 struct emptyArg {};
 
 #define CUDA_RETURN_ON_FAIL(x) \
@@ -289,12 +294,12 @@ namespace nv
 	{
 		dim3 gridDim, blockDim;
 		size_t sharedMem;
-		cuda_stream_t stream;
+		cudaStream_t stream;
 		size_t nthreads;
 		const char *name;
 		cudaError_t err;
 
-		kernel(const char *kernel_name_, size_t nthreads_, size_t sharedMem_ = 0, cuda_stream_t stream_ = -1)
+		kernel(const char *kernel_name_, size_t nthreads_, size_t sharedMem_ = 0, cudaStream_t stream_ = -1)
 		: name(kernel_name_), nthreads(nthreads_), sharedMem(sharedMem_), stream(stream_)
 		{
 			int dev;
@@ -359,4 +364,5 @@ void test_cuda_caller()
 	int nthreads = 10000;
 	callKernel3(nv::kernel("test_kernel", nthreads), var1, var2, var3);
 }
+
 #endif

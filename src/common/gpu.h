@@ -311,6 +311,7 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 
 	#define CALL_KERNEL(kName, ...) \
 		{ \
+			swatch.start(); \
 			activeDevice dev(gpuExecutionEnabled(#kName)? 0 : -1); \
 			if(gpuGetActiveDevice() < 0) \
 			{ \
@@ -320,6 +321,8 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 			{ \
 				gpulaunch_##kName(__VA_ARGS__); \
 			} \
+			swatch.stop(); \
+			static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } \
 		}
 #else
 	// No CUDA
@@ -327,7 +330,12 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 		void cpulaunch_##kDecl;
 
 	#define CALL_KERNEL(kName, ...) \
-		cpulaunch_##kName(__VA_ARGS__);
+	{ \
+		swatch.start(); \
+		cpulaunch_##kName(__VA_ARGS__); \
+		swatch.stop(); \
+		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } \
+	}
 #endif
 
 #if HAVE_CUDA && !BUILD_FOR_CPU

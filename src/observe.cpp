@@ -141,10 +141,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &XYZ   = in.col<float>("XYZ");
 	cfloat &FeH   = in.col<float>("FeH");
 
-	swatch.start();
 	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
-	swatch.stop();
-	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	return nextlink->process(in, begin, end, rng);
 }
 #else
@@ -346,49 +343,48 @@ bool os_photometryErrors::init(const Config &cfg, otable &t)
 
 	return true;
 }
+#endif
 
 // add Fe/H information
 class os_fixedFeH : public osink
 {
 	protected:
-		float FeH;
+		float fixedFeH;
 
 	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg, otable &t, otable &t);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
-		os_fixedFeH() : osink(), FeH(0)
+		os_fixedFeH() : osink(), fixedFeH(0)
 		{
 			prov.insert("FeH");
 		}
 };
 
-size_t os_fixedFeH::push(sstruct *&in, const size_t count, gsl_rng *rng)
+DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH));
+size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
-	for(size_t i=0; i != count; i++)
-	{
-		sstruct &s = in[i];
+	using namespace column_types;
+	cfloat &FeH   = in.col<float>("FeH");
 
-		// fetch prerequisites
-		s.FeH() = FeH;
-	}
-
-	return nextlink->push(in, count, rng);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, FeH);
+	return nextlink->process(in, begin, end, rng);
 }
 
 bool os_fixedFeH::init(const Config &cfg, otable &t)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	cfg.get(FeH, "FeH", 0.f);
+	cfg.get(fixedFeH, "FeH", 0.f);
 
 	return true;
 }
 
+#if 0
 void print_matrix(gsl_matrix *m)
 {
 /* print matrix the hard way */
@@ -641,9 +637,9 @@ void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, gs
 	compute_means(v, Rsquared, Z, haloMeans);
 	add_dispersion(v, Rsquared, Z, haloEllip, rng);
 }
-
+#endif
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
-
+#if 0
 bool os_kinTMIII::init(const Config &cfg, otable &t)
 {
 	cfg.get(fk           , "fk"           , 3.0);
@@ -700,19 +696,20 @@ bool os_kinTMIII::init(const Config &cfg, otable &t)
 	return true;
 }
 
+#endif
 
 
 // convert input absolute/apparent magnitudes to ugriz colors
 class os_photometry : public osink
 {
 	protected:
-//		std::string bandset;			// name of this filter set
+		std::string bandset2;			// name of this filter set
 		std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
 		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
-		std::string photoFlags;			// Name of the photometric flags field
+		std::string photoFlagsName;		// Name of the photometric flags field
 		int bidx;				// index of bootstrap band in bnames
-		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
-		std::vector<size_t> offset_mags;	// sstruct offset to magnitudes in computed bands [output]
+//		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
+//		std::vector<ct::cfloat*> mags;		// sstruct offset to magnitudes in computed bands [output]
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 		std::vector<std::vector<float> > clt;
@@ -736,11 +733,11 @@ class os_photometry : public osink
 			return clt[ic][idx];
 		}
 	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
-		os_photometry() : osink(), offset_absmag(-1), offset_mag(-1)
+		os_photometry() : osink() /*, offset_absmag(-1), offset_mag(-1)*/
 		{
 			req.insert("FeH");
 		}
@@ -765,43 +762,35 @@ struct colsplines
 
 bool os_photometry::init(const Config &cfg, otable &t)
 {
-#if 0
-	// band definitions
+#if 1
+	// load bandset name
 	std::string tmp, bname;
-//	cfg.get(bandset,   "bandset",   "LSSTugrizy");
+	cfg.get(bandset2,   "bandset",   "LSSTugrizy");
 
+	// load band names and construct field definition
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
+	std::string bfield = bandset2 + "{class=magnitude;";
 	std::istringstream ss(tmp);
 	while(ss >> bname)
 	{
+		bfield += "alias[" + str(bnames.size()) + "]=" + bname + ";";
 		bnames.push_back(bname);
 	}
+	bfield += "}";
+	prov.insert(bfield);
+
+	// determine the number of colors
 	ncolors = bnames.size()-1;
 	if(ncolors >= Mr2col::maxcolors)
 	{
 		THROW(EAny, "This module cannot handle more than " + str(Mr2col::maxcolors+1) + " bands.");
 	}
 
-#if 0
-	// check if the bandset has the number of bands appended
-	if(bandset.find('[') == std::string::npos || bandset.find(']') == std::string::npos)
-	{
-		bandset += '[' + str(bnames.size()) + ']';
-	}
-	prov.insert(bandset);
+	// deduce photoFlags name
+	std::string bandsetname = bandset2;
+	photoFlagsName = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
+	prov.insert(photoFlagsName);
 
-	// deduce photoFlags name
-	std::string bandsetname = bandset.substr(0, bandset.find('['));
-	photoFlags = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
-	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
-	prov.insert(photoFlags);
-#else
-	// deduce photoFlags name
-	std::string bandsetname = bandset.substr(0, bandset.find('['));
-	photoFlags = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
-	//std::cerr << bandset << " " << bandsetname << " " << photoFlags << "\n"; exit(0);
-	prov.insert(photoFlags);
-#endif
 	// bootstap band setup
 	cfg.get(bband,   "bootstrap_band",   "LSSTr");
 	cfg.get(absbband,   "absband",   "abs"+bband);
@@ -813,13 +802,6 @@ bool os_photometry::init(const Config &cfg, otable &t)
 		THROW(EAny, "Bootstrap band must be listed in the 'bands' keyword.");
 	}
 	bidx = b - bnames.begin();
-
-	// add all bands we're going to provide to prov array
-	FOREACH(bnames)
-	{
-		if(*i == bband) { continue; }
-		prov.insert(*i);
-	}
 
 	// sampling parameters
 	cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
@@ -837,21 +819,21 @@ bool os_photometry::init(const Config &cfg, otable &t)
 
 	cfg.get(tmp,   "file",   "");
 	if(tmp == "") { // Try to find internal definitions for the photometric system
-		tmp = datadir() + "/" + bandset + ".photosys.txt";
+		tmp = datadir() + "/" + bandset2 + ".photosys.txt";
 		if(!file_exists(tmp))
 		{
-			THROW(EAny, "Default photosys. definition file " + tmp + " for " + bandset + " not found. Specify it explicitly using the file=xxx keyword.");
+			THROW(EAny, "Default photosys. definition file " + tmp + " for " + bandset2 + " not found. Specify it explicitly using the file=xxx keyword.");
 		}
 	}
 	text_input_or_die(in, tmp);
 
-	MLOG(verb1) << "Generating " << bandset << " photometry.";
-	MLOG(verb1) << bandset << ": Generating " << bnames.size() << " bands: " << bnames;
-	MLOG(verb1) << bandset << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
-	MLOG(verb1) << bandset << ": Using " << bband << " to bootstrap appmags from colors.";
-	MLOG(verb1) << bandset << ": Resampling color table to fast lookup grid:";
-	MLOG(verb1) << bandset << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
-	MLOG(verb1) << bandset << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
+	MLOG(verb1) << "Generating " << bandset2 << " photometry.";
+	MLOG(verb1) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
+	MLOG(verb1) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
+	MLOG(verb1) << bandset2 << ": Using " << bband << " to bootstrap appmags from colors.";
+	MLOG(verb1) << bandset2 << ": Resampling color table to fast lookup grid:";
+	MLOG(verb1) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
+	MLOG(verb1) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
 
 	// load the data
 	std::map<double, std::vector<Mr2col> > v;
@@ -943,61 +925,46 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	{
 		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 	}
-	MLOG(verb1) << bandset << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
-	MLOG(verb1) << bandset << ":    extrapolation fractions = " << nextrap;
+	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
+	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
 #endif
 	return true;
 }
 
-size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-#if 0
+#if 1
+	ct::cint  &flags  = in.col<int>(photoFlagsName);
+	ct::cfloat &bmag  = in.col<float>(bband);
+	ct::cfloat &Mr    = in.col<float>(absbband);
+	ct::cfloat &mags  = in.col<float>(bandset2);
+	ct::cfloat &FeH   = in.col<float>("FeH");
 	const size_t nbands = bnames.size();
-	if(offset_mag == -1)
-	{
-		offset_mag    = sstruct::factory.getOffset(bband);
-		offset_absmag = sstruct::factory.getOffset(absbband);
-		FOREACH(nbands)
-		{
-			offset_mags.push_back(sstruct::factory.getOffset(*i));
-		}
-		offset_photoflags = sstruct::factory.getOffset(photoFlags);
-	}
 
 	// ASSUMPTIONS:
 	//	- Fe/H exists in input
 	//	- Apparent and absolute magnitude in the requested band exist in input
-	for(size_t i=0; i != count; i++)
+	for(size_t row=begin; row != end; row++)
 	{
-		sstruct &s = in[i];
-
-		// calculate magnitudes, absolute magnitudes and distance
-		const float Mr   = s.get<float>(offset_absmag);
-		const float bmag = s.get<float>(offset_mag);
-		const float FeH  = s.FeH();
-
 		// construct colors given the absolute magnitude and metallicity
-		int &flags = *s.getptr<int>(offset_photoflags);
-		flags = 0;
 		bool ex;
 		float c[ncolors];
+
+		int f = 0;
 		FOR(0, ncolors)
 		{
-			c[i] = color(i, FeH, Mr, &ex);
-			flags |= ex << i;
+			c[i] = color(row, FeH[row], Mr[row], &ex);
+			f |= ex << i;
 		}
-		// ug gr ri iz zy
+		flags[row] = f;
+
 		// convert colors to apparent magnitudes
-		//float *mags = s.getptr<float>(offset_mags);
 		FORj(b, 0, nbands)
 		{
-/*			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
-			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
-			mags[b] += bmag;*/
-			float &mag = s.get<float>(offset_mag[b]);
-			mag = bmag;
-			if(b < bidx) { FOR(b, bidx) { mags[b] += c[i]; } }
-			if(b > bidx) { FOR(bidx, b) { mags[b] -= c[i]; } }
+			float mag = bmag[row];
+			if(b < bidx) { FOR(b, bidx) { mag += c[i]; } }
+			if(b > bidx) { FOR(bidx, b) { mag -= c[i]; } }
+			mags(row, b) = mag;
 		}
 #if 0
 		FORj(b,0,ncolors)
@@ -1013,9 +980,10 @@ size_t os_photometry::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	}
 
 #endif
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
+#if 0
 // convert input absolute/apparent magnitudes to ugriz colors
 class os_ugriz : public osink
 {
@@ -1486,10 +1454,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	if(coordsys == EQU)
 	{
 		cdouble &out = in.col<double>("radec");
-		swatch.start();
 		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
-		swatch.stop();
-		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 	}
 
 	return nextlink->process(in, begin, end, rng);
@@ -1733,10 +1698,10 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	if(name == "textin") { s.reset(new os_textin); }
 	else if(name == "textout") { s.reset(new os_textout); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
+	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
+	else if(name == "photometry") { s.reset(new os_photometry); }
 #if 0
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
-	else if(name == "photometry") { s.reset(new os_photometry); }
-	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 #endif
 	else if(name == "gal2other") { s.reset(new os_gal2other); }

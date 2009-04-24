@@ -135,3 +135,16 @@ KERNEL(
 	out(row, 0) = ret.x / ctn::d2r;
 	out(row, 1) = ret.y / ctn::d2r;
 }
+
+KERNEL(
+	ks,
+	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH),
+	os_fixedFeH_kernel,
+	(ks, fixedFeH, FeH)
+)
+{
+	uint32_t row = ks.row();
+	if(row == (uint32_t)(-1)) { return; }
+
+	FeH[row] = fixedFeH;
+}

@@ -70,6 +70,7 @@ KERNEL(
 			break;
 	}
 	FeH[row] = feh;
+	rng.store(ks);
 }
 
 

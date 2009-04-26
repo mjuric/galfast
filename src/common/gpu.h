@@ -416,6 +416,26 @@ struct rng_t
 typedef rng_t &gpu_rng_t;
 #endif
 
+#include <gsl/gsl_rng.h>
+#include <iostream>
+
+inline uint32_t rng_mwc(uint32_t *xc)
+{
+	#define c (xc[0])
+	#define x (xc[1])
+	#define a (xc[2])
+
+	uint64_t xnew = (uint64_t)a*x + c;
+//	printf("%016llx\n", xnew);
+	c = xnew >> 32;
+	x = (xnew << 32) >> 32;
+	return x;
+
+	#undef c
+	#undef x
+	#undef a
+}
+
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct gpu_rng_t
 {
@@ -476,7 +496,16 @@ struct gpu_rng_t
 
 	__device__ void load(kernel_state &ks)
 	{
+#if 0
 		((int32_t*)shmem)[threadIdx.x] = seed + threadID();
+		if(!rng) rng = gsl_rng_alloc(gsl_rng_default);
+#else
+		gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
+		gsl_rng_set(rng, seed + threadID());
+		((int32_t*)shmem)[threadIdx.x] = gsl_rng_get(rng);
+		gsl_rng_free(rng);
+		//std::cerr << seed << " " << threadID() << " " << ((int32_t*)shmem)[threadIdx.x] << "\n";
+#endif
 	}
 
 	__device__ void store(kernel_state &ks)

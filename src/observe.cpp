@@ -722,7 +722,7 @@ class os_photometry : public osink
 
 		float color(int ic, double FeH, double Mr, bool *e = NULL)
 		{
-			ASSERT(ic >= 0 && ic < clt.size());
+			ASSERT(ic >= 0 && ic < clt.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << clt.size() << "\n"; }
 			ASSERT(Mr0 <= Mr && Mr <= Mr1) { std::cerr << Mr0 << " <= " << Mr << " <= " << Mr1 << "\n"; }
 			ASSERT(FeH0 <= FeH && FeH <= FeH1) { std::cerr << FeH0 << " <= " << FeH << " <= " << FeH1 << "\n"; }
 
@@ -769,6 +769,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 
 	// load band names and construct field definition
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
+#if 0
 	std::string bfield = bandset2 + "{class=magnitude;";
 	std::istringstream ss(tmp);
 	while(ss >> bname)
@@ -777,6 +778,16 @@ bool os_photometry::init(const Config &cfg, otable &t)
 		bnames.push_back(bname);
 	}
 	bfield += "}";
+#else
+	std::istringstream ss(tmp);
+	while(ss >> bname)
+	{
+		bnames.push_back(bname);
+	}
+
+	const size_t nbands = bnames.size();
+	std::string bfield = bandset2 + "[" + str(nbands) + "]{class=magnitude;}";
+#endif
 	prov.insert(bfield);
 
 	// determine the number of colors
@@ -788,8 +799,8 @@ bool os_photometry::init(const Config &cfg, otable &t)
 
 	// deduce photoFlags name
 	std::string bandsetname = bandset2;
-	photoFlagsName = bandsetname + "PhotoFlags{i|class=flags,fmt=%5d}";
-	prov.insert(photoFlagsName);
+	photoFlagsName = bandsetname + "PhotoFlags";
+	prov.insert(photoFlagsName + "{class=flags;}");
 
 	// bootstap band setup
 	cfg.get(bband,   "bootstrap_band",   "LSSTr");
@@ -927,6 +938,18 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	}
 	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
+
+#if 1
+	std::ofstream ff("dump.0.txt");
+	for(double Mr = Mr0; Mr < Mr1; Mr += dMr*2.)
+	{
+		for(double FeH = FeH0; FeH < FeH1; FeH += dFeH*2.)
+		{
+			ff << Mr << " " << FeH << " " << color(1, FeH, Mr) << "\n";
+		}
+	}
+#endif
+
 #endif
 	return true;
 }
@@ -946,6 +969,9 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- Apparent and absolute magnitude in the requested band exist in input
 	for(size_t row=begin; row != end; row++)
 	{
+		if(row % 1000 == 0) {
+			std::cerr << row << " of " << end << "\n";
+		}
 		// construct colors given the absolute magnitude and metallicity
 		bool ex;
 		float c[ncolors];
@@ -953,7 +979,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		int f = 0;
 		FOR(0, ncolors)
 		{
-			c[i] = color(row, FeH[row], Mr[row], &ex);
+			c[i] = color(i, FeH[row], Mr[row], &ex);
 			f |= ex << i;
 		}
 		flags[row] = f;
@@ -969,7 +995,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 #if 0
 		FORj(b,0,ncolors)
 		{
-			std::cerr << mags[b]-mags[b+1] << " =?= " << c[b] << "\n";
+			std::cerr << mags(row, b)-mags(row, b+1) << " =?= " << c[b] << "\n";
 		}
 #endif
 /*		mags[0] = r + ug + gr;

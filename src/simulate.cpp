@@ -652,6 +652,18 @@ namespace footprints
 //void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
+void test_mwc_rng()
+{
+//	return;
+
+	uint32_t xc[3] = { 42, 332, 8834973 };
+	FOR(0, 50)
+	{
+		printf("%08x\n", rng_mwc(xc));
+	}
+	exit(-1);
+}
+
 void test_kin();
 void test_tags();
 void test_otable();
@@ -661,6 +673,7 @@ try
 {
 //	test_kin();
 	test_otable();
+	test_mwc_rng();
 //	test_tags(); return 0;
 
 	std::string argv0 = argv[0];

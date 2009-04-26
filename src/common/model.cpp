@@ -67,6 +67,10 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 		ss >> c;	// eats any whitespace to next character
 		while(ss && (isalnum(c) || c == '_' || c == ':')) { name += c; ss.get(c); }
 		ss.unget();
+		if(name.empty())
+		{
+			THROW(EAny, "Error reading column name at character " + str((size_t)ss.tellg()) + " of the line.");
+		}
 
 		// get or instantiate this object
 		if(what == "(class)")
@@ -126,7 +130,9 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 			std::string key;
 			ss >> c; while(ss && (isalnum(c) || c == '_')) { key += c; ss.get(c); }
 			if(!ss) { THROW(EAny, "End of file while reading key name"); }
-			if(c != '=') { THROW(EAny, "Expected '=', got " + str(c)); }
+			if(c != '=') {
+				THROW(EAny, "Expected '=', got " + str(c));
+			}
 
 			std::string value;
 			ss >> c; while(ss && (c != ';' && c != '}')) { value += c; ss.get(c); }
@@ -592,7 +598,10 @@ otable::columndef &otable::getColumn(const std::string &name)
 		// autocreate
 		use_column(name);
 	}
-	ASSERT(columns.count(name));
+	ASSERT(columns.count(name))
+	{
+		std::cerr << "Column " << name << " doesn't exist and couldn't be autocreated?!";
+	}
  	columndef &col = *columns[name].get();
 
 	// Auto-create column data

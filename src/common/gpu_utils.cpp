@@ -58,6 +58,40 @@ gpu_rng_t::gpu_rng_t(rng_t &rng)
 }
 #endif
 
+
+//////////////////////////////////////////////
+#define ENABLE_PAGELOCKED 0
+void xptr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
+{
+	if(eSize == (size_t)-1) { eSize = elementSize(); } else { m_elementSize = eSize; }
+	if(ncol == (size_t)-1) { ncol = ncols(); } else { dim[0] = ncol; }
+	if(nrow == (size_t)-1) { nrow = nrows(); } else { dim[1] = nrow; }
+	if(ptch == (size_t)-1) { ptch = pitch(); } else { m_pitch[0] = ptch; }
+
+	free();
+#if ENABLE_PAGELOCKED
+	std::cerr << "*************** PAGELOCKED ALLOC OF " << memsize() << " bytes.\n";
+	cudaMallocHost((void **)&base, memsize());
+#else
+	base = new char[memsize()];
+#endif
+}
+	
+void xptr::free()
+{
+#if ENABLE_PAGELOCKED
+	if(base != NULL)
+	{
+		std::cerr << "*************** PAGELOCKED FREE\n";
+		cudaFreeHost(base);
+	}
+#else
+	delete [] base;
+#endif
+	base = NULL;
+}
+//////////////////////////////////////////////
+
 #if HAVE_CUDA
 
 #include <cuda_runtime.h>
@@ -163,38 +197,6 @@ bool cuda_init()
 	cuda_initialized = 1;
 	cuda_enabled = 1;
 	return true;
-}
-
-//////////////////////////////////////////////
-#define ENABLE_PAGELOCKED 0
-void xptr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
-{
-	if(eSize == (size_t)-1) { eSize = elementSize(); } else { m_elementSize = eSize; }
-	if(ncol == (size_t)-1) { ncol = ncols(); } else { dim[0] = ncol; }
-	if(nrow == (size_t)-1) { nrow = nrows(); } else { dim[1] = nrow; }
-	if(ptch == (size_t)-1) { ptch = pitch(); } else { m_pitch[0] = ptch; }
-
-	free();
-#if ENABLE_PAGELOCKED
-	std::cerr << "*************** PAGELOCKED ALLOC OF " << memsize() << " bytes.\n";
-	cudaMallocHost((void **)&base, memsize());
-#else
-	base = new char[memsize()];
-#endif
-}
-	
-void xptr::free()
-{
-#if ENABLE_PAGELOCKED
-	if(base != NULL)
-	{
-		std::cerr << "*************** PAGELOCKED FREE\n";
-		cudaFreeHost(base);
-	}
-#else
-	delete [] base;
-#endif
-	base = NULL;
 }
 
 //////////////////////////////////////////////

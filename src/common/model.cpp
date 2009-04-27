@@ -45,6 +45,20 @@
 using namespace std;
 
 
+// Get the autoconf/automake set datadir
+const std::string &datadir()
+{
+	static std::string dd;
+	static const char *dd_hardcoded = DATADIR;
+	if(dd.empty())
+	{
+		EnvVar ev("DATADIR");
+		dd = ev ? ev.c_str() : dd_hardcoded;
+		DLOG(verb2) << "datadir=" << dd << (ev ? " (initializes from $DATADIR)" : "");
+	}
+	return dd;
+}
+
 ///////////////////////////////////////////////
 otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback)
 {
@@ -108,7 +122,7 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 			size_t width;
 			ss >> width;
 			kvobj->set_property("n", str(width));
-			std::cerr << what << " " << name << ": [] =" << width << "\n";
+//			std::cerr << what << " " << name << ": [] =" << width << "\n";
 
 			ss >> c;	// look for ']'
 			if(c != ']') { THROW(EAny, "Expected ']', got " + str(c)); }
@@ -139,7 +153,7 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 			if(!ss) { THROW(EAny, "End of file while reading field name"); }
 			if(c == '}') { ss.unget(); }
 
-			std::cerr << what << " " << name << ": " << key << "=" << value << "\n";
+//			std::cerr << what << " " << name << ": " << key << "=" << value << "\n";
 			kvobj->set_property(key, value);
 
 			ss >> c;

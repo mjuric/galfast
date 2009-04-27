@@ -56,21 +56,6 @@
 
 using namespace boost::lambda;
 
-// Get the autoconf/automake set datadir
-// TODO: This should be moved into its separate file
-const std::string &datadir()
-{
-	static std::string dd;
-	static const char *dd_hardcoded = DATADIR;
-	if(dd.empty())
-	{
-		EnvVar ev("DATADIR");
-		dd = ev ? ev.c_str() : dd_hardcoded;
-		MLOG(verb2) << "datadir=" << dd << (ev ? " (initializes from $DATADIR)" : "");
-	}
-	return dd;
-}
-
 bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
 {
 	// use tags which the stage will provide
@@ -141,7 +126,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &XYZ   = in.col<float>("XYZ");
 	cfloat &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
+	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end, 128), *this, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 #else
@@ -372,7 +357,7 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	using namespace column_types;
 	cfloat &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, FeH);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end, 128), fixedFeH, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -939,7 +924,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
 
-#if 1
+#if 0
 	std::ofstream ff("dump.0.txt");
 	for(double Mr = Mr0; Mr < Mr1; Mr += dMr*2.)
 	{
@@ -969,9 +954,11 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- Apparent and absolute magnitude in the requested band exist in input
 	for(size_t row=begin; row != end; row++)
 	{
+#if 0
 		if(row % 1000 == 0) {
 			std::cerr << row << " of " << end << "\n";
 		}
+#endif
 		// construct colors given the absolute magnitude and metallicity
 		bool ex;
 		float c[ncolors];
@@ -1480,7 +1467,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	if(coordsys == EQU)
 	{
 		cdouble &out = in.col<double>("radec");
-		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
+		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end, 128), coordsys, lb, out);
 	}
 
 	return nextlink->process(in, begin, end, rng);
@@ -1776,7 +1763,6 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		std::ostringstream ss;
 		FOREACH(haves) { ss << *i << " "; };
 		DLOG(verb2) << "haves: " << ss.str();
-		std::cerr << "haves: " << ss.str() << "\n";
 
 		// find next pipeline stage that is satisfied with the available tags
 		bool foundOne = false;
@@ -2006,7 +1992,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
 
 		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		MLOG(verb2) << "Loaded " << name << " (module type: " << stage->type() << ")";
+		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 
 		pipe.add(stage);
 	}

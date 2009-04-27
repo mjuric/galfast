@@ -250,17 +250,24 @@ inline __device__ uint32_t threadID()
 /* Support structures */
 struct kernel_state
 {
-	uint32_t m_nthreads;
 	__host__ __device__ uint32_t nthreads() const
 	{
-		return m_nthreads;
+		uint32_t nthreads;
+		nthreads = m_end - m_begin;
+		nthreads = nthreads / m_step + (nthreads % m_step ? 1 : 0);
+		return nthreads;
 	}
 
 	/////////////////////////
-	uint32_t begin;
-	__device__ uint32_t row() const { uint32_t row = threadID(); return row < nthreads() ? begin + row : (uint32_t)-1; }
+	uint32_t m_begin, m_step, m_end;
 
-	kernel_state(uint32_t b, uint32_t e) : begin(b), m_nthreads(e - b) { }
+	kernel_state(uint32_t b, uint32_t e, uint32_t s) : m_begin(b), m_end(e), m_step(s)
+	{
+	}
+
+//	__device__ uint32_t row() const { uint32_t row = threadID(); return row < nthreads() ? beg + row : (uint32_t)-1; }
+	__device__ uint32_t row_begin() const { return m_begin + m_step * threadID(); }
+	__device__ uint32_t row_end()   const { uint32_t tmp = m_begin + m_step * (threadID()+1); return tmp <= m_end ? tmp : m_end; }
 };
 
 typedef kernel_state otable_ks;
@@ -340,11 +347,11 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 
 #if HAVE_CUDA && !BUILD_FOR_CPU
 	// Building GPU kernels
-	#define KERNEL(ks, kDecl, kName, kArgs) \
+	#define KERNEL(ks, shmemPerThread, kDecl, kName, kArgs) \
 		__global__ void gpu_##kDecl; \
 		void gpulaunch_##kDecl \
 		{ \
-			int dynShmemPerThread = 4;      /* built in the algorithm */ \
+			int dynShmemPerThread = shmemPerThread;      /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
 		        int threadsPerBlock = 128;      /* TODO: This should be computed as well */ \
 			dim3 gridDim; \
@@ -370,7 +377,7 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 // 		#define KERNEL_NAME(kDecl) kDecl
 // 	#endif
 
-	#define KERNEL(ks, kDecl, kName, kArgs) \
+	#define KERNEL(ks, shmemPerThread, kDecl, kName, kArgs) \
 		void cpu_##kDecl; \
 		void KERNEL_NAME(kDecl) \
 		{ \
@@ -417,7 +424,9 @@ typedef rng_t &gpu_rng_t;
 #endif
 
 #include <gsl/gsl_rng.h>
+#if !__CUDACC__
 #include <iostream>
+#endif
 
 inline uint32_t rng_mwc(uint32_t *xc)
 {
@@ -439,13 +448,15 @@ inline uint32_t rng_mwc(uint32_t *xc)
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct gpu_rng_t
 {
-	uint32_t seed;
+	uint32_t *streams;	// pointer to RNG stream states vector
+	uint32_t nstreams;	// number of initialized streams
 
-	gpu_rng_t(uint32_t s) : seed(s) { }
+//	gpu_rng_t(uint32_t s) : seed(s) { }
 	gpu_rng_t(rng_t &rng);		// initialization constructor from existing rng
 
 	__device__ float uniform() const
 	{
+#if 0
 		#define IA 16807
 		#define IM 2147483647
 		#define AM (1.0f/IM)
@@ -466,6 +477,27 @@ struct gpu_rng_t
 
 		#undef idum
 		return ans;
+#else
+		/*
+			Marsaglia's Multiply-With-Carry RNG. For theory and details see:
+			
+				http://www.stat.fsu.edu/pub/diehard/cdrom/pscript/mwc1.ps
+				http://www.ms.uky.edu/~mai/RandomNumber
+				http://www.ast.cam.ac.uk/~stg20/cuda/random/index.html
+		*/
+		#define a  (((uint32_t*)shmem)[               threadIdx.x])
+		#define c  (((uint32_t*)shmem)[  blockDim.x + threadIdx.x])
+		#define xn (((uint32_t*)shmem)[2*blockDim.x + threadIdx.x])
+
+		uint64_t xnew = (uint64_t)a*xn + c;
+		c = xnew >> 32;
+		xn = (xnew << 32) >> 32;
+		return 2.32830643708e-10f * xn;
+
+		#undef a
+		#undef c
+		#undef xn
+#endif
 	}
 
 	__device__ float uniform_pos() const
@@ -494,34 +526,61 @@ struct gpu_rng_t
 		return sigma * y * sqrt (-2.0f * logf (r2) / r2);
 	}
 
-	__device__ void load(kernel_state &ks)
+	__device__ bool load(kernel_state &ks)
 	{
 #if 0
 		((int32_t*)shmem)[threadIdx.x] = seed + threadID();
 		if(!rng) rng = gsl_rng_alloc(gsl_rng_default);
 #else
+#if 0
 		gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
 		gsl_rng_set(rng, seed + threadID());
 		((int32_t*)shmem)[threadIdx.x] = gsl_rng_get(rng);
 		gsl_rng_free(rng);
+#else
+		// load the RNG state
+		uint32_t tid = threadID();
+		if(tid >= nstreams)
+		{
+			// we should somehow abort the entire kernel here
+#if !__CUDACC__
+			ASSERT(tid >= nstreams) {
+				std::cerr << "threadID= " << tid << " >= nstreams=" << nstreams << "\n";
+			}
+#endif
+			return false;
+		};
+		((uint32_t*)shmem)[               threadIdx.x] = streams[             tid];
+		((uint32_t*)shmem)[  blockDim.x + threadIdx.x] = streams[  nstreams + tid];
+		((uint32_t*)shmem)[2*blockDim.x + threadIdx.x] = streams[2*nstreams + tid];
+		return true;
+#endif
 		//std::cerr << seed << " " << threadID() << " " << ((int32_t*)shmem)[threadIdx.x] << "\n";
 #endif
 	}
 
 	__device__ void store(kernel_state &ks)
 	{
+#if 0
 		if(threadIdx.x == 0)
 		{
 			// This "stores" the RNG state by storing the current
 			// state of threadID=0 RNG, and disregarding the rest.
 			seed = ((uint32_t *)shmem)[0];
 		}
+#else
+		// store the RNG state
+		uint32_t tid = threadID();
+		streams[             tid] = ((uint32_t*)shmem)[               threadIdx.x];
+		streams[  nstreams + tid] = ((uint32_t*)shmem)[  blockDim.x + threadIdx.x];
+		streams[2*nstreams + tid] = ((uint32_t*)shmem)[2*blockDim.x + threadIdx.x];
+#endif
 	}
 
-	void srand(uint32_t s)
+/*	void srand(uint32_t s)
 	{
 		seed = s;
-	}
+	}*/
 };
 #endif
 

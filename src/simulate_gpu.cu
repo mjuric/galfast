@@ -34,42 +34,43 @@
 
 namespace ct = column_types;
 KERNEL(
-	ks,
+	ks, 3*4,
 	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH),
 	os_FeH_kernel,
 	(ks, par, rng, comp, XYZ, FeH)
 )
 {
-	uint32_t row = ks.row();
-	if(row == (uint32_t)(-1)) { return; }
 	rng.load(ks);
-
-	float feh;
-	switch(comp[row])
+	uint32_t tid = threadID();
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-		case 0: // BahcallSoneira_model::THIN:
-		case 1: // BahcallSoneira_model::THICK:
+		float feh;
+		switch(comp[row])
 		{
-			// choose the gaussian to draw from
-			float p = rng.uniform()*(par.A[0]+par.A[1]);
-			int i = p < par.A[0] ? 0 : 1;
+			case 0: // BahcallSoneira_model::THIN:
+			case 1: // BahcallSoneira_model::THICK:
+			{
+				// choose the gaussian to draw from
+				float p = rng.uniform()*(par.A[0]+par.A[1]);
+				int i = p < par.A[0] ? 0 : 1;
 
-			// calculate mean
-			float muD = par.muInf + par.DeltaMu*exp(-fabs(XYZ(row, 2))/par.Hmu);		// Bond et al. A2
-			float aZ = muD - 0.067f;
+				// calculate mean
+				float muD = par.muInf + par.DeltaMu*exp(-fabs(XYZ(row, 2))/par.Hmu);		// Bond et al. A2
+				float aZ = muD - 0.067f;
 
-			// draw
-			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
-		} break;
-		case 2: //BahcallSoneira_model::HALO:
-			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
-			break;
-		default:
-			//THROW(ENotImplemented, "We should have never gotten here");
-			feh = -9999.f;
-			break;
+				// draw
+				feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
+			} break;
+			case 2: //BahcallSoneira_model::HALO:
+				feh = par.offs[2] + rng.gaussian(par.sigma[2]);
+				break;
+			default:
+				//THROW(ENotImplemented, "We should have never gotten here");
+				feh = -9999.f;
+				break;
+		}
+		FeH[row] = feh;
 	}
-	FeH[row] = feh;
 	rng.store(ks);
 }
 
@@ -106,46 +107,46 @@ inline __device__ double2 galequ(const double2 lb)
 }
 
 KERNEL(
-	ks,
+	ks, 0,
 	os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out),
 	os_gal2other_kernel,
 	(ks, coordsys, lb0, out)
 )
 {
-	uint32_t row = ks.row();
-	if(row == (uint32_t)(-1)) { return; }
-
-	double2 lb, ret;
-
-	// convert to radians
-	lb.x = lb0(row, 0) * ctn::d2r;
-	lb.y = lb0(row, 1) * ctn::d2r;
-
-	// rotate to output coordinate system
-	switch(coordsys)
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-	case EQU:
-		ret = galequ(lb);
-		break;
-	default:
-		ret.x = ret.y = -9999.;
-		break;
-	}
+		double2 lb, ret;
 
-	// convert to degrees
-	out(row, 0) = ret.x / ctn::d2r;
-	out(row, 1) = ret.y / ctn::d2r;
+		// convert to radians
+		lb.x = lb0(row, 0) * ctn::d2r;
+		lb.y = lb0(row, 1) * ctn::d2r;
+
+		// rotate to output coordinate system
+		switch(coordsys)
+		{
+		case EQU:
+			ret = galequ(lb);
+			break;
+		default:
+			ret.x = ret.y = -9999.;
+			break;
+		}
+
+		// convert to degrees
+		out(row, 0) = ret.x / ctn::d2r;
+		out(row, 1) = ret.y / ctn::d2r;
+	}
 }
 
 KERNEL(
-	ks,
+	ks, 0,
 	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH),
 	os_fixedFeH_kernel,
 	(ks, fixedFeH, FeH)
 )
 {
-	uint32_t row = ks.row();
-	if(row == (uint32_t)(-1)) { return; }
-
-	FeH[row] = fixedFeH;
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
+	{
+		FeH[row] = fixedFeH;
+	}
 }

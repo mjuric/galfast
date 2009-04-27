@@ -32,6 +32,8 @@
 
 #include <vector>
 #include "gpu.h"
+#include "model.h"
+#include "analysis.h"
 
 stopwatch kernelRunSwatch;
 
@@ -51,10 +53,114 @@ GPUMM gpuMMU;
 
 
 #if HAVE_CUDA || !ALIAS_GPU_RNG
+struct rng_mwc
+{
+	static uint32_t nstreams;	// number of allocated/initialized streams
+	static uint32_t *cpu_streams;	// Pointer to streams state on the CPU (used in CPU mode)
+#if HAVE_CUDA
+	static uint32_t *gpu_streams;	// Pointer to streams state on the device (used in GPU mode)
+	static bool onDevice;		// Whether the master copy is on the device (GPU)
+#endif
+
+	static void init(rng_t &rng)
+	{
+		nstreams = 1<<16;
+		cpu_streams = new uint32_t[3*nstreams];
+
+		// initialize CPU streams
+		text_input_or_die(in, datadir() + "/safeprimes32.txt");
+		std::vector<int> primes;
+		load(in, primes, 0);
+		if(primes.size() < nstreams)
+		{
+			THROW(EAny, "Insufficient number of safe primes in " + datadir() + "/safeprimes32.txt");
+		}
+		for(int i = 0; i != nstreams; i++)
+		{
+			cpu_streams[i] = primes[i];	// multiplier
+			cpu_streams[  nstreams + i] = (int)(rng.uniform() * cpu_streams[i]);	// initial carry (nas to be < multiplier)
+			float v = rng.uniform();
+			cpu_streams[2*nstreams + i] = *(uint32_t*)&v;	// initial x
+		}
+
+		DLOG(verb1) << "Initialized " << nstreams << " multiply-with-carry RNG streams";
+	}
+
+	static void checkInit()
+	{
+		if(cpu_streams) return;
+
+		MLOG(verb1) << "ERROR: Must call rng_mwc::init before using GPU random number generator";
+		abort();
+	}
+	static uint32_t statebytes()
+	{
+		return sizeof(uint32_t)*3*nstreams;
+	}
+
+	static uint32_t *gpuStreams()
+	{
+		checkInit();
+#if HAVE_CUDA
+		// sync with device, if on CPU
+		if(!onDevice)
+		{
+			cudaError err;
+
+			// allocate device space (if unallocated)
+			if(gpu_streams == NULL)
+			{
+				err = cudaMalloc((void**)&gpu_streams, statebytes());
+				if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
+			}
+
+			// copy to device
+			err = cudaMemcpy(gpu_streams, cpu_streams, statebytes(), cudaMemcpyHostToDevice);
+			if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
+
+			onDevice = true;
+		}
+
+		return gpu_streams;
+#else
+		MLOG(verb1) << "ERROR: We should have never gotten here with CUDA support disabled!";
+		abort();
+#endif
+	}
+
+	static uint32_t *cpuStreams()
+	{
+		checkInit();
+#if HAVE_CUDA
+		if(onDevice)
+		{
+			// wait for currently executing kernels to finish
+			cudaError err = cudaThreadSynchronize();
+			if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
+
+			// copy to host
+			err = cudaMemcpy(cpu_streams, gpu_streams, statebytes(), cudaMemcpyDeviceToHost);
+			if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
+
+			onDevice = false;
+		}
+#endif
+		return cpu_streams;
+	}
+};
+uint32_t rng_mwc::nstreams = 0;
+uint32_t *rng_mwc::cpu_streams = NULL;
+#if HAVE_CUDA
+uint32_t *rng_mwc::gpu_streams = NULL;
+bool rng_mwc::onDevice = false;
+#endif
+
 gpu_rng_t::gpu_rng_t(rng_t &rng)
 {
-	float v = rng.uniform();
-	seed = *(uint32_t*)&v;
+	rng_mwc::init(rng);
+
+	nstreams = rng_mwc::nstreams;
+	streams = gpuGetActiveDevice() < 0 ? rng_mwc::cpuStreams() : rng_mwc::gpuStreams();
 }
 #endif
 
@@ -151,10 +257,26 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 	find_best_factorization(gridDim.x, gridDim.y, nblocks);
 	gridDim.z = 1;
 
-//	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
-//			"), shmemPerBlock(" << staticShmemPerBlock << ") --> grid(" << gridDim[0] << ", " << gridDim[1] << ", " << gridDim[2] << ")";
+	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
+			"), shmemPerBlock(" << staticShmemPerBlock <<
+			") --> grid(" << gridDim.x << ", " << gridDim.y << ", " << gridDim.z <<
+			") block(" << threadsPerBlock << ", 1, 1)" <<
+			" " << shared_mem_required << " shmem/block (" << (float)shared_mem_required / shmemPerMP << ")" << 
+			" == total of " << nthreads << " threads.";
 
 	return true;
+}
+
+const char *cpuinfo()
+{
+	static char buf[1000];
+	FILE *f = popen("cat /proc/cpuinfo | grep 'model name' | head -n 1 | awk -F': ' '{ print $2}'", "r");
+	fgets(buf, 1000, f);
+	pclose(f);
+
+	int len = strlen(buf);
+	if(len && buf[len-1] == '\n') buf[len-1] = 0;
+	return buf;
 }
 
 static int cuda_initialized = 0;
@@ -178,6 +300,8 @@ bool cuda_init()
 	{
 		cuda_initialized = 1;
 		cuda_enabled = 0;
+
+		MLOG(verb1) << "Using CPU: \"" << cpuinfo() << "\"";
 		return true;
 	}
 #if !CUDA_DEVEMU

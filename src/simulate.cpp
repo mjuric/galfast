@@ -654,7 +654,7 @@ void pdfinfo(std::ostream &out, const std::string &pdffile);
 
 void test_mwc_rng()
 {
-//	return;
+	return;
 
 	uint32_t xc[3] = { 42, 332, 8834973 };
 	FOR(0, 50)

@@ -49,6 +49,8 @@
 #include "paralax.h"
 #include "column.h"
 
+const std::string &datadir(); // return the path to built-in datafiles (TODO: move it to someplace where it belongs)
+
 struct rzpixel
 {
 	double r, rphi, z, N, V;

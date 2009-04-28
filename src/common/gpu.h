@@ -353,7 +353,7 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 		{ \
 			int dynShmemPerThread = shmemPerThread;      /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
-		        int threadsPerBlock = 128;      /* TODO: This should be computed as well */ \
+		        int threadsPerBlock = 192;      /* TODO: This should be computed as well */ \
 			dim3 gridDim; \
 			calculate_grid_parameters(gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
 			\
@@ -489,11 +489,22 @@ struct gpu_rng_t
 		#define c  (((uint32_t*)shmem)[  blockDim.x + threadIdx.x])
 		#define xn (((uint32_t*)shmem)[2*blockDim.x + threadIdx.x])
 
+#if 1
 		uint64_t xnew = (uint64_t)a*xn + c;
 		c = xnew >> 32;
 		xn = (xnew << 32) >> 32;
 		return 2.32830643708e-10f * xn;
-
+#else
+		// Experimental code: this is how it would be done in optimal(ish) PTX,
+		//   if nvcc allowed it...
+		asm {
+			mad.wide.u32 xnew, a, xn, c		// a*xn + c and store the result into 64bit register
+			cvt.u32.u64 xn, xnew			// take the bottom 32 bits -- this is new xn
+			shr.u64 xnew, 32			// take the top 32 bits -- this is the new carry
+			cvt.u32.u64 c, xnew			//
+		}
+		return 2.32830643708e-10f * xn;
+#endif
 		#undef a
 		#undef c
 		#undef xn

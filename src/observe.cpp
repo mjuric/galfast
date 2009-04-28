@@ -119,7 +119,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
-		
+
 	// fetch prerequisites
 	using namespace column_types;
 	cint   &comp  = in.col<int>("comp");

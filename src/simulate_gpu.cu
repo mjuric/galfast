@@ -150,3 +150,13 @@ KERNEL(
 		FeH[row] = fixedFeH;
 	}
 }
+
+#if __CUDACC__
+__global__ void clockInstruction(int *dest, int *clk, int a, int b)
+{
+	clock_t t0 = clock();
+	*dest = a + b;
+	clock_t t1 = clock();
+	*clk = t1 - t0;
+}
+#endif

@@ -25,10 +25,10 @@
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/kreso/projects/galaxy/debug/src/simulate.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
+      <customdirectory>/home/kreso/projects/galaxy/tests/os_photometry/</customdirectory>
       <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
@@ -184,7 +184,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -209,12 +209,12 @@
   </kdevcppsupport>
   <kdevdebugger>
     <general>
-      <programargs>gnomonic.sel</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

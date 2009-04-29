@@ -138,7 +138,7 @@ protected:
 	char *base;		// data pointer
 	uint32_t m_elementSize;	// size of array element (bytes)
 	uint32_t dim[2];	// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height
-	uint32_t m_pitch[1];	// array pitch (in bytes). pitch[1] == width of the padded row (in bytes)
+	uint32_t m_pitch[1];	// array pitch (in bytes). pitch[1] == width of the (padded) row (in bytes)
 
 public:
 	uint32_t elementSize() const { return m_elementSize; }
@@ -172,6 +172,47 @@ public:
 
 		if(memsize()) { alloc(); }
 	}
+};
+
+// typed "extended" pointer -- this pointer knows about the dimension of the array
+// it points to, and properly pads it on allocation (useful for on-GPU use)
+template<typename T>
+struct tptr : public xptr
+{
+	static const uint32_t align = 256;	// default byte alignment
+
+	tptr(size_t ncol = 0, size_t nrow = 0) : xptr(sizeof(T), ncol, nrow, align) {}
+	void alloc(size_t ncol, size_t nrow) { xptr::alloc(-1, ncol, nrow); }
+
+	T &operator()(const size_t col, const size_t row)
+	{
+		return *((T*)(base + row * pitch()) + col);
+	}
+	T &operator[](const size_t i)	// 1D table column accessor (i == the table row)
+	{
+		return ((T*)base)[i];
+	}
+
+	// simple iterator interface
+	struct iterator
+	{
+		tptr<T> *parent;
+		size_t x, y;
+
+		iterator(tptr<T> *parent_ = NULL, size_t x_ = 0, size_t y_ = 0) : parent(parent_), x(x_), y(y_) {}
+		iterator &operator++()
+		{
+			if(++x == parent->width()) { x = 0; ++y; }
+			return *this;
+		}
+		T &operator*()
+		{
+			return (*parent)(x, y);
+		}
+	};
+	iterator begin() { return iterator(this); }
+	iterator end() { return iterator(this, 0, height()); }
+	size_t size() const { return width()*height(); }
 };
 
 #include <map>

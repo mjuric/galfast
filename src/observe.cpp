@@ -698,6 +698,7 @@ class os_photometry : public osink
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 		std::vector<std::vector<float> > clt;
+		std::vector<tptr<float> > locuses;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
 		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
 		std::vector<std::vector<cbool> > eclt;	// extrapolation flags
 		int nMr, nFeH;
@@ -716,6 +717,7 @@ class os_photometry : public osink
 			int idx = m*nFeH + f;
 			if(e) { *e = eclt[ic][idx]; }
 			return clt[ic][idx];
+///			return locuses[ic](f, m);
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -879,6 +881,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
 	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
 	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
+///	locuses.resize(ncolors);  FOREACH(locuses)  { i->alloc(nFeH, nMr); }
 
 	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
 	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
@@ -910,6 +913,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 				int idx = m*nFeH + f;
 
 				clt[ic][idx] = s(FeH);
+///				locuses[ic](f, m) = s(FeH);
 				eclt[ic][idx] = vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.;
 //				std::cerr << Mr << " " << FeH << " : " << clt[ic][idx] << " " << eclt[ic][idx] << "\n";
 			}
@@ -922,6 +926,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 	}
 	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
+///	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << locuses[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
 
 #if 0

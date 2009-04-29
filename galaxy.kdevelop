@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol>kdevcvsservice</versioncontrol>
     <projectname>galaxy</projectname>
-    <defaultencoding></defaultencoding>
+    <defaultencoding/>
   </general>
   <kdevautoproject>
     <general>
@@ -87,18 +87,18 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --enable-simulate --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir></topsourcedir>
+        <topsourcedir/>
         <cppflags>-DDEBUGMODE=1</cppflags>
         <ldflags>-rdynamic</ldflags>
-        <ccompilerbinary></ccompilerbinary>
-        <cxxcompilerbinary></cxxcompilerbinary>
-        <f77compilerbinary></f77compilerbinary>
+        <ccompilerbinary/>
+        <cxxcompilerbinary/>
+        <f77compilerbinary/>
         <cflags>-Wno-deprecated</cflags>
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>
@@ -184,7 +184,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet></prefixGet>
+      <prefixGet/>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -197,8 +197,8 @@
       <includestyle>3</includestyle>
       <root>/usr/lib64/qt-3.3</root>
       <designerintegration>EmbeddedKDevDesigner</designerintegration>
-      <qmake></qmake>
-      <designer></designer>
+      <qmake/>
+      <designer/>
       <designerpluginpaths/>
     </qt>
     <splitheadersource>
@@ -210,11 +210,11 @@
   <kdevdebugger>
     <general>
       <programargs>gnomonic.sel</programargs>
-      <gdbpath></gdbpath>
-      <dbgshell></dbgshell>
-      <configGdbScript></configGdbScript>
-      <runShellScript></runShellScript>
-      <runGdbScript></runGdbScript>
+      <gdbpath/>
+      <dbgshell/>
+      <configGdbScript/>
+      <runShellScript/>
+      <runGdbScript/>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

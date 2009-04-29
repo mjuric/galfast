@@ -175,6 +175,9 @@ public:
 };
 
 #include <map>
+/*
+Tracks whether the memory has allreadz been transfered to GPU.
+*/
 struct GPUMM 
 {
 	static const int gc_treshold = 512*1024*1024;

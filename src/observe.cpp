@@ -369,7 +369,7 @@ bool os_fixedFeH::init(const Config &cfg, otable &t)
 	return true;
 }
 
-#if 0
+#if 1
 void print_matrix(gsl_matrix *m)
 {
 /* print matrix the hard way */
@@ -411,11 +411,11 @@ struct trivar_gauss
 		//print_matrix(A); std::cerr << "status=" << status << "\n";
 	}
 
-	void draw(gsl_vector *y, gsl_rng *rng, bool zero = false)
+	void draw(gsl_vector *y, rng_t &rng, bool zero = false)
 	{
-		gsl_vector_set(Z, 0, gsl_ran_ugaussian(rng));
-		gsl_vector_set(Z, 1, gsl_ran_ugaussian(rng));
-		gsl_vector_set(Z, 2, gsl_ran_ugaussian(rng));
+		gsl_vector_set(Z, 0, rng.gaussian(1.));
+		gsl_vector_set(Z, 1, rng.gaussian(1.));
+		gsl_vector_set(Z, 2, rng.gaussian(1.));
 
 		if(zero) { gsl_vector_set_zero(y); }
 		//gsl_blas_dgemv(CblasNoTrans, 1., A, Z, 1., y);
@@ -447,14 +447,14 @@ class os_kinTMIII : public osink
 		dvec *diskEllip[6], *haloEllip[6], *diskMeans[3], *haloMeans[3];
 
 	public:
-		void add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], gsl_rng *rng);
+		void add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng);
 		void compute_means(double v[3], double Rsquared, double Z, dvec *means[3]);
 
-		void get_disk_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng, bool &firstGaussian);
-		void get_halo_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng);
+		void get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian);
+		void get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng);
 
 	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
@@ -466,6 +466,7 @@ class os_kinTMIII : public osink
 		}
 };
 
+#if 0
 void test_kin()
 {
 	return;
@@ -506,23 +507,30 @@ void test_kin()
 //	std::cerr << "  v = " << v[0] << "," << v[1] << "," << v[2] << "\n";
 	exit(-1);
 }
+#endif
 
-size_t os_kinTMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	double tmp[3]; bool firstGaussian;
-	for(size_t i=0; i != count; i++)
-	{
-		sstruct &s = in[i];
+	ct::cint   &comp = in.col<int>("comp");
+	ct::cfloat &XYZ  = in.col<float>("XYZ");
+	ct::cfloat &vcyl = in.col<float>("vcyl");
 
+	// ASSUMPTIONS:
+	//	- Fe/H exists in input
+	//	- Apparent and absolute magnitude in the requested band exist in input
+	for(size_t row=begin; row != end; row++)
+	{
 		// fetch prerequisites
-		const int component = s.component();
-		float *XYZ   = s.XYZ();
-		float *v     = s.vcyl();
-		const double Rsquared = 1e-6 * (sqr(XYZ[0]) + sqr(XYZ[1]));
-		const double Z = 1e-3 * XYZ[2];
+		const int component = comp[row];
+		float X = XYZ(row, 0);
+		float Y = XYZ(row, 1);
+		float Zpc = XYZ(row, 2);
+		const double Rsquared = 1e-6 * (sqr(X) + sqr(Y));
+		const double Z = 1e-3 * Zpc;
 
 		switch(component)
 		{
@@ -538,10 +546,12 @@ size_t os_kinTMIII::push(sstruct *&in, const size_t count, gsl_rng *rng)
 			default:
 				THROW(ENotImplemented, "We should have never gotten here");
 		}
-		v[0] = tmp[0]; v[1] = tmp[1]; v[2] = tmp[2];
+		vcyl(row, 0) = tmp[0];
+		vcyl(row, 1) = tmp[1];
+		vcyl(row, 2) = tmp[2];
 	}
 
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
 template<typename T>
@@ -568,7 +578,7 @@ inline double modfun(double Rsquared, double Z, double a, double b, double c, do
 	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
 }
 
-void os_kinTMIII::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], gsl_rng *rng)
+void os_kinTMIII::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng)
 {
 	// compute velocity dispersions at this position, and draw from trivariate gaussian
 	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
@@ -593,10 +603,10 @@ void os_kinTMIII::compute_means(double v[3], double Rsquared, double Z, dvec *me
 	}
 }
 
-void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng, bool &firstGaussian)
+void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian)
 {
 	// set up which gaussian are we drawing from
-	double p = gsl_rng_uniform(rng);
+	double p = rng.uniform();
 	if(firstGaussian = (p < fk))
 	{
 		// first gaussian
@@ -617,14 +627,14 @@ void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, gs
 	add_dispersion(v, Rsquared, Z, diskEllip, rng);
 }
 
-void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, gsl_rng *rng)
+void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng)
 {
 	compute_means(v, Rsquared, Z, haloMeans);
 	add_dispersion(v, Rsquared, Z, haloEllip, rng);
 }
-#endif
+
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
-#if 0
+
 bool os_kinTMIII::init(const Config &cfg, otable &t)
 {
 	cfg.get(fk           , "fk"           , 3.0);
@@ -1189,7 +1199,7 @@ bool os_ugriz::init(const Config &cfg, otable &t)
 
 	return true;
 }
-
+#endif
 
 // convert velocities to proper motions
 class os_vel2pm : public osink
@@ -1203,7 +1213,7 @@ public:
  	      u0, v0, w0;	// Solar peculiar motion
 
 public:
-	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
@@ -1243,13 +1253,13 @@ void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vp
 	vz = vz0;
 }
 
-template<typename T>
-void array_copy(T *dest, const T *src, const size_t n)
-{
-	FOR(0, n) { dest[i] = src[i]; }
-}
+// template<typename T>
+// void array_copy(T *dest, const T *src, const size_t n)
+// {
+// 	FOR(0, n) { dest[i] = src[i]; }
+// }
 
-size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
@@ -1257,20 +1267,27 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 	// OUTPUT:
 	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
 	//	Radial velocity in km/s in pm[2]
-	for(size_t i=0; i != count; i++)
-	{
-		sstruct &s = in[i];
+	using namespace column_types;
+	ct::cdouble &lb0 = in.col<double>("lb");
+	ct::cfloat  &XYZ  = in.col<float>("XYZ");
+	ct::cfloat  &vcyl = in.col<float>("vcyl");
+	ct::cfloat  &pmlb = in.col<float>("pmlb");
 
+	for(size_t row=begin; row != end; row++)
+	{
 		// fetch prerequisites
-		const double *lb0 = s.lb(); double lb[2];
-		lb[0] = rad(lb0[0]);
-		lb[1] = rad(lb0[1]);
-		const float *vcyl = s.vcyl();
-		const float *XYZ = s.XYZ();
+		double l = rad(lb0(row, 0));
+		double b = rad(lb0(row, 1));
+		float X = XYZ(row, 0);
+		float Y = XYZ(row, 1);
+		float Z = XYZ(row, 2);
+		float vx = vcyl(row, 0);
+		float vy = vcyl(row, 1);
+		float vz = vcyl(row, 2);
 
 		// convert the velocities from cylindrical to galactocentric cartesian system
 		float pm[3];
-		vel_cyl2xyz(pm[0], pm[1], pm[2],   vcyl[0], vcyl[1], vcyl[2],   XYZ[0], XYZ[1]);
+		vel_cyl2xyz(pm[0], pm[1], pm[2],   vx, vy, vz,   X, Y);
 
 		// switch to Solar coordinate frame
 		pm[0] -= u0;
@@ -1278,10 +1295,10 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		pm[2] -= w0;
 
 		// convert to velocities wrt. the observer
-		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],   lb[0], lb[1]);
+		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
 
 		// convert to proper motions
-		float D = sqrt(sqr(XYZ[0]) + sqr(XYZ[1]) + sqr(XYZ[2]));
+		float D = sqrt(sqr(X) + sqr(Y) + sqr(Z));
 		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
 		pm[1] /= 4.74 * D*1e-3;
 
@@ -1289,11 +1306,14 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		switch(coordsys)
 		{
 		case GAL:
-			array_copy(s.pmlb(), pm, 3);
+//			array_copy(s.pmlb(), pm, 3);
+			pmlb(row, 0) = pm[0];
+			pmlb(row, 1) = pm[1];
+			pmlb(row, 2) = pm[2];
 			break;
 		case EQU:
 			THROW(EAny, "Output in equatorial system not implemented yet.");
-			array_copy(s.pmradec(), pm, 3);
+			//array_copy(s.pmradec(), pm, 3);
 			break;
 		default:
 			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
@@ -1301,9 +1321,10 @@ size_t os_vel2pm::push(sstruct *&in, const size_t count, gsl_rng *rng)
 		}
 	}
 
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
+#if 0
 #if GPU
 // GPU Implementation Sketch
 
@@ -1423,6 +1444,7 @@ bool os_vel2pm::init(const Config &cfg, otable &t)
 	return true;
 }
 #endif
+#endif
 
 bool os_vel2pm::init(const Config &cfg, otable &t)
 {
@@ -1441,7 +1463,6 @@ bool os_vel2pm::init(const Config &cfg, otable &t)
 
 	return true;
 }
-#endif
 
 /////////////////////////////////////////////////////////////
 
@@ -1452,7 +1473,7 @@ public:
 	int coordsys;
 
 public:
-	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool init(const Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
@@ -1720,13 +1741,11 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "photometry") { s.reset(new os_photometry); }
 #if 0
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
-	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 #endif
+	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
-#if 0
 //	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
-#endif
 	else { THROW(EAny, "Module " + name + " unknown."); }
 
 	ASSERT(name == s->name());
@@ -1925,7 +1944,8 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	// output table
 //	static const size_t Kbatch = 99999;
 //	static const size_t Kbatch = 500000;
-	static const size_t Kbatch = 2500000 / 2;
+//	static const size_t Kbatch = 2500000 / 2;
+	static const size_t Kbatch = 100000;
 	otable t(Kbatch);
 
 	// merge-in any modules included from the config file via the 'modules' keyword

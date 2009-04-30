@@ -429,7 +429,7 @@ protected:
 			c->columnName = newColumnName;
 
 			c->ptr.base = ptr.base;
-			c->ptr.base = NULL;
+			c->ptr.base = 0;
 
 			c->columnClass = columnClass;
 			c->formatString = formatString;

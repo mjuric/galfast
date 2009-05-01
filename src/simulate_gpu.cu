@@ -79,7 +79,7 @@ KERNEL(
 using namespace peyton;
 typedef double Radians;
 static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
-static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+//static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
 static const double l0 = ctn::d2r * 32.932;
 static const double ce = 0.88998740217659689; // cos(dngp)
 static const double se = 0.45598511375586859; // sin(dngp)
@@ -151,12 +151,182 @@ KERNEL(
 	}
 }
 
-#if __CUDACC__
-__global__ void clockInstruction(int *dest, int *clk, int a, int b)
+#include <vector>
+
+#if BUILD_FOR_CPU
+extern __TLS std::vector<tptr<float> > *locuses;
+extern __TLS std::vector<tptr<uint> >   *flags;
+#else
+__TLS std::vector<tptr<float> > *locuses;
+__TLS std::vector<tptr<uint> >   *flags;
+#endif
+
+#if HAVE_CUDA && !BUILD_FOR_CPU
+texture<float4, 2, cudaReadModeElementType> color0;
+texture<float4, 2, cudaReadModeElementType> color1;
+texture<float4, 2, cudaReadModeElementType> color2;
+texture<float4, 2, cudaReadModeElementType> color3;
+texture<uint4, 2, cudaReadModeElementType> cflags0;
+texture<uint4, 2, cudaReadModeElementType> cflags1;
+texture<uint4, 2, cudaReadModeElementType> cflags2;
+texture<uint4, 2, cudaReadModeElementType> cflags3;
+
+texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color1, &color2, &color3 };
+texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
+
+__device__ uint fill(float *&colors, uint &flags, const float4 clr, const uint4 f, int &ncolors)
 {
-	clock_t t0 = clock();
-	*dest = a + b;
-	clock_t t1 = clock();
-	*clk = t1 - t0;
+	*colors = clr.x; colors++; flags |= f.x; if(--ncolors == 0) return flags;
+	*colors = clr.y; colors++; flags |= f.y; if(--ncolors == 0) return flags;
+	*colors = clr.z; colors++; flags |= f.z; if(--ncolors == 0) return flags;
+	*colors = clr.w; colors++; flags |= f.w; --ncolors; return flags;
+}
+
+__device__ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
+{
+	float4 clr;
+	uint4 f;
+	uint flags;
+
+	clr = tex2D(color0, FeH, Mr); f = tex2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = tex2D(color1, FeH, Mr); f = tex2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = tex2D(color2, FeH, Mr); f = tex2D(cflags2, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = tex2D(color3, FeH, Mr); f = tex2D(cflags3, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	return 0xFFFFFFFF;
+}
+
+#else
+uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
+{
+	int f = (int)FeH;
+	int m = (int)Mr;
+//	std::cerr << "fm = " << f << " " << m << "   " << FeH << " " << Mr << "\n";
+
+	uint fl = 0;
+	for(int ic=0; ic != ncolors; ic++)
+	{
+		colors[ic] = (*locuses)[ic](f, m);
+		fl |= (*flags)[ic](f, m);
+	}
+	return fl;
 }
 #endif
+
+#if !BUILD_FOR_CPU || !HAVE_CUDA
+
+// #if HAVE_CUDA
+// #include <map>
+// std::map<xptr, cudaArray> gpuArrays;
+// #endif
+
+void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs)
+{
+	locuses = loc;
+	flags = flgs;
+
+#if HAVE_CUDA
+	if(gpuGetActiveDevice() < 0) { return; }
+
+	size_t width = (*loc)[0].width();
+	size_t height = (*loc)[0].height();
+
+	tptr<float4> texc(width, height);
+	tptr<uint4> texf(width, height);
+	cudaError err;
+	int texid = 0;
+	for(int i=0; i != loc->size(); i += 4)
+	{
+		// Pack the lookups to float4
+		for(int y=0; y != height; y++)
+		{
+			for(int x=0; x != width; x++)
+			{
+				texc(x, y).x =                     (*loc)[i+0](x, y)    ;
+				texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
+				texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
+				texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
+
+				texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
+				texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
+				texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
+				texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
+			}
+		}
+		printf("%f %f %f %f\n%f %f %f %f\n",
+			texc(317, 28).x,
+			texc(317, 28).y,
+			texc(317, 28).z,
+			texc(317, 28).w,
+			(*loc)[i+0](317, 28),
+			(*loc)[i+1](317, 28),
+			(*loc)[i+2](317, 28),
+			(*loc)[i+3](317, 28));
+
+		// Upload/bind the isochrone and flags array to a GPU texture
+		cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+		cudaArray* cu_array = gpuMMU.mapToCUDAArray(texc, channelDesc);
+		// set texture parameters & bind the array to the texture
+		colorTextures[texid]->addressMode[0] = cudaAddressModeClamp;
+		colorTextures[texid]->addressMode[1] = cudaAddressModeClamp;
+		colorTextures[texid]->filterMode = cudaFilterModeLinear;
+		colorTextures[texid]->normalized = false;    // access with normalized texture coordinates
+		err = cudaBindTextureToArray( *colorTextures[texid], cu_array, channelDesc);
+		CUDA_ASSERT(err);
+
+		// Upload/bind the isochrone and flags array to a GPU texture
+		channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
+		cu_array = gpuMMU.mapToCUDAArray(texf, channelDesc);
+		// set texture parameters & bind the array to the texture
+		cflagsTextures[texid]->addressMode[0] = cudaAddressModeClamp;
+		cflagsTextures[texid]->addressMode[1] = cudaAddressModeClamp;
+		cflagsTextures[texid]->filterMode = cudaFilterModePoint;
+		cflagsTextures[texid]->normalized = false;    // access with normalized texture coordinates
+		err = cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc);
+		CUDA_ASSERT(err);
+	}
+#endif
+}
+#endif
+
+typedef ct::cfloat::gpu_t gcfloat;
+typedef ct::cint::gpu_t gcint;
+
+#if !__CUDACC__
+#include <iostream>
+#endif
+
+KERNEL(
+	ks, 0,
+	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH),
+	os_photometry_kernel,
+	(ks, lt, flags, bmag, Mr, mags, FeH)
+)
+{
+	float *c = ks.sharedMemory<float>();
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
+	{
+		// construct colors given the absolute magnitude and metallicity
+		float fFeH = FeH[row];
+		float fMr = Mr[row];
+		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
+		float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
+		flags[row] = sampleColors(c, iFeH, iMr, lt.ncolors);
+
+		// convert colors to apparent magnitudes
+		float mag0 = bmag[row];
+		for(int b = 0; b <= lt.ncolors; b++)
+		{
+			float mag = mag0;
+			if(b < lt.bidx) { for(int i=b;       i != lt.bidx; i++) { mag += c[i]; } }
+			if(b > lt.bidx) { for(int i=lt.bidx; i != b;    i++) { mag -= c[i]; } }
+			mags(row, b) = mag;
+		}
+
+/*		if(row == 30)
+		{
+			for(int i=0; i != lt.ncolors; i++) { std::cerr << "c[" << i << "]=" << c[i] << "\n"; }
+			for(int i=0; i != lt.ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
+			exit(0);
+		}*/
+	}
+}

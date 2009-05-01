@@ -12,6 +12,16 @@
 // Note: __CUDACC__ will never be defined when BUILD_FOR_CPU is defined
 //
 
+// Thread local storage -- use for shared memory emulation in CPU mode
+//#define __TLS __thread
+#define __TLS
+
+#if __CUDACC__
+extern __shared__ char shmem[];
+#else
+extern __TLS char shmem[16384];
+#endif
+
 #if HAVE_CUDA
 	#include <cuda_runtime.h>
 
@@ -35,6 +45,10 @@
 		#endif /* __cplusplus */
 	};
 #endif
+
+void abort_on_cuda_error(cudaError err);
+#define CUDA_ASSERT(err) \
+	if((err) != cudaSuccess) { abort_on_cuda_error(err); }
 
 // Based on NVIDIA's LinuxStopWatch class
 // TODO: Should be moved to libpeyton
@@ -174,6 +188,18 @@ public:
 	}
 };
 
+#if !__CUDACC__
+#include <iostream>
+#endif
+
+// Rounds up v to nearest integer divisable by mod
+inline int roundUpModulo(int v, int mod)
+{
+	int r = v % mod;
+	int pitch = r ? v + (mod-r) : v;
+	return pitch;
+}
+
 // typed "extended" pointer -- this pointer knows about the dimension of the array
 // it points to, and properly pads it on allocation (useful for on-GPU use)
 template<typename T>
@@ -181,19 +207,31 @@ struct tptr : public xptr
 {
 	static const uint32_t align = 256;	// default byte alignment
 
-	tptr(size_t ncol = 0, size_t nrow = 0) : xptr(sizeof(T), ncol, nrow, align) {}
-	void alloc(size_t ncol, size_t nrow) { xptr::alloc(-1, ncol, nrow); }
+	tptr(size_t ncol = 0, size_t nrow = 0) : xptr(sizeof(T), ncol, nrow, roundUpModulo(ncol*sizeof(T), align)) {}
+	void alloc(size_t ncol, size_t nrow) { xptr::alloc(sizeof(T), ncol, nrow, roundUpModulo(ncol*sizeof(T), align)); }
 
 	T &operator()(const size_t col, const size_t row)
 	{
-		return *((T*)(base + row * pitch()) + col);
+		size_t at = row * pitch() + m_elementSize*col;
+#if !__CUDACC__
+		ASSERT(at >= 0 && at < memsize())
+		{
+			std::cerr << "col=" << col << " row=" << row << "\n";
+			std::cerr << "ncols()=" << ncols() << " nrows()=" << nrows() << "\n";
+			std::cerr << "at=" << at << " memsize=" << memsize() << "\n";
+		}
+#endif
+		return *(T*)(base + at);
+//		return *((T*)(base + row * pitch()) + col);
 	}
 	T &operator[](const size_t i)	// 1D table column accessor (i == the table row)
 	{
-		return ((T*)base)[i];
+		if(nrows() == 1) { return ((T*)base)[i]; }
+		return (*this)(i % ncols(), i / ncols());
 	}
 
-	// simple iterator interface
+#if 1
+	// simple iterator-like interface
 	struct iterator
 	{
 		tptr<T> *parent;
@@ -205,11 +243,14 @@ struct tptr : public xptr
 			if(++x == parent->width()) { x = 0; ++y; }
 			return *this;
 		}
+		bool operator==(const iterator &it) const { return it.x == x && it.y == y && it.parent == parent; }
+		bool operator!=(const iterator &it) const { return !(it == *this); }
 		T &operator*()
 		{
 			return (*parent)(x, y);
 		}
 	};
+#endif
 	iterator begin() { return iterator(this); }
 	iterator end() { return iterator(this, 0, height()); }
 	size_t size() const { return width()*height(); }
@@ -242,20 +283,13 @@ public:
 #if HAVE_CUDA
 	xptr syncToDevice(const xptr &hptr);
 	void syncToHost(xptr &hptr);
-//	int lastOp(const xptr &hptr)
-//	{
-//		if(!gpuPtrs.count(hptr.base)) { return NOT_EXIST; }
-//		return gpuPtrs[hptr.base].lastop;
-//	}
+	cudaArray *mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc);
 #else
 	xptr syncToDevice(const xptr &hptr) const { return hptr; }
 	void syncToHost(xptr &hptr) { }
 #endif
 };
 extern GPUMM gpuMMU;
-
-//#define __TLS __thread
-#define __TLS
 
 // For CPU versions of GPU algorithms
 #if !__CUDACC__
@@ -299,10 +333,19 @@ struct kernel_state
 		return nthreads;
 	}
 
+	template<typename T>
+	__device__ T* sharedMemory() const
+	{
+		return (T*)(shmem + sharedBytesPerThread*threadIdx.x);
+	}
+	uint32_t shmemBytes() const { return sharedBytesPerThread; }
+
 	/////////////////////////
 	uint32_t m_begin, m_step, m_end;
+	uint32_t sharedBytesPerThread;
 
-	kernel_state(uint32_t b, uint32_t e, uint32_t s) : m_begin(b), m_end(e), m_step(s)
+	kernel_state(uint32_t b, uint32_t e, uint32_t s, uint32_t shbytes = 0)
+		: m_begin(b), m_end(e), m_step(s), sharedBytesPerThread(shbytes)
 	{
 	}
 
@@ -392,7 +435,7 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 		__global__ void gpu_##kDecl; \
 		void gpulaunch_##kDecl \
 		{ \
-			int dynShmemPerThread = shmemPerThread;      /* built in the algorithm */ \
+			int dynShmemPerThread = ks.shmemBytes() ? ks.shmemBytes() : shmemPerThread;  /* built in the algorithm */ \
 		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
 		        int threadsPerBlock = 192;      /* TODO: This should be computed as well */ \
 			dim3 gridDim; \
@@ -440,12 +483,6 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 			kernelRunSwatch.stop(); \
 		} \
 		void cpu_##kDecl
-#endif
-
-#if __CUDACC__
-extern __shared__ char shmem[];
-#else
-extern __TLS char shmem[16384];
 #endif
 
 // thin random number generator abstraction

@@ -418,6 +418,26 @@ void GPUMM::syncToHost(xptr &hptr)
 	}
 }
 
+void abort_on_cuda_error(cudaError err)
+{
+	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
+	abort();
+}
+
+cudaArray *GPUMM::mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc)
+{
+	cudaArray* cu_array;
+	cudaError err;
+	
+	err = cudaMallocArray(&cu_array, &channelDesc, ptr.width(), ptr.height());
+	CUDA_ASSERT(err);
+
+	err = cudaMemcpy2DToArray(cu_array, 0, 0, ptr.get<char>(), ptr.pitch(), ptr.width()*ptr.elementSize(), ptr.height(), cudaMemcpyHostToDevice);
+	CUDA_ASSERT(err);
+
+	return cu_array;
+}
+
 #endif // HAVE_CUDA
 
 #ifdef HAVE_CUDA

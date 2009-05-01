@@ -697,27 +697,31 @@ class os_photometry : public osink
 //		std::vector<ct::cfloat*> mags;		// sstruct offset to magnitudes in computed bands [output]
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
-		std::vector<std::vector<float> > clt;
-		std::vector<tptr<float> > locuses;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
-		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
-		std::vector<std::vector<cbool> > eclt;	// extrapolation flags
+///		std::vector<std::vector<float> > clt;
+		std::vector<tptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
+		std::vector<tptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
+/*		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
+		std::vector<std::vector<cbool> > eclt;	// extrapolation flags*/
 		int nMr, nFeH;
 		double Mr0, Mr1, dMr;
 		double FeH0, FeH1, dFeH;
 		int ncolors;
 
-		float color(int ic, double FeH, double Mr, bool *e = NULL)
+		float color(int ic, double FeH, double Mr, int *e = NULL)
 		{
-			ASSERT(ic >= 0 && ic < clt.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << clt.size() << "\n"; }
+///			ASSERT(ic >= 0 && ic < clt.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << clt.size() << "\n"; }
+			ASSERT(ic >= 0 && ic < isochrones.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << isochrones.size() << "\n"; }
 			ASSERT(Mr0 <= Mr && Mr <= Mr1) { std::cerr << Mr0 << " <= " << Mr << " <= " << Mr1 << "\n"; }
 			ASSERT(FeH0 <= FeH && FeH <= FeH1) { std::cerr << FeH0 << " <= " << FeH << " <= " << FeH1 << "\n"; }
 
 			int f = (int)((FeH - FeH0) / dFeH);
 			int m = (int)((Mr  -  Mr0) / dMr);
-			int idx = m*nFeH + f;
-			if(e) { *e = eclt[ic][idx]; }
-			return clt[ic][idx];
-///			return locuses[ic](f, m);
+//			std::cerr << "fm = " << f << " " << m << "   " << ((FeH - FeH0) / dFeH) << " " << ((Mr  -  Mr0) / dMr) << "\n";
+//			int idx = m*nFeH + f;
+//			if(e) { *e = eclt[ic][idx]; }
+			if(e) { *e = eflags[ic](f, m); }
+//			return clt[ic][idx];
+			return isochrones[ic](f, m);
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -749,23 +753,12 @@ struct colsplines
 
 bool os_photometry::init(const Config &cfg, otable &t)
 {
-#if 1
 	// load bandset name
 	std::string tmp, bname;
 	cfg.get(bandset2,   "bandset",   "LSSTugrizy");
 
 	// load band names and construct field definition
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
-#if 0
-	std::string bfield = bandset2 + "{class=magnitude;";
-	std::istringstream ss(tmp);
-	while(ss >> bname)
-	{
-		bfield += "alias[" + str(bnames.size()) + "]=" + bname + ";";
-		bnames.push_back(bname);
-	}
-	bfield += "}";
-#else
 	std::istringstream ss(tmp);
 	while(ss >> bname)
 	{
@@ -774,7 +767,6 @@ bool os_photometry::init(const Config &cfg, otable &t)
 
 	const size_t nbands = bnames.size();
 	std::string bfield = bandset2 + "[" + str(nbands) + "]{class=magnitude;}";
-#endif
 	prov.insert(bfield);
 
 	// determine the number of colors
@@ -868,20 +860,13 @@ bool os_photometry::init(const Config &cfg, otable &t)
 		ss.Mrmax = Mr.back();
 	}
 
-/*	FOREACH(s) {
-		std::cerr << i->first << ": ";
-		FORj(j,0,ncolors) {
-			std::cerr << i->second[j].f << "  ";
-		}
-		std::cerr << "\n";
-	}*/
-	
 	// allocate memory for output tables
 	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
-	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
-	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
-///	locuses.resize(ncolors);  FOREACH(locuses)  { i->alloc(nFeH, nMr); }
+///	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
+//	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
+	isochrones.resize(ncolors); FOREACH(isochrones)  { i->alloc(nFeH, nMr); }
+	eflags.resize(ncolors);     FOREACH(eflags)      { i->alloc(nFeH, nMr); }
 
 	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
 	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
@@ -912,10 +897,11 @@ bool os_photometry::init(const Config &cfg, otable &t)
 				double FeH = FeH0 + f*dFeH;
 				int idx = m*nFeH + f;
 
-				clt[ic][idx] = s(FeH);
-///				locuses[ic](f, m) = s(FeH);
-				eclt[ic][idx] = vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.;
-//				std::cerr << Mr << " " << FeH << " : " << clt[ic][idx] << " " << eclt[ic][idx] << "\n";
+///				clt[ic][idx] = s(FeH);
+				isochrones[ic](f, m) = s(FeH);
+//				eclt[ic][idx] = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
+				eflags[ic](f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
+//				if(eflags[ic](f, m) && ic > 1) { std::cerr << ic << " " << Mr << " " << FeH << " : " << isochrones[ic](f, m) << " " << eflags[ic](f,m) << "\n"; }
 			}
 		}
 	}
@@ -923,11 +909,23 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	std::vector<double> nextrap(ncolors);
 	FOR(0, ncolors)
 	{
-		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
+//		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
+		nextrap[i] = 0;
+		tptr<uint> &ptr = eflags[i];
+		FOREACHj(cf, ptr)
+		{
+			if(*cf != 0) { nextrap[i] += 1; }
+		}
+		nextrap[i] /= eflags[i].size();
 	}
-	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
-///	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << locuses[0].size() << ").";
+///	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
+	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
+
+#if HAVE_CUDA
+	// upload lookup table to CUDA textures
+	
+#endif
 
 #if 0
 	std::ofstream ff("dump.0.txt");
@@ -939,14 +937,13 @@ bool os_photometry::init(const Config &cfg, otable &t)
 		}
 	}
 #endif
-
-#endif
 	return true;
 }
 
+
+#if 1
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-#if 1
 	ct::cint  &flags  = in.col<int>(photoFlagsName);
 	ct::cfloat &bmag  = in.col<float>(bband);
 	ct::cfloat &Mr    = in.col<float>(absbband);
@@ -959,20 +956,17 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- Apparent and absolute magnitude in the requested band exist in input
 	for(size_t row=begin; row != end; row++)
 	{
-#if 0
-		if(row % 1000 == 0) {
-			std::cerr << row << " of " << end << "\n";
-		}
-#endif
 		// construct colors given the absolute magnitude and metallicity
-		bool ex;
+		int ex;
 		float c[ncolors];
 
 		int f = 0;
 		FOR(0, ncolors)
 		{
 			c[i] = color(i, FeH[row], Mr[row], &ex);
-			f |= ex << i;
+//			if(ex != 0) { std::cerr << i << " " << ex << "\n"; }
+//			f |= ex << i;
+			f |= ex;
 		}
 		flags[row] = f;
 
@@ -984,22 +978,39 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 			if(b > bidx) { FOR(bidx, b) { mag -= c[i]; } }
 			mags(row, b) = mag;
 		}
-#if 0
-		FORj(b,0,ncolors)
+
+/*		if(row == 30)
 		{
-			std::cerr << mags(row, b)-mags(row, b+1) << " =?= " << c[b] << "\n";
-		}
-#endif
-/*		mags[0] = r + ug + gr;
-		mags[1] = r + gr;
-		mags[2] = r;
-		mags[3] = r - ri;
-		mags[4] = r - ri - iz;*/
+			for(int i=0; i != ncolors; i++) { std::cerr << "c[" << i << "]=" << c[i] << "\n"; }
+			for(int i=0; i != ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
+			exit(0);
+		}*/
 	}
 
-#endif
 	return nextlink->process(in, begin, end, rng);
 }
+#else
+typedef ct::cfloat::gpu_t gcfloat;
+typedef ct::cint::gpu_t gcint;
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH));
+void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs);
+
+size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	ct::cint  &flags  = in.col<int>(photoFlagsName);
+	ct::cfloat &bmag  = in.col<float>(bband);
+	ct::cfloat &Mr    = in.col<float>(absbband);
+	ct::cfloat &mags  = in.col<float>(bandset2);
+	ct::cfloat &FeH   = in.col<float>("FeH");
+//	const size_t nbands = bnames.size();
+
+	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
+	os_photometry_set_isochrones(&isochrones, &eflags);
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, 128, sizeof(float)*ncolors), lt, flags, bmag, Mr, mags, FeH);
+
+	return nextlink->process(in, begin, end, rng);
+}
+#endif
 
 #if 0
 // convert input absolute/apparent magnitudes to ugriz colors

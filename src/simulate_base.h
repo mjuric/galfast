@@ -27,6 +27,13 @@ struct os_FeH_data
 	float Hmu, muInf, DeltaMu;
 };
 
+struct os_photometry_data
+{
+	int ncolors, bidx;
+	float FeH0, dFeH;
+	float Mr0, dMr;
+};
+
 static const int GAL = 0;
 static const int EQU = 1;
 

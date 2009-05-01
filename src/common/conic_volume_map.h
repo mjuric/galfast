@@ -104,7 +104,7 @@ public:
 	bool get_sky_and_index(int &skyidx, int &X, int &Y, const Radians l, const Radians b);
 
 protected:
-	void create_pixels(peyton::math::lambert &proj, partitioned_skymap &sky, sky_t &sky);
+	void create_pixels(peyton::math::lambert &proj, partitioned_skymap &sky, sky_t &sky2);
 	void create_pixel(beam_t &beam, double dprev, double d, double area);
 
 	bool bin(double x, double y, const mobject &m, partitioned_skymap &msky, sky_t &sky);

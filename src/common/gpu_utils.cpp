@@ -31,9 +31,11 @@
 #include <astro/useall.h>
 
 #include <vector>
-#include "gpu.h"
+#include "gpu2.h"
 #include "model.h"
 #include "analysis.h"
+
+xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
 
 stopwatch kernelRunSwatch;
 
@@ -420,6 +422,8 @@ void GPUMM::syncToHost(xptr &hptr)
 
 void abort_on_cuda_error(cudaError err)
 {
+	if(err == cudaSuccess) { return; }
+
 	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
 	abort();
 }

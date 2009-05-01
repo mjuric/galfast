@@ -169,7 +169,14 @@ public:
 	template<typename T> T *get() { return (T*)base; }
 
 	operator bool() const { return base; }
-	
+	bool compatibleWith(const xptr &t) const
+	{
+		return     width() == t.width()
+			&& height() == t.height()
+			&& pitch() == t.pitch()
+			&& elementSize() == t.elementSize();
+	}
+
 	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0) { init(es, ncol, nrow, p); }
 
 	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1);

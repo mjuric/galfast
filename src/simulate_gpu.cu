@@ -30,7 +30,7 @@
 
 #include "simulate_base.h"
 #include "column.h"
-#include "gpu.h"
+#include "gpu2.h"
 
 namespace ct = column_types;
 KERNEL(
@@ -212,14 +212,28 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 }
 #endif
 
+#if HAVE_CUDA && BUILD_FOR_CPU
+#include <map>
+std::map<std::string, xptrng::tptr<float4> > os_photometry_tex_c;
+std::map<std::string, xptrng::tptr<uint4> >  os_photometry_tex_f;
+void os_photometry_tex_get(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f)
+{
+	c = os_photometry_tex_c[id];
+	f = os_photometry_tex_f[id];
+}
+void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f)
+{
+	os_photometry_tex_c[id] = c;
+	os_photometry_tex_f[id] = f;
+}
+#endif
+
 #if !BUILD_FOR_CPU || !HAVE_CUDA
 
-// #if HAVE_CUDA
-// #include <map>
-// std::map<xptr, cudaArray> gpuArrays;
-// #endif
+void os_photometry_tex_get(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
+void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
 
-void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs)
+void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs)
 {
 	locuses = loc;
 	flags = flgs;
@@ -227,30 +241,41 @@ void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tp
 #if HAVE_CUDA
 	if(gpuGetActiveDevice() < 0) { return; }
 
-	size_t width = (*loc)[0].width();
+	size_t width  = (*loc)[0].width();
 	size_t height = (*loc)[0].height();
 
-	tptr<float4> texc(width, height);
-	tptr<uint4> texf(width, height);
+	xptrng::tptr<float4> texc;
+	xptrng::tptr<uint4>  texf;
 	cudaError err;
 	int texid = 0;
 	for(int i=0; i != loc->size(); i += 4)
 	{
-		// Pack the lookups to float4
-		for(int y=0; y != height; y++)
+		// Get the pre-built arrays cached across kernel calls
+		char idx[50];
+		sprintf(idx, "%s%d", id, i);
+		os_photometry_tex_get(idx, texc, texf);
+		if(!texc || !texf)
 		{
-			for(int x=0; x != width; x++)
-			{
-				texc(x, y).x =                     (*loc)[i+0](x, y)    ;
-				texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
-				texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
-				texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
+			texc = xptrng::tptr<float4>(width, height);
+			texf =  xptrng::tptr<uint4>(width, height);
 
-				texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
-				texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
-				texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
-				texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
+			// Pack the lookups to float4
+			for(int y=0; y != height; y++)
+			{
+				for(int x=0; x != width; x++)
+				{
+					texc(x, y).x =                     (*loc)[i+0](x, y)    ;
+					texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
+					texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
+					texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
+
+					texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
+					texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
+					texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
+					texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
+				}
 			}
+			os_photometry_tex_set(idx, texc, texf);
 		}
 		printf("%f %f %f %f\n%f %f %f %f\n",
 			texc(317, 28).x,
@@ -262,9 +287,10 @@ void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tp
 			(*loc)[i+2](317, 28),
 			(*loc)[i+3](317, 28));
 
-		// Upload/bind the isochrone and flags array to a GPU texture
+		// Bind isochrone array to texture reference
 		cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-		cudaArray* cu_array = gpuMMU.mapToCUDAArray(texc, channelDesc);
+		//cudaArray* cu_array = gpuMMU.mapToCUDAArray(texc, channelDesc);
+		cudaArray* cu_array = texc.getCUDAArray(channelDesc);
 		// set texture parameters & bind the array to the texture
 		colorTextures[texid]->addressMode[0] = cudaAddressModeClamp;
 		colorTextures[texid]->addressMode[1] = cudaAddressModeClamp;
@@ -273,9 +299,10 @@ void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tp
 		err = cudaBindTextureToArray( *colorTextures[texid], cu_array, channelDesc);
 		CUDA_ASSERT(err);
 
-		// Upload/bind the isochrone and flags array to a GPU texture
+		// Bind flags array to texture reference
 		channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
-		cu_array = gpuMMU.mapToCUDAArray(texf, channelDesc);
+		//cu_array = gpuMMU.mapToCUDAArray(texf, channelDesc);
+		cu_array = texf.getCUDAArray(channelDesc);
 		// set texture parameters & bind the array to the texture
 		cflagsTextures[texid]->addressMode[0] = cudaAddressModeClamp;
 		cflagsTextures[texid]->addressMode[1] = cudaAddressModeClamp;

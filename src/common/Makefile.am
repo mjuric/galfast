@@ -8,4 +8,4 @@ libcommon_a_SOURCES = Makefile.am analysis.h binarystream.cpp binarystream.h \
 	paralax.h raytrace.cpp sparsevolume.h textloader.h textstream.h xcat.cpp xcat.h \
 	ximage.h
 noinst_HEADERS = clapack.h column.h conic_volume_map.h container.h gpc_cpp.h \
-	gpu.h io.h model.h projections.h raytrace.h
+	gpu.h io.h model.h projections.h raytrace.h gpu2.h

@@ -941,7 +941,7 @@ bool os_photometry::init(const Config &cfg, otable &t)
 }
 
 
-#if 1
+#if 0
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	ct::cint  &flags  = in.col<int>(photoFlagsName);
@@ -993,7 +993,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 typedef ct::cfloat::gpu_t gcfloat;
 typedef ct::cint::gpu_t gcint;
 DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH));
-void os_photometry_set_isochrones(std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs);
+void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
@@ -1005,7 +1005,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 //	const size_t nbands = bnames.size();
 
 	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
-	os_photometry_set_isochrones(&isochrones, &eflags);
+	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
 	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, 128, sizeof(float)*ncolors), lt, flags, bmag, Mr, mags, FeH);
 
 	return nextlink->process(in, begin, end, rng);
@@ -1714,7 +1714,11 @@ size_t os_textin::run(otable &t, rng_t &rng)
 		t.unserialize_body(in.in());
 		swatch.stop();
 		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
-		total += nextlink->process(t, 0, t.size(), rng);
+
+		if(t.size()) // t.size() can be 0 if the total number of rows happens to be divisible by Kbatch
+		{
+			total += nextlink->process(t, 0, t.size(), rng);
+		}
 	} while(in.in());
 
 	return total;
@@ -1935,8 +1939,9 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 
 	// output table
 //	static const size_t Kbatch = 99999;
-//	static const size_t Kbatch = 500000;
-	static const size_t Kbatch = 2500000 / 2;
+	static const size_t Kbatch = 100000;
+//	static const size_t Kbatch = 2500000 / 2;
+//	static const size_t Kbatch = 500;
 	otable t(Kbatch);
 
 	// merge-in any modules included from the config file via the 'modules' keyword
@@ -2003,6 +2008,8 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
+
+		stage->setUniqueId(modcfg["module"]);
 
 		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
 		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }

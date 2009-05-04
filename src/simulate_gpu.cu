@@ -33,9 +33,14 @@
 #include "gpu.h"
 
 namespace ct = column_types;
+
 KERNEL(
 	ks, 3*4,
-	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH),
+	os_FeH_kernel(
+		otable_ks ks, os_FeH_data par, gpu_rng_t rng, 
+		ct::cint::gpu_t comp, 
+		ct::cfloat::gpu_t XYZ, 
+		ct::cfloat::gpu_t FeH),
 	os_FeH_kernel,
 	(ks, par, rng, comp, XYZ, FeH)
 )
@@ -74,12 +79,118 @@ KERNEL(
 	rng.store(ks);
 }
 
+inline __device__ double sqrDouble(double x) { return x*x;}
+
+static const double degToRadCoef=0.0174532925;//PI/180
+inline __device__ double radDouble(double degrees) { return degrees*degToRadCoef; }
+
+inline __device__ void vel_cyl2xyz(
+		float &vx, float &vy, float &vz, 
+		const float vr, const float vphi, const float vz0, 
+		const float X, const float Y)
+{
+	// convert galactocentric cylindrical to cartesian velocities
+	float rho = sqrt(X*X + Y*Y);
+	float cphi = X / rho;
+	float sphi = Y / rho;
+
+	vx = -sphi * vr + cphi * vphi;
+	vy =  cphi * vr + sphi * vphi;
+	vz = vz0;
+}
+
+// convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
+inline __device__ void vel_xyz2lbr(
+		float &vl, float &vr, float &vb, 
+		const float vx, const float vy, const float vz, 
+		const double l, const double b)
+{
+	double cl, sl, cb, sb;
+	cl = cos(l);
+	sl = sin(l);
+	cb = cos(b);
+	sb = sin(b);
+
+	float tmp;
+	vl  =  vx*sl  - vy*cl;
+	tmp =  vx*cl  + vy*sl;
+	vr  = -cb*tmp + vz*sb;
+	vb  =  sb*tmp + vz*cb;
+}
+
+/// !!!!! 3*4 FIX-.. calculate correct value !!!!!!!!!
+KERNEL(
+	ks, 3*4, 
+	os_vel2pm_kernel(
+		otable_ks ks, os_vel2pm_data par, gpu_rng_t rng, 
+		ct::cdouble::gpu_t lb0, 
+		ct::cfloat::gpu_t XYZ,
+		ct::cfloat::gpu_t vcyl,  
+		ct::cfloat::gpu_t pmlb),
+	os_vel2pm_kernel,
+	(ks, par, rng, lb0, XYZ, vcyl,pmlb)
+)
+{
+	rng.load(ks);
+	uint32_t tid = threadID();
+
+	for(uint32_t row=ks.row_begin(); row != ks.row_end(); row++)
+	{
+		// fetch prerequisites
+		double l = radDouble(lb0(row, 0));
+		double b = radDouble(lb0(row, 1));
+		float X = XYZ(row, 0);
+		float Y = XYZ(row, 1);
+		float Z = XYZ(row, 2);
+		float vx = vcyl(row, 0);
+		float vy = vcyl(row, 1);
+		float vz = vcyl(row, 2);
+
+		// convert the velocities from cylindrical to galactocentric cartesian system
+		float pm[3];
+		vel_cyl2xyz(pm[0], pm[1], pm[2],   vx, vy, vz,   X, Y);
+
+		// switch to Solar coordinate frame
+		pm[0] -= par.u0;
+		pm[1] -= par.v0 + par.vLSR;
+		pm[2] -= par.w0;
+
+		// convert to velocities wrt. the observer
+		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
+
+		// convert to proper motions
+		float D = sqrt(sqrDouble(X) + sqrDouble(Y) + sqrDouble(Z));
+		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
+		pm[1] /= 4.74 * D*1e-3;
+
+		// rotate to output coordinate system
+		switch(par.coordsys)
+		{
+		case GAL:
+//			array_copy(s.pmlb(), pm, 3);
+			pmlb(row, 0) = pm[0];
+			pmlb(row, 1) = pm[1];
+			pmlb(row, 2) = pm[2];
+			break;
+		case EQU:
+			//THROW(EAny, "Output in equatorial system not implemented yet.");
+			//array_copy(s.pmradec(), pm, 3);
+			break;
+		default:
+			//THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+			break;
+		}
+	}
+
+	rng.store(ks);
+}
+
 
 // equgal - Equatorial to Galactic coordinates
 using namespace peyton;
 typedef double Radians;
 static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
-static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+//static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
 static const double l0 = ctn::d2r * 32.932;
 static const double ce = 0.88998740217659689; // cos(dngp)
 static const double se = 0.45598511375586859; // sin(dngp)

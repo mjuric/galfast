@@ -1030,7 +1030,7 @@ void sky_generator::montecarlo(star_output_function &out)
 	FOR(1, pdfs.size()) { modelCPDF[i] /= norm; }
 	
 	// generate the data in smaller batches (to conserve memory)
-	static const int Kbatch = 20000000;
+	static const int Kbatch = 10000000;
 
 	// prepare output
 	otable t(Kbatch);

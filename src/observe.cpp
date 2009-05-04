@@ -55,6 +55,9 @@
 #include <astro/useall.h>
 
 using namespace boost::lambda;
+namespace ct = column_types;
+
+#include "observe.h"
 
 bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
 {
@@ -92,116 +95,7 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 }
 #endif
 
-// add Fe/H information
-class os_FeH : public osink, os_FeH_data
-{
-public:
-	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t);
-	virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
-	os_FeH() : osink()
-	{
-		prov.insert("FeH");
-		req.insert("comp");
-		req.insert("XYZ");
-	}
-};
-
-#if 1
-namespace ct = column_types;
-//void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH);
-DECLARE_KERNEL(os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH))
-
-size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
-
-	// fetch prerequisites
-	using namespace column_types;
-	cint   &comp  = in.col<int>("comp");
-	cfloat &XYZ   = in.col<float>("XYZ");
-	cfloat &FeH   = in.col<float>("FeH");
-
-	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end, 128), *this, rng, comp, XYZ, FeH);
-	return nextlink->process(in, begin, end, rng);
-}
-#else
-size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
-		
-	// fetch prerequisites
-	using namespace column_types;
-	cint   comp  = in.col<int>("comp");
-	cfloat XYZ   = in.col<float>("XYZ");
-	cfloat FeH   = in.col<float>("FeH");
-
-	for(size_t row=begin; row != end; row++)
-	{
-		switch(comp[row])
-		{
-			case BahcallSoneira_model::THIN:
-			case BahcallSoneira_model::THICK: {
-				// choose the gaussian to draw from
-				double p = rng.uniform()*(A[0]+A[1]);
-				int i = p < A[0] ? 0 : 1;
-
-				// calculate mean
-				double muD = muInf + DeltaMu*exp(-fabs(XYZ(row, 2))/Hmu);		// Bond et al. A2
-				double aZ = muD - 0.067;
-
-				// draw
-				FeH[row] = rng.gaussian(sigma[i]) + aZ + offs[i];
-			} break;
-			case BahcallSoneira_model::HALO:
-				FeH[row] = offs[2] + rng.gaussian(sigma[2]);
-				break;
-			default:
-				THROW(ENotImplemented, "We should have never gotten here");
-		}
-	}
-
-	return nextlink->process(in, begin, end, rng);
-}
-#endif
-
-bool os_FeH::init(const Config &cfg, otable &t)
-{
-	cfg.get(A[0],     "A0",     0.63f);
-	cfg.get(sigma[0], "sigma0", 0.20f);
-	cfg.get(offs[0],  "offs0",  0.00f);
-	cfg.get(A[1],     "A1",     0.37f);
-	cfg.get(sigma[1], "sigma1", 0.20f);
-	cfg.get(offs[1],  "offs1",  0.14f);
-	
-	cfg.get(Hmu,      "Hmu",     500.f);
-	cfg.get(muInf,    "muInf",  -0.82f);
-	cfg.get(DeltaMu,  "deltaMu", 0.55f);
-
-	// renormalize disk gaussian amplitudes to sum up to 1
-	double sumA = A[0] + A[1];
-	A[0] /= sumA; A[1] /= sumA;
-
-	// Halo configuration
-	cfg.get(sigma[2], "sigmaH",  0.30f);
-	cfg.get(offs[2],  "offsH",  -1.46f);
-
-	// Output model parameters
-	MLOG(verb1) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
-	MLOG(verb1) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];
-	MLOG(verb1) << "Disk offsets          (offs[0], offs[1]): "<< offs[0] << " " << offs[1];
-	MLOG(verb1) << "Disk median Z dep. (muInf, deltaMu, Hmu): "<< muInf << " " << DeltaMu << " " << Hmu;
-	MLOG(verb1) << "Halo gaussian              (muH, sigmaH): "<< offs[2] << " " << sigma[2];
-
-	return true;
-}
 
 #if 0
 // add photometric errors information
@@ -330,44 +224,6 @@ bool os_photometryErrors::init(const Config &cfg, otable &t)
 }
 #endif
 
-// add Fe/H information
-class os_fixedFeH : public osink
-{
-	protected:
-		float fixedFeH;
-
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
-		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
-
-		os_fixedFeH() : osink(), fixedFeH(0)
-		{
-			prov.insert("FeH");
-		}
-};
-
-DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH));
-size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
-	using namespace column_types;
-	cfloat &FeH   = in.col<float>("FeH");
-
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end, 128), fixedFeH, FeH);
-	return nextlink->process(in, begin, end, rng);
-}
-
-bool os_fixedFeH::init(const Config &cfg, otable &t)
-{
-	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	cfg.get(fixedFeH, "FeH", 0.f);
-
-	return true;
-}
 
 #if 1
 void print_matrix(gsl_matrix *m)
@@ -1201,57 +1057,9 @@ bool os_ugriz::init(const Config &cfg, otable &t)
 }
 #endif
 
-// convert velocities to proper motions
-class os_vel2pm : public osink
-{
-public:
-	int coordsys;
-	static const int GAL = 0;
-	static const int EQU = 1;
 
-	float vLSR,		// Local standard of rest velocity
- 	      u0, v0, w0;	// Solar peculiar motion
 
-public:
-	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t);
-	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
-	os_vel2pm() : osink(), coordsys(GAL)
-	{
-		req.insert("lb");
-		req.insert("XYZ");
-		req.insert("vcyl");
-	}
-};
-
-// convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
-void vel_xyz2lbr(float &vl, float &vr, float &vb, const float vx, const float vy, const float vz, const double l, const double b)
-{
-	double cl, sl, cb, sb;
-	cl = cos(l);
-	sl = sin(l);
-	cb = cos(b);
-	sb = sin(b);
-
-	float tmp;
-	vl  =  vx*sl  - vy*cl;
-	tmp =  vx*cl  + vy*sl;
-	vr  = -cb*tmp + vz*sb;
-	vb  =  sb*tmp + vz*cb;
-}
-
-void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
-{
-	// convert galactocentric cylindrical to cartesian velocities
-	float rho = sqrt(X*X + Y*Y);
-	float cphi = X / rho;
-	float sphi = Y / rho;
-
-	vx = -sphi * vr + cphi * vphi;
-	vy =  cphi * vr + sphi * vphi;
-	vz = vz0;
-}
 
 // template<typename T>
 // void array_copy(T *dest, const T *src, const size_t n)
@@ -1259,70 +1067,7 @@ void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vp
 // 	FOR(0, n) { dest[i] = src[i]; }
 // }
 
-size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
-	//
-	// OUTPUT:
-	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
-	//	Radial velocity in km/s in pm[2]
-	using namespace column_types;
-	ct::cdouble &lb0 = in.col<double>("lb");
-	ct::cfloat  &XYZ  = in.col<float>("XYZ");
-	ct::cfloat  &vcyl = in.col<float>("vcyl");
-	ct::cfloat  &pmlb = in.col<float>("pmlb");
 
-	for(size_t row=begin; row != end; row++)
-	{
-		// fetch prerequisites
-		double l = rad(lb0(row, 0));
-		double b = rad(lb0(row, 1));
-		float X = XYZ(row, 0);
-		float Y = XYZ(row, 1);
-		float Z = XYZ(row, 2);
-		float vx = vcyl(row, 0);
-		float vy = vcyl(row, 1);
-		float vz = vcyl(row, 2);
-
-		// convert the velocities from cylindrical to galactocentric cartesian system
-		float pm[3];
-		vel_cyl2xyz(pm[0], pm[1], pm[2],   vx, vy, vz,   X, Y);
-
-		// switch to Solar coordinate frame
-		pm[0] -= u0;
-		pm[1] -= v0 + vLSR;
-		pm[2] -= w0;
-
-		// convert to velocities wrt. the observer
-		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
-
-		// convert to proper motions
-		float D = sqrt(sqr(X) + sqr(Y) + sqr(Z));
-		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
-		pm[1] /= 4.74 * D*1e-3;
-
-		// rotate to output coordinate system
-		switch(coordsys)
-		{
-		case GAL:
-//			array_copy(s.pmlb(), pm, 3);
-			pmlb(row, 0) = pm[0];
-			pmlb(row, 1) = pm[1];
-			pmlb(row, 2) = pm[2];
-			break;
-		case EQU:
-			THROW(EAny, "Output in equatorial system not implemented yet.");
-			//array_copy(s.pmradec(), pm, 3);
-			break;
-		default:
-			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
-			break;
-		}
-	}
-
-	return nextlink->process(in, begin, end, rng);
-}
 
 #if 0
 #if GPU
@@ -1445,24 +1190,6 @@ bool os_vel2pm::init(const Config &cfg, otable &t)
 }
 #endif
 #endif
-
-bool os_vel2pm::init(const Config &cfg, otable &t)
-{
-	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	std::string cs;
-	cfg.get(cs, "coordsys", "gal");
-	     if(cs == "gal") { coordsys = GAL; prov.insert("pmlb[3]"); }
-	else if(cs == "equ") { coordsys = EQU; prov.insert("pmradec[3]"); }
-	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
-
-	// LSR and peculiar Solar motion
-	cfg.get(vLSR, "vLSR", -220.0f);
-	cfg.get(u0,   "u0",    -10.0f);
-	cfg.get(v0,   "v0",     -5.3f);
-	cfg.get(w0,   "w0",      7.2f);
-
-	return true;
-}
 
 /////////////////////////////////////////////////////////////
 

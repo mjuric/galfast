@@ -7,7 +7,7 @@
 
 // Possible states
 // #define HAVE_CUDA 1 -- CUDA support is on
-// 	#define BUILD_FOR_CPU 1	-- build CPU versions of kernels
+//	#define BUILD_FOR_CPU 1	-- build CPU versions of kernels
 //
 // Note: __CUDACC__ will never be defined when BUILD_FOR_CPU is defined
 //

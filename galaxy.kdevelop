@@ -33,6 +33,8 @@
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
+        <envvar value="0" name="CUDA_DEVEMU" />
+        <envvar value="0" name="CUDA_DEVICE" />
       </envvars>
       <runarguments>
         <unique.x/>
@@ -57,7 +59,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>postprocess postprocess.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/galaxy/tests/os_photometry</globalcwd>
+      <globalcwd>/home/kreso/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>

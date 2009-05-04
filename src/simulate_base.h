@@ -27,6 +27,14 @@ struct os_FeH_data
 	float Hmu, muInf, DeltaMu;
 };
 
+struct os_vel2pm_data
+{
+	int coordsys;
+
+	float vLSR,		// Local standard of rest velocity
+ 	      u0, v0, w0;	// Solar peculiar motion
+};
+
 static const int GAL = 0;
 static const int EQU = 1;
 

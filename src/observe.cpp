@@ -1450,8 +1450,11 @@ size_t os_textin::run(otable &t, rng_t &rng)
 		t.clear();
 		t.unserialize_body(in.in());
 		swatch.stop();
-		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
-		total += nextlink->process(t, 0, t.size(), rng);
+		if(t.size() > 0)
+		{
+			static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
+			total += nextlink->process(t, 0, t.size(), rng);
+		}
 	} while(in.in());
 
 	return total;
@@ -1672,6 +1675,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 99999;
 //	static const size_t Kbatch = 500000;
 //	static const size_t Kbatch = 2500000 / 2;
+//	static const size_t Kbatch = 735000;
 	static const size_t Kbatch = 100000;
 	otable t(Kbatch);
 

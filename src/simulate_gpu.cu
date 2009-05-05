@@ -49,31 +49,63 @@ KERNEL(
 	uint32_t tid = threadID();
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+//		FeH[row] = -((threadID() % 300) / 100.f);
+// 		float temp = -rng.uniform();
+// 		FeH[row] = temp;
+// 		continue;
+
+//		feh = -comp[row]; FeH[row] = feh; continue;
 		float feh;
-		switch(comp[row])
+		int component = comp[row];
+#if 1
+		if(component < 2)
 		{
-			case 0: // BahcallSoneira_model::THIN:
-			case 1: // BahcallSoneira_model::THICK:
-			{
-				// choose the gaussian to draw from
-				float p = rng.uniform()*(par.A[0]+par.A[1]);
-				int i = p < par.A[0] ? 0 : 1;
+			// choose the gaussian to draw from
+			float p = rng.uniform()*(par.A[0]+par.A[1]);
+			int i = p < par.A[0] ? 0 : 1;
 
-				// calculate mean
-				float muD = par.muInf + par.DeltaMu*exp(-fabs(XYZ(row, 2))/par.Hmu);		// Bond et al. A2
-				float aZ = muD - 0.067f;
+			// calculate mean
+			float muD = par.muInf + par.DeltaMu*exp(-fabs(XYZ(row, 2))/par.Hmu);		// Bond et al. A2
+			float aZ = muD - 0.067f;
 
-				// draw
-				feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
-			} break;
-			case 2: //BahcallSoneira_model::HALO:
-				feh = par.offs[2] + rng.gaussian(par.sigma[2]);
-				break;
-			default:
-				//THROW(ENotImplemented, "We should have never gotten here");
-				feh = -9999.f;
-				break;
+			// draw
+			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
 		}
+		else if(component == 2)
+		{
+			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
+		}
+		else
+		{
+			feh = -9999.f;
+		}
+#else
+		/*
+			This chunk of code appears to compile incorrectly with CUDA 2.1 nvcc (V0.2.1221).
+			Expected result of running with below: feh=1 when comp=1, 0 otherwise.
+			Actual result: feh=comp when comp=1,2
+		*/
+		feh = 0.f;
+		switch(component)
+		{
+/*			case 2: //BahcallSoneira_model::HALO:
+				feh = -2.f;
+				break;*/
+			case 3: // BahcallSoneira_model::THIN:
+				feh = -3.0f;
+				break;
+			case 1: // BahcallSoneira_model::THICK:
+				feh = component;
+				break;
+			case 4: // BahcallSoneira_model::THIN:
+				feh = -4.0f;
+				break;
+/*			default:
+				//THROW(ENotImplemented, "We should have never gotten here");
+				feh = -9.f;
+				break;*/
+		}
+#endif
 		FeH[row] = feh;
 	}
 	rng.store(ks);
@@ -134,7 +166,7 @@ KERNEL(
 	rng.load(ks);
 	uint32_t tid = threadID();
 
-	for(uint32_t row=ks.row_begin(); row != ks.row_end(); row++)
+	for(uint32_t row=ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// fetch prerequisites
 		double l = radDouble(lb0(row, 0));

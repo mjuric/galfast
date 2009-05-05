@@ -64,6 +64,10 @@ struct rng_mwc
 
 	static void init(rng_t &rng)
 	{
+		static bool initialized = false;
+		if(initialized) { return; }
+		initialized = true;
+
 		nstreams = 1<<16;
 		cpu_streams = new uint32_t[3*nstreams];
 

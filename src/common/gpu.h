@@ -182,7 +182,7 @@ struct tptr : public xptr
 	static const uint32_t align = 256;	// default byte alignment
 
 	tptr(size_t ncol = 0, size_t nrow = 0) : xptr(sizeof(T), ncol, nrow, align) {}
-	void alloc(size_t ncol, size_t nrow) { xptr::alloc(-1, ncol, nrow); }
+	void alloc(size_t ncol, size_t nrow) { xptr::alloc((size_t)-1, ncol, nrow); }
 
 	T &operator()(const size_t col, const size_t row)
 	{
@@ -425,15 +425,20 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 		void cpu_##kDecl; \
 		void KERNEL_NAME(kDecl) \
 		{ \
-			const int threadsPerBlock = 32; \
-			threadIdx.x = 0; \
+			int dynShmemPerThread = shmemPerThread;      /* built in the algorithm */ \
+		        int staticShmemPerBlock = 96;   /* read from .cubin file */ \
+		        int threadsPerBlock = 192;      /* TODO: This should be computed as well */ \
+			calculate_grid_parameters((dim3 &)gridDim, threadsPerBlock, ks.nthreads(), dynShmemPerThread, staticShmemPerBlock); \
+			\
+			kernelRunSwatch.start(); \
+			threadIdx.x = threadIdx.y = threadIdx.z = 0; \
 			blockIdx.x = blockIdx.y = blockIdx.z = 0; \
 			blockDim.x = threadsPerBlock; blockDim.y = blockDim.z = 1; \
-			gridDim.x = 512; gridDim.y = 512; gridDim.z = 1; \
-			kernelRunSwatch.start(); \
 			for(uint32_t __i=0; __i != ks.nthreads(); __i++) \
 			{ \
 				if(0) { MLOG(verb1) << "t(" << threadIdx.x << "), b(" << blockIdx.x << "," << blockIdx.y << "," << blockIdx.z << ")"; } \
+				if(0) { MLOG(verb1) << "  db(" << blockDim.x << "," << blockDim.y << "," << blockDim.z << ")"; } \
+				if(0) { MLOG(verb1) << "  dg(" << gridDim.x << "," << gridDim.y << "," << gridDim.z << ")"; } \
 				cpu_##kName kArgs; \
 				threadIdx.x++; \
 				if(threadIdx.x == blockDim.x) { threadIdx.x = 0; blockIdx.x++; } \
@@ -500,28 +505,6 @@ struct gpu_rng_t
 
 	__device__ float uniform() const
 	{
-#if 0
-		#define IA 16807
-		#define IM 2147483647
-		#define AM (1.0f/IM)
-		#define IQ 127773
-		#define IR 2836
-		#define MASK 123459876
-		#define idum ((int32_t*)shmem)[threadIdx.x]
-
-		int32_t k;
-		float ans;
-
-		idum ^= MASK;			// XORing with MASK allows use of zero and other
-		k=idum/IQ;			// simple bit patterns for idum.
-		idum=IA*(idum-k*IQ)-IR*k;	// Compute idum=(IA*idum) % IM without over-
-		if (idum < 0) idum += IM;	// flows by Schrage's method.
-		ans=AM*idum; 			// Convert idum to a floating result.
-		idum ^= MASK; 			// Unmask before return.
-
-		#undef idum
-		return ans;
-#else
 		/*
 			Marsaglia's Multiply-With-Carry RNG. For theory and details see:
 			
@@ -533,26 +516,14 @@ struct gpu_rng_t
 		#define c  (((uint32_t*)shmem)[  blockDim.x + threadIdx.x])
 		#define xn (((uint32_t*)shmem)[2*blockDim.x + threadIdx.x])
 
-#if 1
 		uint64_t xnew = (uint64_t)a*xn + c;
 		c = xnew >> 32;
 		xn = (xnew << 32) >> 32;
 		return 2.32830643708e-10f * xn;
-#else
-		// Experimental code: this is how it would be done in optimal(ish) PTX,
-		//   if nvcc allowed it...
-		asm {
-			mad.wide.u32 xnew, a, xn, c		// a*xn + c and store the result into 64bit register
-			cvt.u32.u64 xn, xnew			// take the bottom 32 bits -- this is new xn
-			shr.u64 xnew, 32			// take the top 32 bits -- this is the new carry
-			cvt.u32.u64 c, xnew			//
-		}
-		return 2.32830643708e-10f * xn;
-#endif
+
 		#undef a
 		#undef c
 		#undef xn
-#endif
 	}
 
 	__device__ float uniform_pos() const

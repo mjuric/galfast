@@ -52,13 +52,15 @@ KERNEL(
 //		FeH[row] = -((threadID() % 300) / 100.f);
 // 		float temp = -rng.uniform();
 // 		FeH[row] = temp;
-// 		continue;
+// 		continue; 
 
 //		feh = -comp[row]; FeH[row] = feh; continue;
 		float feh;
 		int component = comp[row];
 #if 1
-		if(component < 2)
+		if (component==0) //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			feh=0;
+		else if(component < 2)
 		{
 			// choose the gaussian to draw from
 			float p = rng.uniform()*(par.A[0]+par.A[1]);
@@ -69,7 +71,7 @@ KERNEL(
 			float aZ = muD - 0.067f;
 
 			// draw
-			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];
+			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
 		}
 		else if(component == 2)
 		{
@@ -85,7 +87,9 @@ KERNEL(
 			Expected result of running with below: feh=1 when comp=1, 0 otherwise.
 			Actual result: feh=comp when comp=1,2
 		*/
-		feh = 0.f;
+		feh = float(component);
+		//FeH[row] = feh;
+		//continue;
 		switch(component)
 		{
 /*			case 2: //BahcallSoneira_model::HALO:
@@ -95,7 +99,7 @@ KERNEL(
 				feh = -3.0f;
 				break;
 			case 1: // BahcallSoneira_model::THICK:
-				feh = component;
+				feh = component-1;
 				break;
 			case 4: // BahcallSoneira_model::THIN:
 				feh = -4.0f;

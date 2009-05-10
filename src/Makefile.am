@@ -59,8 +59,8 @@ merge_volumes_x_LDADD = $(top_builddir)/src/common/libcommon.a
 fitscatread_x_SOURCES =  fitscatread.cpp
 fitscatread_x_LDADD = $(top_builddir)/src/common/libcommon.a
 mlcolor_x_LDADD = $(top_builddir)/src/common/libcommon.a
-simulate_x_SOURCES = observe.cpp observe_FeH.cpp observe_vel2pm.cpp \
-	simulate.cpp simulate.h simulate2.cpp simulate_cpu.cpp simulate_gpu.cu
+simulate_x_SOURCES = observe.cpp observe_FeH.cpp observe_kinTMIII.cpp \
+	observe_vel2pm.cpp simulate.cpp simulate.h simulate2.cpp simulate_cpu.cpp simulate_gpu.cu
 simulate_x_LDADD = $(top_builddir)/src/gpc/libgpc.a \
 	$(top_builddir)/src/common/libcommon.a
 locusfit_x_SOURCES =  locusfit.cpp

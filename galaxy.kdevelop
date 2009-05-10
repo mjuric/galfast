@@ -33,7 +33,7 @@
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
-        <envvar value="0" name="CUDA_DEVICE" />
+        <envvar value="-1" name="CUDA_DEVICE" />
       </envvars>
       <runarguments>
         <unique.x/>

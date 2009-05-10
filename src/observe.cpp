@@ -241,54 +241,8 @@ void print_matrix(gsl_matrix *m)
   fprintf(stderr, "\n");
 }
 
-struct trivar_gauss
-{
-	gsl_matrix *A;
-	gsl_vector *Z;
-
-	trivar_gauss()
-	{
-		A = gsl_matrix_alloc(3, 3);
-		Z = gsl_vector_alloc(3);
-
-		gsl_matrix_set_zero(A);
-	}
-
-	void set(double s11, double s12, double s13, double s22, double s23, double s33)
-	{
-		// populate A (assumes the upper triang is already 0), calculate Cholesky decomp
-		gsl_matrix_set(A, 0, 0, sqr(s11));
-		gsl_matrix_set(A, 1, 0,     s12 ); gsl_matrix_set(A, 1, 1, sqr(s22));
-		gsl_matrix_set(A, 2, 0,     s13 ); gsl_matrix_set(A, 2, 1,     s23 ); gsl_matrix_set(A, 2, 2, sqr(s33));
-		//print_matrix(A);
-
-		int status = gsl_linalg_cholesky_decomp(A);
-		ASSERT(status == 0);
-		//print_matrix(A); std::cerr << "status=" << status << "\n";
-	}
-
-	void draw(gsl_vector *y, rng_t &rng, bool zero = false)
-	{
-		gsl_vector_set(Z, 0, rng.gaussian(1.));
-		gsl_vector_set(Z, 1, rng.gaussian(1.));
-		gsl_vector_set(Z, 2, rng.gaussian(1.));
-
-		if(zero) { gsl_vector_set_zero(y); }
-		//gsl_blas_dgemv(CblasNoTrans, 1., A, Z, 1., y);
-		gsl_blas_dtrmv(CblasLower, CblasNoTrans, CblasNonUnit, A, Z);
-		gsl_vector_add(y, Z);
-		//std::cout << "XXXXX: " << y->data[0] << " " << y->data[1] << " " << y->data[2] << "\n";
-	}
-
-	~trivar_gauss()
-	{
-		gsl_vector_free(Z);
-		gsl_matrix_free(A);
-	}
-};
-
 // add kinematic information
-class os_kinTMIII : public osink
+class os_kinTMIII_OLD : public osink
 {
 	protected:
 		typedef std::vector<double> dvec;
@@ -314,7 +268,7 @@ class os_kinTMIII : public osink
 		virtual bool init(const Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
-		os_kinTMIII() : osink()
+		os_kinTMIII_OLD() : osink()
 		{
 			prov.insert("vcyl");
 			req.insert("comp");
@@ -331,7 +285,7 @@ void test_kin()
 // 	printf("%.10f\n", deg(l));
 // 	exit(-1);
 
-	os_kinTMIII o;
+	os_kinTMIII_OLD o;
 
 	Config cfg;
 	o.init(cfg);
@@ -365,7 +319,26 @@ void test_kin()
 }
 #endif
 
-size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
+template<typename T>
+	int split(T& arr, const std::string &text)
+{
+	typename T::value_type tmp;
+	std::stringstream ss(text);
+
+	arr.clear();
+	while(ss >> tmp) { arr.push_back(tmp); }
+	return arr.size();
+}
+
+template<typename T>
+	T split(const std::string &text)
+{
+	T ret;
+	split(ret, text);
+	return ret;
+}
+
+size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
@@ -410,31 +383,9 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-template<typename T>
-	int split(T& arr, const std::string &text)
-{
-	typename T::value_type tmp;
-	std::stringstream ss(text);
 
-	arr.clear();
-	while(ss >> tmp) { arr.push_back(tmp); }
-	return arr.size();
-}
 
-template<typename T>
-	T split(const std::string &text)
-{
-	T ret;
-	split(ret, text);
-	return ret;
-}
-
-inline double modfun(double Rsquared, double Z, double a, double b, double c, double d, double e)
-{
-	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
-}
-
-void os_kinTMIII::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng)
+void os_kinTMIII_OLD::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng)
 {
 	// compute velocity dispersions at this position, and draw from trivariate gaussian
 	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
@@ -449,7 +400,7 @@ void os_kinTMIII::add_dispersion(double v[3], double Rsquared, double Z, dvec *e
 	tri_rnd.draw(vv, rng);
 }
 
-void os_kinTMIII::compute_means(double v[3], double Rsquared, double Z, dvec *means[3])
+void os_kinTMIII_OLD::compute_means(double v[3], double Rsquared, double Z, dvec *means[3])
 {
 	// returns means in v[3]
 	FOR(0, 3)
@@ -459,7 +410,7 @@ void os_kinTMIII::compute_means(double v[3], double Rsquared, double Z, dvec *me
 	}
 }
 
-void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian)
+void os_kinTMIII_OLD::get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian)
 {
 	// set up which gaussian are we drawing from
 	double p = rng.uniform();
@@ -483,7 +434,7 @@ void os_kinTMIII::get_disk_kinematics(double v[3], double Rsquared, double Z, rn
 	add_dispersion(v, Rsquared, Z, diskEllip, rng);
 }
 
-void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng)
+void os_kinTMIII_OLD::get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng)
 {
 	compute_means(v, Rsquared, Z, haloMeans);
 	add_dispersion(v, Rsquared, Z, haloEllip, rng);
@@ -491,7 +442,7 @@ void os_kinTMIII::get_halo_kinematics(double v[3], double Rsquared, double Z, rn
 
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
-bool os_kinTMIII::init(const Config &cfg, otable &t)
+bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
 {
 	cfg.get(fk           , "fk"           , 3.0);
 	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0);
@@ -1475,7 +1426,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
 //	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
-	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
+	else if(name == "kinTMIII") { s.reset(new os_kinTMIII_OLD); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 
 	ASSERT(name == s->name());

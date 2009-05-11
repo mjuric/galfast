@@ -29,7 +29,6 @@
 #include <boost/lambda/lambda.hpp>
 #include <sstream>
 
-#include "simulate_base.h"
 #include "simulate.h"
 #include "projections.h"
 #include "model.h"
@@ -38,6 +37,7 @@
 #include "dm.h"
 #include "io.h"
 #include "gpu.h"
+#include "simulate_base.h"
 
 #include <vector>
 #include <map>

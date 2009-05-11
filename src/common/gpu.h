@@ -529,7 +529,10 @@ struct gpu_rng_t
 	__device__ float uniform_pos() const
 	{
 		float x;
-		do { x = uniform(); } while (x == 0.f);
+		do { 
+			x = uniform(); 
+			} 
+		while (x == 0.f);
 		return x;
 	}
 

@@ -35,6 +35,12 @@
 
 namespace ct = column_types;
 
+//======================================================================
+//======================================================================
+//    FeH
+//======================================================================
+//======================================================================
+
 KERNEL(
 	ks, 3*4,
 	os_FeH_kernel(
@@ -116,6 +122,12 @@ KERNEL(
 	rng.store(ks);
 }
 
+//======================================================================
+//======================================================================
+//    vel2pm
+//======================================================================
+//======================================================================
+
 inline __device__ double sqrDouble(double x) { return x*x;}
 
 static const double degToRadCoef=0.0174532925;//PI/180
@@ -155,9 +167,8 @@ inline __device__ void vel_xyz2lbr(
 	vb  =  sb*tmp + vz*cb;
 }
 
-/// !!!!! 3*4 FIX-.. calculate correct value !!!!!!!!!
 KERNEL(
-	ks, 3*4, 
+	ks, 0, 
 	os_vel2pm_kernel(
 		otable_ks ks, os_vel2pm_data par, gpu_rng_t rng, 
 		ct::cdouble::gpu_t lb0, 
@@ -168,8 +179,6 @@ KERNEL(
 	(ks, par, rng, lb0, XYZ, vcyl,pmlb)
 )
 {
-	rng.load(ks);
-	uint32_t tid = threadID();
 
 	for(uint32_t row=ks.row_begin(); row < ks.row_end(); row++)
 	{
@@ -218,8 +227,6 @@ KERNEL(
 			break;
 		}
 	}
-
-	rng.store(ks);
 }
 
 
@@ -228,14 +235,41 @@ KERNEL(
 //    kinTMIII
 //======================================================================
 //======================================================================
+float __device__ sqrf(float x) { return x*x;}	
+
 #if 1
 
 #define K_IO
 #define K_OUT
 
-__device__ inline float modfun(float Rsquared, float Z, float a, float b, float c, float d, float e)
+void __device__ trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
+{		
+	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!	
+	float b10=s12;      float b11=sqrf(s22); 
+	float b20=s13;      float b21=s23;      float b22=sqrf(s33);
+	
+	float a00=s11; float oneDivA00=1.0f/a00;
+		float a10=( b10 ) * oneDivA00;	
+	
+	float a11=sqrtf( b11 - a10*a10 );
+		float a20=( b20 ) * oneDivA00;
+		float a21=(b21 - a20*a10)/a11;		
+
+	float a22=sqrtf( b22 - a20*a20 - a21*a21);				
+		
+	float z0=rng.gaussian(1.0f);
+	float z1=rng.gaussian(1.0f);
+	float z2=rng.gaussian(1.0f);
+
+	y[0]+=a00*z0;
+	y[1]+=a10*z0+a11*z1;
+	y[2]+=a20*z0+a21*z1+a22*z2;
+}
+
+
+__device__ inline float modfun(float Rsquared, float Z, farray5 val)
 {
-	return a + b*powf(fabs(Z), c) + d*powf(Rsquared, 0.5*e);
+	return val[0] + val[1]*powf(fabs(Z), val[2]) + val[3]*powf(Rsquared, 0.5*val[4]);
 }
 
 __device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, farray5 ellip[6],K_IO gpu_rng_t &rng)
@@ -243,26 +277,17 @@ __device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, farray5
 	// compute velocity dispersions at this position, and draw from trivariate gaussian
 	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
 	float sigma[6];
-	for (int i=0;i<6;i++)
-	{
-		farray5 &p = ellip[i];
-		sigma[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
-	}
-	
-	//gsl_vector *vv = &gsl_vector_view_array(v, 3).vector;
-	//tri_rnd.set();
-	trivar_gaussK tri_rnd;  
-	tri_rnd.draw(v, sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5], rng);
+	for (int i=0;i<6;i++)		
+		sigma[i] = modfun(Rsquared, Z, ellip[i]);	
+			
+	trivar_gaussK_draw(v, sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5], rng);
 }
 
 __device__ void compute_means(K_OUT float v[3], float Rsquared, float Z, farray5 means[3])
 {
 	// returns means in v[3]
-	for (int i=0;i<3;i++) 
-	{
-		farray5 &p = means[i];
-		v[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
-	}
+	for (int i=0;i<3;i++) 	
+		v[i] = modfun(Rsquared, Z, means[i]);	
 }
 
 __device__ void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng,
@@ -324,8 +349,7 @@ KERNEL(
 	os_kinTMIII_data par;
 
 	iarray_to_farray(par.vR, par_int.vR);
-    iarray_to_farray(par.vPhi1, par_int.vPhi1);
-	iarray_to_farray(par.vPhi2, par_int.vPhi2);
+    iarray_to_farray(par.vPhi1, par_int.vPhi1);	
     iarray_to_farray(par.vZ, par_int.vZ);
     iarray_to_farray(par.sigmaRR, par_int.sigmaRR);
     iarray_to_farray(par.sigmaRPhi, par_int.sigmaRPhi);
@@ -334,6 +358,9 @@ KERNEL(
     iarray_to_farray(par.sigmaPhiPhi2, par_int.sigmaPhiPhi2);
     iarray_to_farray(par.sigmaZPhi, par_int.sigmaZPhi);
     iarray_to_farray(par.sigmaZZ, par_int.sigmaZZ);
+
+	// v2 is v1 + DeltavPhi, which is what this does.
+	par.vPhi2 = par.vPhi1; par.vPhi2[0] += par_int.DeltavPhi;	
 
   	i8array_to_farray(par.HvR, par_int.HvR);
 	i8array_to_farray(par.HvPhi, par_int.HvPhi);
@@ -346,29 +373,6 @@ KERNEL(
 	i8array_to_farray(par.HsigmaZZ, par_int.HsigmaZZ);
 
 	par.fk=par_int.fk;
-	par.DeltavPhi=par_int.DeltavPhi;
-
-	/*os_kinTMIII_data_grouped par_grp;
-
-	par_grp.diskMeans[0] = &par.vR;
-	par_grp.diskMeans[1] = &par.vPhi1;
-	par_grp.diskMeans[2] = &par.vZ;
-	par_grp.diskEllip[0] = &par.sigmaRR;
-	par_grp.diskEllip[1] = &par.sigmaRPhi;
-	par_grp.diskEllip[2] = &par.sigmaRZ;
-	par_grp.diskEllip[3] = &par.sigmaPhiPhi1;
-	par_grp.diskEllip[4] = &par.sigmaZPhi;
-	par_grp.diskEllip[5] = &par.sigmaZZ;
-
-	par_grp.haloMeans[0] = &par.HvR;
-	par_grp.haloMeans[1] = &par.HvPhi;
-	par_grp.haloMeans[2] = &par.HvZ;
-	par_grp.haloEllip[0] = &par.HsigmaRR;
-	par_grp.haloEllip[1] = &par.HsigmaRPhi;
-	par_grp.haloEllip[2] = &par.HsigmaRZ;
-	par_grp.haloEllip[3] = &par.HsigmaPhiPhi;
-	par_grp.haloEllip[4] = &par.HsigmaZPhi;
-	par_grp.haloEllip[5] = &par.HsigmaZZ;*/
 
 	farray5 diskEllip[6], haloEllip[6], diskMeans[3], haloMeans[3];
 
@@ -411,13 +415,10 @@ KERNEL(
 		{
 			case BahcallSoneira_model_THIN:
 			case BahcallSoneira_model_THICK:
-				//getDiskKinematics(v[0], v[1], v[2], Z, rng);
-				get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans,diskEllip);
+				get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
 				break;
-			case BahcallSoneira_model_HALO:
-				//getHaloKinematics(v[0], v[1], v[2], Z, rng);
-//void get_halo_kinematics(float v[3], float Rsquared, float Z, gpu_rng_t &rng, farray5 *haloEllip[6], farray5 *haloMeans[3],trivar_gaussK& tri_rnd 				
-				get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans,haloEllip);
+			case BahcallSoneira_model_HALO:		
+				get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans, haloEllip);
 				break;
 			//default:
 				//THROW(ENotImplemented, "We should have never gotten here");
@@ -429,6 +430,12 @@ KERNEL(
 	rng.store(ks);
 }
 #endif
+
+//======================================================================
+//======================================================================
+//    equgal
+//======================================================================
+//======================================================================
 
 // equgal - Equatorial to Galactic coordinates
 using namespace peyton;

@@ -53,7 +53,7 @@ class os_fixedFeH : public osink
 
 // convert velocities to proper motions
 class os_vel2pm : public osink , public os_vel2pm_data
-{
+{	
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool init(const Config &cfg, otable &t);
@@ -70,15 +70,9 @@ public:
 	
 
 // add kinematic information
-class os_kinTMIII : public osink, os_kinTMIII_data, os_kinTMIII_data_groupedA
+class os_kinTMIII : public osink, os_kinTMIII_data
 {	
-	public:
-		void add_dispersion(float v[3], float Rsquared, float Z, farray5 *ellip[6], gpu_rng_t &rng);
-		void compute_means(float v[3], float Rsquared, float Z, farray5 *means[3]);
-
-		void get_disk_kinematics(float v[3], float Rsquared, float Z, gpu_rng_t &rng, bool &firstGaussian);
-		void get_halo_kinematics(float v[3], float Rsquared, float Z, gpu_rng_t &rng);
-
+	float DeltavPhi;
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool init(const Config &cfg, otable &t);

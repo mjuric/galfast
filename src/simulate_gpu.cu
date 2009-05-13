@@ -65,9 +65,10 @@ KERNEL(
 		float feh;
 		int component = comp[row];
 #if 1
-		if (component==0) //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/*		if (component==0) //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 			feh=0;
-		else if(component < 2)
+		else*/
+		if(component < 2)
 		{
 			// choose the gaussian to draw from
 			float p = rng.uniform()*(par.A[0]+par.A[1]);
@@ -333,46 +334,49 @@ __device__ void i8array_to_farray(farray5& fa, i8array5& ia)
 		fa[i]=ia[i]*10.0f;
 }
 
+__device__ __constant__ os_kinTMIII_data os_kinTMIII_par;
+
 KERNEL(
 	ks, 3*4,
 	os_kinTMIII_kernel(
-		otable_ks ks, os_kinTMIII_data_int par_int, gpu_rng_t rng, 
+		otable_ks ks, gpu_rng_t rng, 
 		ct::cint::gpu_t comp, 
 		ct::cfloat::gpu_t XYZ, 
 		ct::cfloat::gpu_t vcyl),
 	os_kinTMIII_kernel,
-	(ks, par_int, rng, comp, XYZ, vcyl)
+	(ks, rng, comp, XYZ, vcyl)
 )
 {
 	rng.load(ks); 
+#define par os_kinTMIII_par
+//	os_kinTMIII_data par;
 
-	os_kinTMIII_data par;
-
-	iarray_to_farray(par.vR, par_int.vR);
-    iarray_to_farray(par.vPhi1, par_int.vPhi1);	
-    iarray_to_farray(par.vZ, par_int.vZ);
-    iarray_to_farray(par.sigmaRR, par_int.sigmaRR);
-    iarray_to_farray(par.sigmaRPhi, par_int.sigmaRPhi);
-    iarray_to_farray(par.sigmaRZ, par_int.sigmaRZ);
-    iarray_to_farray(par.sigmaPhiPhi1, par_int.sigmaPhiPhi1);
-    iarray_to_farray(par.sigmaPhiPhi2, par_int.sigmaPhiPhi2);
-    iarray_to_farray(par.sigmaZPhi, par_int.sigmaZPhi);
-    iarray_to_farray(par.sigmaZZ, par_int.sigmaZZ);
+// 	iarray_to_farray(par.vR, par_int.vR);
+//     iarray_to_farray(par.vPhi1, par_int.vPhi1);	
+//     iarray_to_farray(par.vZ, par_int.vZ);
+//     iarray_to_farray(par.sigmaRR, par_int.sigmaRR);
+//     iarray_to_farray(par.sigmaRPhi, par_int.sigmaRPhi);
+//     iarray_to_farray(par.sigmaRZ, par_int.sigmaRZ);
+//     iarray_to_farray(par.sigmaPhiPhi1, par_int.sigmaPhiPhi1);
+//     iarray_to_farray(par.sigmaPhiPhi2, par_int.sigmaPhiPhi2);
+//     iarray_to_farray(par.sigmaZPhi, par_int.sigmaZPhi);
+//     iarray_to_farray(par.sigmaZZ, par_int.sigmaZZ);
 
 	// v2 is v1 + DeltavPhi, which is what this does.
-	par.vPhi2 = par.vPhi1; par.vPhi2[0] += par_int.DeltavPhi;	
+// 	par.vPhi2 = par.vPhi1;
+// 	par.vPhi2[0] += par.DeltavPhi;
 
-  	i8array_to_farray(par.HvR, par_int.HvR);
-	i8array_to_farray(par.HvPhi, par_int.HvPhi);
-	i8array_to_farray(par.HvZ, par_int.HvZ);
-	i8array_to_farray(par.HsigmaRR, par_int.HsigmaRR);
-	i8array_to_farray(par.HsigmaRPhi, par_int.HsigmaRPhi);
-	i8array_to_farray(par.HsigmaRZ, par_int.HsigmaRZ);
-	i8array_to_farray(par.HsigmaPhiPhi, par_int.HsigmaPhiPhi);
-	i8array_to_farray(par.HsigmaZPhi, par_int.HsigmaZPhi);
-	i8array_to_farray(par.HsigmaZZ, par_int.HsigmaZZ);
-
-	par.fk=par_int.fk;
+//   	i8array_to_farray(par.HvR, par_int.HvR);
+// 	i8array_to_farray(par.HvPhi, par_int.HvPhi);
+// 	i8array_to_farray(par.HvZ, par_int.HvZ);
+// 	i8array_to_farray(par.HsigmaRR, par_int.HsigmaRR);
+// 	i8array_to_farray(par.HsigmaRPhi, par_int.HsigmaRPhi);
+// 	i8array_to_farray(par.HsigmaRZ, par_int.HsigmaRZ);
+// 	i8array_to_farray(par.HsigmaPhiPhi, par_int.HsigmaPhiPhi);
+// 	i8array_to_farray(par.HsigmaZPhi, par_int.HsigmaZPhi);
+// 	i8array_to_farray(par.HsigmaZZ, par_int.HsigmaZZ);
+/*
+	par.fk=par_int.fk;*/
 
 	farray5 diskEllip[6], haloEllip[6], diskMeans[3], haloMeans[3];
 
@@ -428,6 +432,7 @@ KERNEL(
 		vcyl(row, 2) = tmp[2];
 	}
 	rng.store(ks);
+#undef par
 }
 #endif
 

@@ -94,8 +94,10 @@ void farray_to_i8array(farray5& fa, i8array5& ia)
 		ia[i]=char(fa[i]/10);
 }
 
+extern os_kinTMIII_data os_kinTMIII_par;
+
 DECLARE_KERNEL(
-	os_kinTMIII_kernel(otable_ks ks, os_kinTMIII_data_int par_int, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t vcyl))
+	os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t vcyl))
 size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -108,33 +110,45 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &XYZ   = in.col<float>("XYZ");
 	cfloat &vcyl   = in.col<float>("vcyl");
 
-	os_kinTMIII_data_int par_int;
-	
-	farray_to_iarray(vR, par_int.vR);
-    farray_to_iarray(vPhi1, par_int.vPhi1);
-    farray_to_iarray(vZ, par_int.vZ);
-    farray_to_iarray(sigmaRR, par_int.sigmaRR);
-    farray_to_iarray(sigmaRPhi, par_int.sigmaRPhi);
-    farray_to_iarray(sigmaRZ, par_int.sigmaRZ);
-    farray_to_iarray(sigmaPhiPhi1, par_int.sigmaPhiPhi1);
-    farray_to_iarray(sigmaPhiPhi2, par_int.sigmaPhiPhi2);
-    farray_to_iarray(sigmaZPhi, par_int.sigmaZPhi);
-    farray_to_iarray(sigmaZZ, par_int.sigmaZZ);
+// 	os_kinTMIII_data_int par_int;
+// 	
+// 	farray_to_iarray(vR, par_int.vR);
+//     farray_to_iarray(vPhi1, par_int.vPhi1);
+//     farray_to_iarray(vZ, par_int.vZ);
+//     farray_to_iarray(sigmaRR, par_int.sigmaRR);
+//     farray_to_iarray(sigmaRPhi, par_int.sigmaRPhi);
+//     farray_to_iarray(sigmaRZ, par_int.sigmaRZ);
+//     farray_to_iarray(sigmaPhiPhi1, par_int.sigmaPhiPhi1);
+//     farray_to_iarray(sigmaPhiPhi2, par_int.sigmaPhiPhi2);
+//     farray_to_iarray(sigmaZPhi, par_int.sigmaZPhi);
+//     farray_to_iarray(sigmaZZ, par_int.sigmaZZ);
+// 
+// 	farray_to_i8array(HvR, par_int.HvR);
+// 	farray_to_i8array(HvPhi, par_int.HvPhi);
+// 	farray_to_i8array(HvZ, par_int.HvZ);
+// 	farray_to_i8array(HsigmaRR, par_int.HsigmaRR);
+// 	farray_to_i8array(HsigmaRPhi, par_int.HsigmaRPhi);
+// 	farray_to_i8array(HsigmaRZ, par_int.HsigmaRZ);
+// 	farray_to_i8array(HsigmaPhiPhi, par_int.HsigmaPhiPhi);
+// 	farray_to_i8array(HsigmaZPhi, par_int.HsigmaZPhi);
+// 	farray_to_i8array(HsigmaZZ, par_int.HsigmaZZ);
+// 
+// 	par_int.fk=fk;
+// 	par_int.DeltavPhi=DeltavPhi;
 
-	farray_to_i8array(HvR, par_int.HvR);
-	farray_to_i8array(HvPhi, par_int.HvPhi);
-	farray_to_i8array(HvZ, par_int.HvZ);
-	farray_to_i8array(HsigmaRR, par_int.HsigmaRR);
-	farray_to_i8array(HsigmaRPhi, par_int.HsigmaRPhi);
-	farray_to_i8array(HsigmaRZ, par_int.HsigmaRZ);
-	farray_to_i8array(HsigmaPhiPhi, par_int.HsigmaPhiPhi);
-	farray_to_i8array(HsigmaZPhi, par_int.HsigmaZPhi);
-	farray_to_i8array(HsigmaZZ, par_int.HsigmaZZ);
+#if HAVE_CUDA
+	{
+		activeDevice dev(gpuExecutionEnabled("os_kinTMIII_kernel")? 0 : -1);
+		if(gpuGetActiveDevice() >= 0)
+		{
+			cudaError err = cudaMemcpyToSymbol("os_kinTMIII_par", (os_kinTMIII_data*)this, sizeof(os_kinTMIII_data));
+			if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
+		}
+	}
+#endif
+	os_kinTMIII_par = *this;
 
-	par_int.fk=fk;
-	par_int.DeltavPhi=DeltavPhi;
-
-	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end, 128), par_int, rng, comp, XYZ, vcyl);
+	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end, 128), rng, comp, XYZ, vcyl);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -194,7 +208,10 @@ bool os_kinTMIII::init(const Config &cfg, otable &t)
 	fvecToFarray(HsigmaPhiPhi_fvec, HsigmaPhiPhi);
 	fvecToFarray(HsigmaZPhi_fvec, HsigmaZPhi);
 	fvecToFarray(HsigmaZZ_fvec, HsigmaZZ);
-	
+
+ 	vPhi2 = vPhi1;
+ 	vPhi2[0] += DeltavPhi;
+
 	// some info
 	MLOG(verb1) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
 	MLOG(verb1) << "Second disk gaussian offset:  " << DeltavPhi;

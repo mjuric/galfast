@@ -90,13 +90,13 @@ struct i8array5
 
 struct os_kinTMIII_data
 {	
-		float fk;
+		float fk, DeltavPhi;
 		farray5 	vPhi1, vPhi2, vR, vZ,
 			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
 			HvPhi, HvR, HvZ,
 			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
 };
-
+/*
 struct os_kinTMIII_data_int
 {	
 		float fk, DeltavPhi;
@@ -106,7 +106,7 @@ struct os_kinTMIII_data_int
 		i8array5 HvPhi, HvR, HvZ,
 			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;		
 };
-
+*/
 
 
 

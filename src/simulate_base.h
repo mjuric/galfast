@@ -34,7 +34,88 @@ struct os_photometry_data
 	float Mr0, dMr;
 };
 
+struct os_vel2pm_data
+{
+	int coordsys;
+
+	float vLSR,		// Local standard of rest velocity
+ 	      u0, v0, w0;	// Solar peculiar motion
+};
+
 static const int GAL = 0;
 static const int EQU = 1;
+
+struct farray5
+{
+	float data[5];
+	
+	__device__ float& operator [] (int i) { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+	__device__ const float& operator [] (int i) const { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+};
+
+static const int BahcallSoneira_model_THIN = 0, BahcallSoneira_model_THICK = 1, BahcallSoneira_model_HALO = 2;
+
+struct iarray5
+{
+	short int data[5];
+	
+	__device__ short int& operator [] (int i) { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+	__device__ const short int& operator [] (int i) const { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+};
+
+struct i8array5
+{
+	char data[5];
+	
+	__device__ char& operator [] (int i) { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+	__device__ const char& operator [] (int i) const { 		
+		//if (i<0 || i>4)
+		//	THROW(ENotImplemented, "We should have never gotten here");
+		return data[i];
+		} 
+};
+
+struct os_kinTMIII_data
+{	
+		float fk, DeltavPhi;
+		farray5 	vPhi1, vPhi2, vR, vZ,
+			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
+			HvPhi, HvR, HvZ,
+			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
+};
+/*
+struct os_kinTMIII_data_int
+{	
+		float fk, DeltavPhi;
+		iarray5 	vPhi1, vR, vZ,
+			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ;
+		
+		i8array5 HvPhi, HvR, HvZ,
+			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;		
+};
+*/
+
+
+
 
 #endif

@@ -1030,7 +1030,7 @@ void sky_generator::montecarlo(star_output_function &out)
 	FOR(1, pdfs.size()) { modelCPDF[i] /= norm; }
 	
 	// generate the data in smaller batches (to conserve memory)
-	static const int Kbatch = 20000000;
+	static const int Kbatch = 10000000;
 
 	// prepare output
 	otable t(Kbatch);
@@ -1164,8 +1164,14 @@ bool model_pdf::draw_position(star &s, rng_t &rng)
 	ITER(Y.ripdf) iri = upper_bound(Y.ripdf.begin(), Y.ripdf.end(), uri); --iri;
 	int riidx = iri - Y.ripdf.begin();
 	// pick ri within [ri, ri+dri)
-	double ri = ri0 + dri*(riidx + rng.uniform());
-	ASSERT(ri0+riidx*dri <= ri && ri <= ri0+dri+riidx*dri);
+	double v;
+	double ri = ri0 + dri*(riidx + (rng.uniform()));
+	ASSERT(0.99999999*ri0+riidx*dri <= ri && ri <= ri0+dri+riidx*dri*1.00000001)
+	{
+		std::cerr << "ri0 = " << ri0 << " ri1=" << ri1 << " dri=" << dri << " ri=" << ri << "\n";
+		std::cerr << "ri0+riidx*dri=" << ri0+riidx*dri << " ri0+dri+riidx*dri=" << ri0+dri+riidx*dri << "\n";
+		std::cerr << "v=" << v << "\n";
+	}
 	s.ri = ri;
 	
 	return true;

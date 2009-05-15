@@ -79,7 +79,7 @@ int print_state (size_t iter, gsl_multifit_fdfsolver * s, int dof, model_fitter 
 
 	if(!print_fitter_progress) { return 0; }
 
-	fprintf (stderr, "iter: %3u x = ", iter);
+	fprintf (stderr, "iter: %3u x = ", int(iter));
 	int fmt = 0;
 	FOR(0, dof)
 	{

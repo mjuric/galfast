@@ -15,7 +15,7 @@
     <description>Galaxy tomography codes</description>
     <ignoreparts/>
     <secondaryLanguages/>
-    <versioncontrol>kdevcvsservice</versioncontrol>
+    <versioncontrol/>
     <projectname>galaxy</projectname>
     <defaultencoding/>
   </general>
@@ -25,14 +25,15 @@
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/kreso/projects/galaxy/debug/src/simulate.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/mjuric/projects/galaxy/workspace/paper3/</customdirectory>
+      <customdirectory>/home/kreso/projects/galaxy/tests/os_photometry/</customdirectory>
       <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
+        <envvar value="0" name="CUDA_DEVICE" />
       </envvars>
       <runarguments>
         <unique.x/>
@@ -57,7 +58,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>postprocess postprocess.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/galaxy/tests/os_photometry</globalcwd>
+      <globalcwd>/home/kreso/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -87,7 +88,7 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-CCfits=/usr/local --with-CCfits-include=/usr/local/include/CCfits --enable-simulate --with-libpeyton=/home/mjuric/projects/libpeyton --prefix=/home/mjuric/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemuX --enable-simulate --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
@@ -110,7 +111,7 @@
         <envvar value="1" name="WANT_AUTOMAKE_1_6" />
       </envvars>
       <abortonerror>false</abortonerror>
-      <numberofjobs>2</numberofjobs>
+      <numberofjobs>8</numberofjobs>
       <dontact>false</dontact>
       <makebin/>
       <prio>0</prio>
@@ -209,7 +210,7 @@
   </kdevcppsupport>
   <kdevdebugger>
     <general>
-      <programargs>gnomonic.sel</programargs>
+      <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <gdbpath/>
       <dbgshell/>
       <configGdbScript/>

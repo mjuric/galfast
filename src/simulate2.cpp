@@ -59,18 +59,6 @@
 
 #include "gsl/gsl_randist.h"
 
-#if 0
-namespace lapack
-{
-	extern "C"
-	{
-		#include <g2c.h>
-		#include "common/clapack.h"
-	}
-}
-#endif
-
-//#include <nurbs++/nurbsS.h>
 #include "gpc_cpp.h"
 
 #include <boost/tuple/tuple.hpp>
@@ -85,7 +73,6 @@ namespace lapack
 #include "model.h"
 #include "paralax.h"
 #include "analysis.h"
-//#include "dm.h"
 
 #include <vector>
 #include <map>
@@ -105,13 +92,6 @@ model_pdf::model_pdf(const std::string &pdfname_)
 {
 }
 
-// 	lambert proj(rad(90), rad(90));
-// 	double dx = rad(1); // model grid angular resolution
-// 	double dri = 0.01; // model CMD resolution
-// 	double ri0 = 0.0, ri1 = 1.5;	// color limits
-// 	double m0 = 14, m1 = 22;	// magnitude limits
-// 	double dm = 0.1;	// model CMD magnitude resolution
-// 	double x0, x1, y0, y1;	// lambert survey footprint bounding box
 model_pdf::model_pdf(std::istream &in, const std::string &pdfname_)
 : proj(rad(90), rad(90)), pdfname(pdfname_)
 {
@@ -225,9 +205,6 @@ bool sample_integral(const std::valarray<double> &xv, std::valarray<double> &yv,
 double
 integrate(double a, double b, double dx, int_function f, void *param, double abserr, double relerr)
 {
-// 	abserr = 0;
-// 	relerr = 1;
-
 	gsl_odeiv_step*    s = gsl_odeiv_step_alloc(gsl_odeiv_step_rk2, 1);
 	gsl_odeiv_control* c = gsl_odeiv_control_y_new(abserr, relerr);
 	gsl_odeiv_evolve*  e = gsl_odeiv_evolve_alloc(1);
@@ -259,12 +236,7 @@ integrate(double a, double b, double dx, int_function f, void *param, double abs
 			}
 			double rho;
 			GSL_ODEIV_FN_EVAL(&sys, x+h, &y, &rho);
-//			std::cerr << h << "\n";
-//			std::cout << "[" << VARRAY(double, param, 4) << "]: " << x << " " << y << " " << dx << " " << h << " " << rho << "\n";
-/*			if(fabs(VARRAY(double, param, 3) - 1.27) < 0.01)
-				std::cout << "[" << VARRAY(double, param, 3) << "]: " << x << " " << y << " " << dx << " " << h << "\n";*/
 		}
-		//std::cout << "[" << VARRAY(double, param, 4) << "]: " << x << " " << y << " " << dx << " " << h << "\n";
 
 		xto += dx;
 	}
@@ -297,7 +269,6 @@ double model_pdf::ri_mpdf(std::vector<double> &pdf, const double x, const double
 	// total number of stars with a given SpT (assuming the model returned by
 	// model class), in a direction x, y
 	int nspt = (int)rint((ri1 - ri0)/dri);
-//	for(double ri = ri0; ri <= ri1; ri += dri)
 	FOR(0, nspt)
 	{
 		double ri = ri0 + i*dri;
@@ -313,15 +284,9 @@ double model_pdf::ri_mpdf(std::vector<double> &pdf, const double x, const double
 
 		double n, error;
 		gsl_function F = { &model_fun_1, params };
-		#if 0
-		int ret = gsl_integration_qag (&F, m0, m1, 0, 1e-7, Npts, GSL_INTEG_GAUSS61, w, &n, &error);
-		ASSERT(ret == GSL_SUCCESS);
-		#else
 		n = integrate(m0, m1, dm, model_fun, params, 1e-10, 1e-5);
-		#endif
-		//ASSERT(n != 0) { std::cerr << "BU! " << x << " " << y << " " << ri_mid << " " << n << "\n"; }
-		n *= sqr(skymap.dx)*dri; // multiply by solid angle. n is now the total number of stars in direction (l,b)
-		                  // with colors in [ri, ri+dri)
+		n *= sqr(skymap.dx)*dri;	// multiply by solid angle. n is now the total number of stars in direction (l,b)
+						// with colors in [ri, ri+dri)
 		#if 0
 		if(n != 0) { std::cerr << "BU!" << x << " " << y << " " << ri_mid << " " << n << "\n"; }
 		if(std::abs(x + 0.0912734) < 0.0001 &&
@@ -347,12 +312,9 @@ double model_pdf::ri_mpdf(std::vector<double> &pdf, const double x, const double
 
 	// convert to probability
 	FOREACH(pdf) { 
-		//if(act && i - pdf.begin() == 22) { std::cerr << "XXX: " << *i << "\n"; }
 		*i /= sum;
-		//if(act && i - pdf.begin() == 22) { std::cerr << "XXX: " << *i << "\n"; }
 	}
 
-	//std::cerr << "Exit\n";
 	return sum;
 }
 
@@ -407,58 +369,6 @@ OSTREAM(const XPDF &xpdf)
 	}
 }
 
-#if 0
-void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn)
-{
-	gpc_polygon sky;
-#if 1
-	// north.gpc.txt
-	std::cerr << "Reading " << skypolyfn << "... ";
-	gpc_polygon xgpc_read(const std::string &fn, peyton::math::lambert &proj, bool *hadProjection = NULL);
-	FILE *fp = fopen(skypolyfn.c_str(), "r");
- 	gpc_read_polygon(fp, 1, &sky);
-	fclose(fp);
-	std::cerr << "done.\n";
-#else // while debugging - just a circular cutout at the pole
-	sky = make_circle(0., 0., 0.1, dx);
-	//sky = make_circle(-0.123308, 0.406791, 0.1, dx);
-#endif
-	m.skymap.clear();
-
- 	poly_bounding_box(m.x0, m.x1, m.y0, m.y1, sky);
-	m.dx = dx;
-
-	std::cerr << "BBox: " << m.x0 << " " << m.y0 << "     " << m.x1 << " " << m.y1 << "\n";
-	std::cerr << "dx: " << m.dx << "\n";
-	std::cerr << "area: " << polygon_area(sky)*sqr(deg(1)) << "\n";
-
-	double area = 0;
-	int X = 0;
-	ticker tick(1);
-	for(double x = m.x0; x < m.x1; x += m.dx, X++) // loop over all x values in the bounding rectangle
-	{
-		double xa = x, xb = x+dx;
-		int Y = 0;
-		for(double y = m.y0; y < m.y1; y += m.dx, Y++) // loop over all y values for a given x
-		{
-			double ya = y, yb = y+dx;
-			gpc_polygon r = poly_rect(xa, xb, ya, yb);
-
-			gpc_polygon poly;
-			gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
-			if(poly.num_contours == 0) continue; // if there are no observations in this direction
-
-			m.skymap[std::make_pair(X, Y)].poly = poly; // store the polygon into a fast lookup map
-			m.skymap[std::make_pair(X, Y)].area = polygon_area(poly);
-			area += m.skymap[std::make_pair(X, Y)].area;
-			tick.tick();
-		}
-	}
-	tick.close();
-
-	std::cerr << "Total area: " << area*sqr(deg(1)) << " deg^2\n";
-}
-#endif
 
 gpc_polygon make_circle(double x0, double y0, double r, double dx);
 
@@ -481,7 +391,6 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 	std::ifstream inconf(modelfn.c_str());
 	if(!inconf) { THROW(EFile, "Could not access " + modelfn); }
 	model.reset(galactic_model::load(inconf));
-//	ASSERT(model.get() != NULL);
 	if(model.get() == NULL) { THROW(EAny, "Error loading galactic model from " + modelfn); }
 
 	MLOG(verb1) << "footprint file  = " << footfn;
@@ -496,23 +405,16 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 	MLOG(verb1) << "band = " << model->band();
 	MLOG(verb1) << "color = " << model->color();
 
-#if 0
-	std::map<std::pair<int, int>, gpc_polygon> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
-
-	XPDF xpdf;
-	int N = 0; // number of dx^2 cells processed
-#else
 	skymap.skymap.clear();
 	xpdf.clear();
 	int N = 0; // number of dx^2 cells processed
-#endif
+
  	poly_bounding_box(skymap.x0, skymap.x1, skymap.y0, skymap.y1, sky);
 
 	double xsum = 0; // Grand total - number of stars in the whole field
 	int X = 0;
 	for(double x = skymap.x0; x < skymap.x1; x += skymap.dx, X++) // loop over all x values in the bounding rectangle
 	{
-//		std::cerr << "#";
 		shared_ptr<Sx> sx(new Sx(xsum, X));
 
 		double xa = x, xb = x+skymap.dx;
@@ -520,7 +422,6 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 		double xysum = 0.;
 		for(double y = skymap.y0; y < skymap.y1; y += skymap.dx, Y++) // loop over all y values for a given x
 		{
-//			std::cerr << "-";
 			double ya = y, yb = y+skymap.dx;
 			gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
@@ -543,9 +444,7 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 			xysum += risum;
 
 			++N;
-//			cout << N << " " << X << " " << Y << ", " << risum << " stars\n";
 		}
-//		cout << "--- xysum = " << xysum << "\n";
 
 		// convert starcounts in ypdf to marginal probabilities (prob. of finding a star w. y less then Y given x)
 		if(xysum != 0.)
@@ -559,15 +458,12 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 			xpdf.push_back(sx);
 			xsum += xysum;
 		}
-
-//		static int kk = 0; if(++kk == 5) break;
 	}
 	MLOG(verb1) << "Total stars = " << xsum << " stars within " << skymap.skymap.size()*sqr(deg(skymap.dx)) << "deg^2 of pixelized area.";
 
 	// convert starcounts to cumulative probabilities
 	FOREACH(xpdf) { (*i)->pcum /= xsum; }
 
-//	FOREACH(xpdf) { cout << (*i)->X << " -1 " << (*i)->pcum << "\n"; }
 	std::stringstream ss;
 	FOREACH(xpdf) { ss << "(" << (*i)->X << " -1 " << (*i)->pcum << ")"; }
 	MLOG(verb1) << "X probabilities - " << ss.str();
@@ -686,7 +582,6 @@ sample_integral2(const double a, const double b, double dx,
 
 		while (x < xto)
 		{
-//			std::cout << "[" << VARRAY(double, param, 3) << "]: " << x << " " << y << " " << dx << " " << h << "\n";
 			int status = gsl_odeiv_evolve_apply (e, c, s,
 						&sys,
 						&x, xto, &h,
@@ -716,7 +611,6 @@ sample_integral2(const double a, const double b, double dx,
 // less than r, for a given direction (x,y) and color r-i. Return the mpdf as a spline
 // function in mspl object. Called from montecarlo().
 //
-#if 1
 void model_pdf::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri)
 {
 	// deproject to (l,b)
@@ -728,20 +622,6 @@ void model_pdf::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double
 	double Mr = model->absmag(ri);
 
 	double norm = 1.;
-#if 0
-	// calculate the total for normalization
-	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-	const void *params[4] = { &pb, model, &Mr, &ri };
-	gsl_function F = { &model_fun_1, params };
-	double error;
-	gsl_integration_qag(&F, m0, m1, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &norm, &error);
-	gsl_integration_workspace_free(w);
-
-	if(norm == 0) {
-		std::cerr << "Norm = 0!: " << x << " " << y << " " << ri << "\n";
-		exit(-1);
-	}
-#endif
 
 	// estimate the number of magnitude bins
 	int nm = (int)((m1 - m0) / dm) + 20;
@@ -757,114 +637,11 @@ void model_pdf::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double
 	// normalization - convert the integrated density to probability
 	double fmax = f[f.size()-1];
 	ASSERT(fmax > 0.);
-#if 0
-	ASSERT(fabs(fmax - 1) < 1e-1)
-	{
-		std::cerr << "norm = " << norm << " fmax=" << fmax << "\n";
-		std::cerr << x << " " << y << " " << ri << "\n";
-        	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
-		std::cout.flush();
-	}
-#endif
 	FOREACH(f) { *i /= fmax; }
-	//std::cerr << "total = " << total << " fmax=" << fmax << "\n";
-
-// 	if(ri > 1.49)
-// 	{
-// 	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
-// 	exit(-1);
-// 	}
-
-	// construct spline approximation
-//	std::cout << ri << " " << Mr << " " << m.size() << " " << f.size() << "\n";
-	mspl.construct(m, f);
-
-/*	FOR(0, f.size()) { std::cout << mspl(f[i]+0.001) << " " << f[i] << "\n"; }
-	exit(-1);*/
-/*	for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
-	exit(-1);*/
-}
-#else
-void model_pdf::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double ri)
-{
-	// deproject to (l,b)
-	Radians l, b;
-	proj.inverse(x, y, l, b);
-	pencil_beam pb(l, b);
-
-	// absolute magnitude for this spectral type
-	double Mr = model->absmag(ri);
-	double dm = this->dm;
-
-//	std::cout << x << " " << y << " " << l << " " << b << " " << Mr << "\n";
-
-	// calculate the total for normalization
-	gsl_integration_workspace * w = gsl_integration_workspace_alloc (1000);
-	const void *params[4] = { &pb, model, &Mr, &ri };
-	gsl_function F = { &model_fun_1, params };
-	double total, error;
-	gsl_integration_qag(&F, m0, m1, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &total, &error);
-	//std::cout << "total = " << total << "\n";
-
-	// estimate the number of magnitude bins
-	int nm = (int)((m1 - m0) / dm) + 20;
-
-	std::vector<double> m, f;
-	m.reserve(nm); f.reserve(nm);
-	m.push_back(m0); f.push_back(0);
-	double dfmax = 0.01;
-	double mcur = m0+dm;
-	int k = 0;
-	while(mcur < m1+dm)
-	{
-		if(mcur > m1) mcur = m1;
-
-		const void *params[4] = { &pb, model, &Mr, &ri };
-		gsl_function F = { &model_fun_1, params };
-
-		// integrate the piece from mcur-dm to mcur, store to fcur
-		double fcur;
-		while(true)
-		{
-			gsl_integration_qag(&F, m.back(), mcur, 0, 1e-4, 1000, GSL_INTEG_GAUSS21, w, &fcur, &error);
-			//std::cout << mcur-dm << " " << mcur << " " << fcur/total << "\n";
-			if(fcur/total <= dfmax) break;
-			dm /= 2;
-			mcur -= dm;
-			k = -3;
-		}
-		//std::cout << "OUT!\n";
-
-		// store and cumulate
-		m.push_back(mcur);
-		f.push_back(f.back() + fcur);
-
-		if(++k > 0) { dm *= 2; }
-		mcur += dm;
-	}
-	gsl_integration_workspace_free(w);
-
-	// normalization - convert the integrated density to probability
-	double fmax = f[f.size()-1];
-	FOREACH(f) { *i /= fmax; }
-	ASSERT(abs(total - fmax)/total < 1e-5)
-	{
-		std::cerr << "total = " << total << " fmax=" << fmax << "\n";
-	}
-	//std::cerr << "total = " << total << " fmax=" << fmax << "\n";
-
-//      	FOR(0, f.size()) { std::cout << m[i] << " " << f[i] << "\n"; }
-//      	exit(-1);
 
 	// construct spline approximation
 	mspl.construct(m, f);
-	
-/*	FOR(0, f.size()) { std::cout << mspl(f[i]+0.001) << " " << f[i] << "\n"; }
-	exit(-1);*/
-/*	for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
-	exit(-1);*/
 }
-#endif
 
 // ordering of Sx and Sy structures, by their cumulative marginal
 // pdf values
@@ -902,9 +679,6 @@ peyton::io::ibstream &model_pdf::unserialize(peyton::io::ibstream &in)
 
 sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
 : nstars(0)
-#if 0
-		, flags(0)
-#endif
 {
 	Config cfg; cfg.load(in);
 
@@ -914,13 +688,9 @@ sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
 	// random number generator
 	int seed;
 	cfg.get(seed,	"seed", 	42);
-/*	gsl_rng *grng = gsl_rng_alloc(gsl_rng_default);
-	gsl_rng_set(grng, seed);*/
 	rng.reset(new rng_gsl_t(seed));
 
 	// load pdfs
-/*	ASSERT(cfg.count("pdfs"));
-	std::istringstream ss(cfg["pdfs"].c_str());*/
 	std::istringstream ss(pdfs);
 	std::string pdfFn;
 	while(ss >> pdfFn)
@@ -935,39 +705,6 @@ sky_generator::sky_generator(std::istream &in, const std::string &pdfs)
 		add_pdf(pdf);
 	}
 
-#if 0
-	cfg.get(Ar,	"Ar", 		0.);	// extinction
-
-	// load magnitude error map
-	if(cfg.count("photo_error_map"))
-	{
-		std::string fn = cfg["photo_error_map"];
-		std::ifstream iin(fn.c_str()); ASSERT(iin) { std::cerr << "Could not open magnitude error map " << fn << "\n"; }
-		io::ibstream in(iin);
-
-		if(!(in >> magerrs_cvm)) { ASSERT(in >> magerrs); }
-		magerrs.initialize(magerrs_cvm);
-		
-		cfg.get(magerrs.use_median_beam_for_all, "magerr_only_use_median", false);
-		if(magerrs.use_median_beam_for_all) { std::cerr << "Using median error only.\n"; }
-	}
-
-	cfg.get(constant_photo_error, "constant_photo_error", 0.);
-	cfg.get(paralax_dispersion, "paralax_dispersion", 0.);
-
-	// load various flags
-	int flag;
-	cfg.get(flag, "apply_photo_errors", 0); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
-	
-	// dump short status
-	std::cerr << "constant_photo_error = " << constant_photo_error << "\n";
-	std::cerr << "paralax_dispersion = " << paralax_dispersion << "\n";
-	std::cerr << "magerrs.use_median_beam_for_all = " << magerrs.use_median_beam_for_all << "\n";
-	std::cerr << "magerrs.empty() = " << magerrs.empty() << "\n";
-	std::cerr << "Flags: "
-		<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
-		<< "\n";
-#endif
 }
 
 sky_generator::~sky_generator()
@@ -998,7 +735,6 @@ void sky_generator::add_pdf(boost::shared_ptr<model_pdf> &pdf)
 
 // generate K stars in model-sky given in $prefix.pdf.dat
 // file, precalculated with preconstruct_mpdf
-#define OTABLE 1
 void sky_generator::montecarlo(star_output_function &out)
 {
 	ASSERT(pdfs.size() != 0);
@@ -1053,7 +789,6 @@ void sky_generator::montecarlo(star_output_function &out)
 		if(pdfs[i]->galmodel().color() != pdfs[0]->galmodel().color()) {
 			THROW(EAny, "Colors in models of " + pdfs[0]->name() + " and " + pdfs[i]->name() + " differ (" + pdfs[0]->galmodel().color() + " vs. " + pdfs[i]->galmodel().color() + ")");
 		}
-//		pdfs[i]->galmodel().setup_tags(sstruct::factory);
 	}
 
 	// do catalog generation
@@ -1100,7 +835,6 @@ int sky_generator::montecarlo_batch(otable &t, int K, const std::vector<double> 
 		double u = rng->uniform();
 		ITER(modelCPDF) ix = upper_bound(modelCPDF.begin(), modelCPDF.end(), u); --ix;
 		int idx = ix - modelCPDF.begin();
-//		std::cerr << "Model index : " << idx << "\n";
 
 		model_pdf::star s;
 		bool succ = pdfs[idx]->draw_position(s, *rng);
@@ -1151,7 +885,6 @@ bool model_pdf::draw_position(star &s, rng_t &rng)
 	gpc_polygon &poly = skymap.skymap[std::make_pair(X.X, Y.Y)].poly;
 	gpc_vertex vtmp = { s.x, s.y };
 	if(!in_polygon(vtmp, poly))
-//	if(!in_polygon((gpc_vertex const&)std::make_pair(s.x, s.y), poly))
 	{
 		return false;
 	}
@@ -1189,7 +922,6 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng)
 	ITER(stars) it = stars.begin();
 	while(it != stars.end())
 	{
-//		std::cerr << "+" << "\n";
 		star &s = *it++;
 		boost::tuple<int, int, int> cell2(s.X(skymap), s.Y(skymap), s.RI(*this));
 		// if we moved to a different (x, y, ri) bin, calculate
@@ -1198,20 +930,10 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng)
 		{
 			magnitude_mpdf(mspl, skymap.x0 + (s.X(skymap) + 0.5)*skymap.dx, skymap.y0 + (s.Y(skymap) + 0.5)*skymap.dx, ri0 + (s.RI(*this) + 0.5)*dri);
 			cell = cell2;
-/*			double rix = ri0 + (s.RI() + 0.5)*dri;
-			if(rix == 0.935) {
-				static int cnt = 10;
-				std::cerr << rix << "\t" << mspl(0) << "\t" << mspl(0.999) << "\n";
-				if(--cnt == 0) {
-					for(double f=0; f <= 1; f+=0.001) { std::cout << mspl(f) << " " << f << "\n"; std::cout.flush(); }
-					exit(-1);
-				}
-			}*/
 		}
 		// draw the magnitude
 		double um = rng.uniform();
 		s.m = mspl(um);
-//		std::cout << um << " " << s.m << "\n";
 		tick.tick();
 	}
 }
@@ -1219,7 +941,6 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng)
 void star_output_to_textstream::output_header(const otable &t)
 {
 	// simple ascii-text dump
-	//out << "# l    b    ri     r  " << factory << "\n";
 	out << "# ";
 	t.serialize_header(out);
 	out << "\n";
@@ -1229,52 +950,8 @@ void star_output_to_textstream::output_header(const otable &t)
 void star_output_to_textstream::output(const otable &t)
 {
 	// simple ascii-text dump
-//	out << deg(l) << " " << deg(b) << " " << ri << " " << r << " " << t << "\n";
 	t.serialize_body(out);
 }
-
-// void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
-// {
-// 	// simple ascii-text dump
-// 	double ri = obsvs[0].first.mag[1] - obsvs[0].first.mag[2];
-// 	out << ra << " " << dec << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
-// }
-
-#if 0
-// Quick hack -- a position-independent luminosity function for binaries
-void sky_generator::draw_companion(float &g, float &r, float &i, Radians l, Radians b, double dm /*distance modulus*/)
-{
-#if 1
-	// HACK: just load a position-independent luminosity function from lumfun.txt
-	static cumulative_dist lf; // luminosity function
-	if(lf.empty())
-	{
-		// luminosity function
-		text_input_or_die(lfin, "lumfun.txt")
-		std::vector<double> ri, phi;
-		load(lfin, ri, 0, phi, 1);
-		// convert to cumulative distribution, from [0,1]
-		FOR(1, phi.size()) { phi[i] += phi[i-1]; }
-		FOR(0, phi.size()) { phi[i] = (phi[i] - phi.front()) / (phi.back() - phi.front()); }
-		lf.construct(ri, phi);
-	}
-	float ri = lf(gsl_rng_uniform(rng));
-#else
-	float u = gsl_rng_uniform(rng);
-	float ri = 0.1 + u*1.3; // HACK: draw r-i uniformly in 0.1-1.3 range
-#endif
-
-	r = paralax.Mr(ri) + dm;
-	i = r - ri;
-	g = r + paralax.gr(ri);
-}
-#endif
-
-#define DBG_MAGCHECK 0
-
-#if DBG_MAGCHECK
-	float u, g, r, i, z;
-#endif
 
 void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galactic_model &model, peyton::math::lambert &proj, otable &t)
 {
@@ -1297,11 +974,9 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		Radians l, b;
 		proj.inverse(s.x, s.y, l, b);
 		double cl = cos(l), cb = cos(b), sl = sin(l), sb = sin(b);
-//		coordinates::galequ(l, b, l, b);
 		if(l < 0) { l = ctn::twopi + l; }
 
 		// absolute magnitudes and distance
-//		const double Mr = paralax.Mr(s.ri);
 		const double Mr = model.absmag(s.ri);
 		const double D = stardist::D(s.m, Mr);
 
@@ -1314,7 +989,6 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		size_t row = t.add_row();
 		lb(row, 0)  = deg(l);
 		lb(row, 1)  = deg(b);
-//		std::cerr << lb(row, 0) << " " << lb(row, 1) << "\n";
 		color[row]  = s.ri;
 		mag[row]    = s.m;
 		absmag[row] = Mr;
@@ -1357,289 +1031,6 @@ void test_otable()
 
 	exit(-1);
 }
-
-#if 0
-void test_tags()
-{
-	if(0) {
-		sstruct::factory.useTag("LSSTugrizy[6]{g}", true);
-
-		sstruct::factory.useTag("star_name");
-		sstruct::factory.useTag("XYZ[3]");
-		sstruct::factory.useTag("extinction.r");
-		sstruct::factory.aliasTag("extinction.r", "mag");
-
-		std::cerr << sstruct::factory.ovars[0] << "\n";
-		std::cerr << sstruct::factory.ovars[1] << "\n";
-		std::cerr << sstruct::factory.ovars[2] << "\n";
-		std::cerr << sstruct::factory.ovars[3] << "\n";
-		std::cerr << sstruct::factory.ovars[4] << "\n";
-
-		if(1) {
-			sstruct *tag = sstruct::create();
-			sstruct::factory.useTag("extinction.r");
-
-			float &Ar = tag->ext_r();
-			float *XYZ = tag->XYZ();
-			std::string &starname = tag->starname();
-			starname = "Bla";
-			Ar = 2.;
-			XYZ[2] = 3.33;
-
-			sstruct *tag2 = sstruct::create();
-			*tag2 = *tag;
-			starname = "Newyyy";
-
-			std::cerr << "Ar = " << Ar << "\n";
-			std::cerr << "mag = " << tag->mag() << "\n";
-			std::cerr << "XYZ = " << XYZ[0] << " " << XYZ[1] << " " << XYZ[3] << "\n";
-			std::cerr << "starname = " << starname << "\n";
-			std::cerr << "starname2 = " << tag2->starname() << "\n";
-
-			std::cerr << "Serializing tag list: "; sstruct::factory.serialize(std::cerr); std::cerr << "\n";
-			std::cerr << "Serializing 1: ";  tag->serialize(std::cerr); std::cerr << "\n";
-			std::cerr << "Serializing 2: "; tag2->serialize(std::cerr); std::cerr << "\n";
-
-			delete tag;
-			delete tag2;
-		} else {
-			sstruct *tags = sstruct::create(5);
-
-			FOR(0, 5)
-			{
-				sstruct *tag = &tags[i];
-
-				float &Ar = tag->ext_r();
-				float *XYZ = tag->XYZ();
-				tag->starname() = "Lipa moja";
-
-				std::cerr << i << "  Ar = " << Ar << "\n";
-				std::cerr << i << "  XYZ = " << XYZ[0] << " " << XYZ[1] << " " << XYZ[2] << "\n";
-				std::cerr << "starname = " << tag->starname() << "\n";
-			}
-			delete [] tags;
-		}
-	}
-	else
-	{
-		// Unserialize text file and print it out to the screen
-		std::ifstream in("out.txt");
-		sstruct::factory.unserialize(in);
-		sstruct::factory.useTag("SDSSr");
-
-		sstruct *tag = sstruct::create(100);
-		size_t cnt = 0;
-		std::cout << sstruct::factory << "\n";
-		while(in >> tag[cnt])
-		{
-			std::cout << tag[cnt];
-			std::cout << "\n";
-			cnt++;
-		}
-		delete [] tag;
-	}
-}
-#endif
-
-#if 0
-void sky_generator::observe(const std::vector<model_pdf::star> &stars, peyton::math::lambert &proj, star_output_function &sf)
-{
-	std::cerr << "Observing... ";
-	ticker tick(10000);
-	std::vector<std::pair<observation, obsv_id> > obsvs;
-	FORj(j, 0, stars.size())
-	{
-		model_pdf::star s = stars[j];
-
-		obsv_id oid;
-		observation obsv;
-
-		#if !DBG_MAGCHECK
-		float u, g, r, i, z;
-		#endif
-
-		// set extinction
-		obsv.Ar = Ar;
-
-		// position
-		Radians l, b;
-		proj.inverse(s.x, s.y, l, b);
-		coordinates::galequ(l, b, obsv.ra, obsv.dec);
-		obsv.ra = deg(obsv.ra); obsv.dec = deg(obsv.dec);
-
-		// calculate magnitudes, absolute magnitudes and distance
-		const double Mr = paralax.Mr(s.ri);
-		const double D = stardist::D(s.m, Mr);
-		u = s.m;
-		g = s.m + paralax.gr(s.ri);
-		r = s.m;
-		i = s.m - s.ri;
-		z = s.m;
-
-		//
-		// Physical things affecting the object's magnitudes and colors
-		//
-
-		float binaryFraction = 0.0;
-		if(binaryFraction && (gsl_rng_uniform(rng) <= binaryFraction))
-		{
-			// this star has a binary companion -- add it
-
-			// - draw the companion from the luminosity function
-			float gb, rb, ib;
-			draw_companion(gb, rb, ib, l, b, r - Mr);
-
-#if DBG_PRINT_BINARIES
-			std::cout << r - Mr << "   ";
-			std::cout << g << " " << r << " " << i << "   ";
-			std::cout << gb << " " << rb << " " << ib << "   ";
-#endif
-			// calculate joint magnitudes
-			g = -2.5*log10(pow(10., -0.4*g) + pow(10., -0.4*gb));
-			r = -2.5*log10(pow(10., -0.4*r) + pow(10., -0.4*rb));
-			i = -2.5*log10(pow(10., -0.4*i) + pow(10., -0.4*ib));
-
-#if DBG_PRINT_BINARIES
-			std::cout << g << " " << r << " " << i << "\n";
-#endif
-		} else {
-//			ASSERT(0);
-		}
-		// ignore stars fainter than flux limit (HACK)
-//		if(r > 22.5) { continue; }
-//		if(r > 23.0 && r-i < 0.3) { continue; }
-
-		bool subdwarfs = false;
-		if(subdwarfs)
-		{
-			ASSERT(0); // the logic of this code has to be rechecked, in light of algorithm changes here
-
-			// calculate galactic coordinates
-			V3 v; v.celestial(l, b, D);
-			v.x = Rg - v.x;
-			v.y *= -1;
-
-			// calculate "metalicity factor" based on location in the Galaxy
-			double f;
-			if(v.z < 500) { f = 0; }
-			else if(v.z < 2500) { f = (v.z - 500.) / 2000.; }
-			else { f = 1; }
-
-			// adjust the absolute magnitudes accordingly
-			u += f;
-			g += f;
-			r += f;
-			i += f;
-			z += f;
-		}
-
-		if(paralax_dispersion)
-		{
-			// mix in the photometric paralax uncertancy - here is how this goes:
-			// The star is at distance D. Give its' color, the normal absolute magnitude
-			// it would have is Mr. However, due to age & metalicity, the star has
-			// absolute magnitude Mr' = Mr + dMr, while _keeping_ the same color and
-			// distance. The observer therefore sees the star to be dimmer/brighter than
-			// a star with absmag Mr (==> change of magnitude).
-			// Note: this is an oversimplification, as some colors do change (we should implement this)
-			double dMr = gsl_ran_gaussian(rng, paralax_dispersion);
-			u += dMr;
-			g += dMr;
-			r += dMr;
-			i += dMr;
-			z += dMr;
-		}
-
-		//
-		// Things happening at observation ("in the telescope")
-		//
-
-		// add extinction and
-		// store _extinction uncorrected_ magnitudes to obsv_mag
-		obsv.mag[0] = g;
-		obsv.mag[1] = r;
-		obsv.mag[2] = i;
-		obsv.mag[3] = z;
-		obsv.mag[4] = u;
-		FOR(0, 5) { obsv.mag[(i+4)%5] += extinction(Ar, i); }
-
-		// calculate the magnitude of observational errors
-		if(flags & APPLY_PHOTO_ERRORS)
-		{
-			if(!magerrs.empty())
-			{
-				FOR(0, 5) { obsv.magErr[i] = magerrs(l, b, obsv.mag[i]); }
-			}
-
-			if(constant_photo_error)
-			{
-				FOR(0, 5) { obsv.magErr[i] = constant_photo_error; }
-			}
-
-			// mix in magnitude errors
-			FOR(0, 5) { obsv.mag[i] += gsl_ran_gaussian(rng, obsv.magErr[i]); }
-		}
-		else
-		{
-			FOR(0, 5) { obsv.magErr[i] = 0; }
-		}
-
-// 		std::cerr << "magerrs = ";
-// 		FOR(0, 5) { std::cerr << obsv.magErr[i] << " "; }
-// 		std::cerr << "\n";
-
-		// "observe" the object and store it to object and observation database
-		obsvs.clear();
-		obsvs.push_back(std::make_pair(obsv, oid));
-		sf.output(obsv.ra, obsv.dec, obsv.Ar, obsvs);
-
-		// user interface stuff
-		tick.tick();
-	}
-	tick.close();
-	std::cerr << "\n";
-}
-#endif
-
-#if 0
-void star_output_to_dmm::output(sstruct &t)
-{
-	THROW(ENotImplemented, "Output to DMM with galactic model tags not implemented. Aborting.");
-}
-
-void star_output_to_dmm::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
-{
-	mobject m = process_observations(starmags.size(), ra, dec, Ar, obsvs, po_info);
-
-#if DBG_MAGCHECK
-	// while debugging - if added no photometric error, the magnitudes in
-	// mobject must be the same as the input magnitudes
-	ASSERT(fabs(m.mag[0] - g) < 1e-4) { std::cerr << m.mag[0] << " " << g << "\n"; }
-	ASSERT(fabs(m.mag[1] - r) < 1e-4) { std::cerr << m.mag[1] << " " << r << "\n"; }
-	ASSERT(fabs(m.mag[2] - i) < 1e-4) { std::cerr << m.mag[2] << " " << i << "\n"; }
-	ASSERT(fabs(m.mag[3] - z) < 1e-4) { std::cerr << m.mag[3] << " " << z << "\n"; }
-	ASSERT(fabs(m.mag[4] - u) < 1e-4) { std::cerr << m.mag[4] << " " << u << "\n"; }
-
-	ASSERT(fabs(m.ml_mag[0] - g) < 1e-4) { std::cerr << m.mag[0] << " " << g << "\n"; }
-	ASSERT(fabs(m.ml_mag[1] - r) < 1e-4) { std::cerr << m.mag[1] << " " << r << "\n"; }
-	ASSERT(fabs(m.ml_mag[2] - i) < 1e-4) { std::cerr << m.mag[2] << " " << i << "\n"; }
-#endif
-
-	FOREACH(obsvs) { starmags.push_back((*i).first); }
-	out.push_back(m);
-
-	if((out.size() % 500000) == 0) { out.sync(); }
-}
-
-void star_output_to_dmm::close()
-{
-	std::cerr << "# Observation processing statistics\n";
-	std::cerr << po_info << "\n";
-
-	out.close();
-	starmags.close();
-}
-#endif
 
 void pdfinfo(std::ostream &out, const std::string &pdffile)
 {

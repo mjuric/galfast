@@ -20,24 +20,17 @@
 
 #include "config.h"
 
-#include <astro/io/binarystream.h>
-#include <astro/math/vector.h>
-#include <astro/math.h>
-#include <astro/util.h>
+#include <astro/coordinates.h>
 #include <astro/sdss/rungeometry.h>
 #include <astro/system/options.h>
 
 #include <fstream>
+#include <sys/time.h>
 
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
-
-#include "projections.h"
-#include "model.h"
 #include "gpc_cpp.h"
 #include "io.h"
-#include "gpu.h"
 #include "analysis.h"
+#include "simulate.h"
 
 #include <astro/useall.h>
 using namespace std;
@@ -209,7 +202,6 @@ bool in_polygon(const gpc_vertex& t, striped_polygon &p)
 	return in_polygon(t, p.stripes[s]);
 }
 
-#include <sys/time.h>
 double seconds()
 {
 	timeval tv;
@@ -217,77 +209,6 @@ double seconds()
 	assert(ret == 0);
 	return double(tv.tv_sec) + double(tv.tv_usec)/1e6;
 }
-
-#if 0
-void testIntersection(const std::string &prefix)
-{
-	lambert proj(rad(90), rad(90));
-	double l = rad(300);
-	double b = rad(60);
-
-	gpc_polygon allsky;
-	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
-	gpc_read_polygon(fp, 1, &allsky);
-	fclose(fp);
-	striped_polygon sky(allsky, 100);
-//	gpc_polygon &sky = allsky;
-
-	// specific point test
-	double x, y;
-	proj.convert(l, b, x, y);
-	x = 0.272865; y = -0.387265;
-	//x = 0.280607; y = -0.387462;
-	x = 1.05179; y = 0.807653;
-
-	pair<double, double> tmp(x, y);
-	cerr << "Inside: " << in_polygon((gpc_vertex const&)tmp, sky) << "\n";
-//exit(0);
-	// monte-carlo tests
-	double begin = seconds();
-
-	srand(23);
-	RunGeometryDB db;
-	for(int k = 0; k != 500; k++) {
-	FOREACH(db.db)
-	{
-		const RunGeometry &geom = (*i).second;
-		Mask mask(geom);
-
-		Radians mu0 = geom.muStart;
-		Radians mu1 = geom.muStart + mask.length();
-
-		FORj(col, 0, 6)
-		{
-			Radians nu0 = mask.lo(col);
-			Radians nu1 = mask.hi(col);
-			Radians l, b, mu, nu;
-			mu = math::rnd(mu0, mu1);
-			nu = math::rnd(nu0, nu1);
-			coordinates::gcsgal(geom.node, geom.inc, mu, nu, l, b);
-			if(b < 0) { continue; }
-
-			proj.convert(l, b, x, y);
-			pair<double, double> tmp(x, y);
-			if(!in_polygon((gpc_vertex const&)tmp, sky))
-			{
-				cerr << "-";
-// 				cerr << "Test failed for:\n";
-// 				cerr << " l, b = " << deg(l) << " " << deg(b) << "\n";
-// 				cerr << " mu, nu = " << deg(mu) << " " << deg(nu) << "\n";
-// 				cerr << " x, y = " << x << " " << y << "\n";
-// 				cerr << " run, col = " << geom.run << " " << col << "\n";
-// 				cerr << " mu0, mu1 = " << deg(mu0) << " " << deg(mu1) << "\n";
-// 				cerr << " nu0, nu1 = " << deg(nu0) << " " << deg(nu1) << "\n";
-			}
-		}
-	}
-		cerr << ".";
-	}
-	cerr << "\n";
-	cerr << "time: " << seconds() - begin << "\n";
-	gpc_free_polygon(&allsky);
-}
-#endif
 
 gpc_polygon make_circle(double x0, double y0, double r, double dx)
 {
@@ -339,25 +260,9 @@ gpc_tristrip triangulatePoly(gpc_polygon sky)
 	{
 		tri.strip[i] = tristrips[i];
 	}
-#if 0	
-	gpc_tristrip tri = { 0, NULL };
-	gpc_polygon_to_tristrip(&sky, &tri);
-#endif
 
 	return tri;
 }
-
-#if 0
-gpc_polygon loadSky(const std::string &prefix)
-{
-	gpc_polygon sky;
-	FILE *fp = fopen((prefix + ".gpc.txt").c_str(), "r");
-	gpc_read_polygon(fp, 1, &sky);
-	fclose(fp);
-
-	return sky;
-}
-#endif
 
 void sm_write(const std::string &fn, const gpc_polygon &p)
 {
@@ -469,14 +374,11 @@ void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians r
 void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &proj, Radians b0 = rad(0.))
 {
 	Radians dx = rad(.25); /* polygon sampling resolution in radians */
-//	Radians dx = rad(1); /* polygon sampling resolution - good for footprint plots */
 	cerr << "footprint = " << output << ", dx = " << dx << " radians\n";
 
 	RunGeometryDB db;
 	double x, y;
 	gpc_polygon sky = {0, 0, NULL};
-/*	proj.convert(rad(0.), rad(-30.), x, y);
-	cerr << sqrt(x*x+y*y) << "\n";*/
 	proj.convert(rad(0.), b0, x, y);
 	double r = sqrt(x*x+y*y);
 	cerr << "Excluding r > " << r << " from the origin of lambert projection.\n";
@@ -488,22 +390,12 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 	FOREACH(runs)
 	{
 		const RunGeometry &geom = db.getGeometry(*i);
-// 		cerr << geom.run << " ";
  		cerr << ".";
-
-		//if(geom.run != 752) continue;
-		//if(geom.run != 752 && geom.run != 756) continue;
 
 		gpc_polygon rpoly = make_polygon(geom, proj, dx);
 		gpc_polygon_clip(GPC_INT, &rpoly, &circle, &rpoly);
 		gpc_polygon_clip(GPC_UNION, &sky, &rpoly, &sky);
 
-// 		double A = polygon_area(rpoly);
-// 		gpc_free_polygon(&rpoly);
-// 
-// 		int nvert = 0;
-// 		FOR(0, sky.num_contours) { nvert += sky.contour[i].num_vertices; }
-// 		cerr << " [" << A*sqr(deg(1)) << "] [" << sky.num_contours << " contours, " << nvert << " vertices]\n";
 	}
 	cerr << "\n";
 
@@ -524,11 +416,7 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 	gpc_free_polygon(&circle);
 }
 
-#ifdef COMPILE_SIMULATE_X
-
 #define CFG_THROW(str) THROW(EAny, str)
-
-#include "simulate.h"
 
 namespace footprints
 {
@@ -782,19 +670,6 @@ try
 	}
 #endif
 
-#if 0
-	if(cmd == "pskymap")
-	{
-		partitioned_skymap sky;
-		dx = rad(dx);
-
-		make_skymap(sky, dx, input);
-		{ std::ofstream f(output.c_str()); io::obstream out(f); out << sky; }
-
-		return 0;
-	}
-	else
-#endif
 	if(cmd == "pdfinfo")
 	{
 		// ./simulate.x pdfinfo sky.bin.pdf
@@ -802,7 +677,6 @@ try
 		return 0;
 	}
 
-//	std::cerr << "cmd=" << cmd << "\n";
 	ifstream in(input.c_str());
 	if(!in) { THROW(EFile, "Error accessing " + input + "."); }
 	if(cmd == "footprint")
@@ -863,7 +737,6 @@ try
 		out << pdf;
 
 		DLOG(verb2) << io::binary::manifest;
-//		peyton::system::print_trace();
 	}
 	else if(cmd == "catalog")
 	{
@@ -877,14 +750,10 @@ try
 		if(!simpleOutput)
 		{
 			THROW(EAny, "DMM output support has been discontinued");
-/*			std::cerr << "DMM output.\n";
-			star_output_to_dmm cat_out(output + "/uniq_objects.dmm", output + "/uniq_observations.dmm", true);
-			skygen.montecarlo(cat_out);*/
 		}
 		else
 		{
 			MLOG(verb1) << "Simple text file output to " << output << ".";
-//			std::ofstream out(output.c_str());
 			flex_output out(output.c_str());
 			star_output_to_textstream cat_out(out.out());
 			skygen.montecarlo(cat_out);
@@ -897,7 +766,6 @@ try
 		gsl_set_error_handler_off();
 
 		// ./simulate.x postprocess postprocess.conf file.in.txt file.out.txt [module1 [module2]....]
-		//observe_catalog(input, catalog, output);
 		modules.push_back(in_module);
 		modules.push_back(out_module);
 		postprocess_catalog(input, catalog, output, modules);
@@ -914,10 +782,3 @@ catch(EAny &e)
 	return -1;
 }
 }
-#else
-int main(int argc, char **argv)
-{
-	cerr << "simulate.x not compiled. Do ./configure with --enable-simulate first\n";
-	return -1;
-}
-#endif

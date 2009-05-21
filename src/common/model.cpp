@@ -19,7 +19,6 @@
  ***************************************************************************/
 
 #include "config.h"
-#define COMPILING_SIMULATE
  
 #include "model.h"
 #include "textstream.h"
@@ -628,164 +627,6 @@ otable::columndef &otable::getColumn(const std::string &name)
 	return col;
 }
 
-///////////////////////////////////////////////
-
-#if 0
-// helpers for tag definitions
-template<typename T>
-sstruct::tagdef* createTag_aux(const std::string &tagName, sstruct::tagclass *tagClass, const size_t n = 1)
-{
-	if(n <= 1)
-		return new sstruct::tagdefT<T>(tagName, tagClass);	// scalar
-	else
-		return new sstruct::tagdefTA<T>(tagName, n, tagClass);	// array
-}
-
-void parseAliases(std::vector<std::pair<std::string, size_t> > &aliases, const std::string &s)
-{
-	aliases.clear();
-
-	// alias format: alias1,alias2,alias3=NNN,alias4...
-	// where NNN is index into this tag's array (if the tag is an array)
-	boost::regex e("(?:(\\w+)(?:=(\\d+))?)(?:,(\\w+)(?:=(\\d+))?)*");
-	boost::smatch what;
-	if(boost::regex_match(s, what, e, boost::match_extra))
-	{
-	#if 0
-		unsigned i, j;
-		std::cout << "** Match found **\n   Sub-Expressions:\n";
-		std::cout << "Searched string: " << s << "\n";
-		for(i = 0; i < what.size(); ++i)
-			std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
-	#endif
-		for(int i = 0; i < what.size(); i += 2)
-		{
-			if(i+1 >= what.size()) { break; }
-			std::string alias = what[i].str();
-			if(alias.size() == 0) { continue; }	// nothing was found
-
-			std::string idxs = what[i].str();
-			size_t idx = idxs.empty() ? 0 : atoi(idxs.c_str());
-			aliases.push_back(make_pair(alias, idx));
-		}
-	}
-}
-
-sstruct::tagdef *sstruct::factory_t::createTag(const std::string &stringDef, size_t *offset_var)
-{
-	// parse stringDef and create a corresponding tag instance
-	// the tag definition format is: name[N]{keyword1:xxx;keyword2:yyy;...}, where:
-	//	[] part is optional -- if not specified, the quantity is a scalar
-	//	N is the size of the array (integer)
-	// The regex below matches: name, N, x as what[1],[2],[3], respectively
-	//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(\\w+=[^,]+)(?:,(\\w+=[^,]+))*)\\})?");
-	//boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{([fgdis])(?:\\|(?:\\s*(\\w+)\\s*=([^,]+))(?:,(?:\\s*(\\w+)\\s*=([^,]+)))*)?\\})?");
-	boost::regex e("(\\w+)(?:\\[(\\d+)\\])?(?:\\{(?:(?:\\s*(\\w+)\\s*:([^;]+))(?:;(?:\\s*(\\w+)\\s*:([^;]+)))*)?\\})?");
-	boost::smatch what;
-	if(boost::regex_match(stringDef, what, e, boost::match_extra))
-	{
-	#if 0
-		unsigned i, j;
-		std::cout << "** Match found **\n   Sub-Expressions:\n";
-		std::cout << "Searched string: " << stringDef << "\n";
-		for(i = 0; i < what.size(); ++i)
-			std::cout << "      $" << i << " = \"" << what[i] << "\"\n";
-	#endif
-		// slurp up the definition
-		std::string tagName = what[1];
-		size_t n = atoi(what[2].str().c_str());
-
-		std::string className, fmt, type;
-		std::vector<std::pair<std::string, size_t> > aliases;
-		for(int i = 4; i < what.size(); i += 2)
-		{
-			if(i+1 >= what.size()) { break; }
-			std::string key = what[i].str();
-			if(key.size() == 0) { continue; }	// nothing was found
-
-				if(key == "class") { className = what[i+1].str(); }
-			else if(key == "fmt")   { fmt = what[i+1].str(); }
-			else if(key == "type")  { type = what[i+1].str(); }
-			else if(key == "alias") { parseAliases(aliases, what[i+1].str()); }
-			else { THROW(EAny, "Unknown field definition key '" + key + "'."); }
-		}
-
-		MLOG(verb2) << "Defining tag from " << stringDef << ": type=" << type << ", class=" << className << ", fmt=" << fmt;
-
-		// create a correctly subclassed tagdef
-		if(type.empty()) { type = "float"; }
-		tagclass *tagClass = getTagClass(className);
-		tagdef *td = NULL;
-		#define CREATETYPE(strtype, ctype) if(td == NULL && type == strtype) { td = createTag_aux<ctype>(tagName, tagClass, n); td->tagType = strtype; }
-		CREATETYPE("int", int)
-		CREATETYPE("double", double)
-		CREATETYPE("string", std::string)
-		CREATETYPE("float", float)
-		#undef CREATETYPE
-		if(td == NULL) { THROW(EAny, "Unknown tag data type '" + type + "'"); }
-
-		// set overriden tag properties
-		if(!fmt.empty()) { td->formatString = fmt; }
-
-		// store the new tag definition
-		definedTags[tagName] = td;
-		if(offset_var) { td->offset_vars.push_back(offset_var); }
-
-		// set aliases
-		FOREACH(aliases)
-		{
-			aliasTag(tagName, i->first, i->second);
-		}
-	}
-	else
-	{
-		MLOG(verb1) << "Failed to parse tag definition " << stringDef;
-	}
-}
-
-sstruct::tagdef *sstruct::factory_t::aliasTag(const std::string &name, const std::string &alias, const size_t idx)
-{
-	ASSERT(definedTags.count(name));
-	tagdef *td = definedTags[name];
-	ASSERT(td->offset != -1);		// the tag alias target has to be in use
-
-	if(!definedTags.count(alias))
-	{
-		// autodefine tag by cloning the tag being aliased
-		definedTags[alias] = idx < 0 ? td->clone(alias) : td->cloneScalar(alias);
-	}
-
-	tagdef *atd = definedTags[alias];
-	ASSERT(atd->offset == -1);			// the alias must be unused
-	ASSERT(atd->elementSize == td->elementSize);	// alias and the aliased tag must be of same element size
-	ASSERT(idx < td->n);				// if aliasing a sub-element, must be within bounds
-
-	atd->aliasingIndex = idx;
-	atd->offset = td->offset + td->elementSize*idx;	// let the alias know where in the index it is
-	FOREACH(atd->offset_vars) { **i = atd->offset; }	// notify aliases' listeners
-	tagAliases[alias] = name;
-	return atd;
-}
-
-// activation of tags that are in use
-sstruct::tagdef *sstruct::factory_t::useTagRaw(const std::string &name, bool allowUndefined)
-{
-	if(!definedTags.count(name) && allowUndefined)
-	{
-		createTag(name);
-	}
-
-	if(!definedTags.count(name))
-	{
-		THROW(EAny, "Could not find/define tag " + name);
-	}
-
-	tagdef *td = definedTags[name];
-	if(td->offset != -1) { return td; }	// if already in use
-	return addTag(td);
-}
-#endif
-
 /////////////
 
 const char *disk_model::param_name[disk_model::nparams] =
@@ -868,20 +709,7 @@ int model_fitter::fdf (gsl_vector * f, gsl_matrix * J)
 			DFCALC(drho0(x.r, x.z, rhom, ri, 10));
 		}
 
-#if 0
-		std::cerr << x.r << " " << x.z << " " << ri << " " << ri2idx(ri) << " " << rho0[ri2idx(ri)] << ":  ";
-		std::cerr << rhothin << " ";
-		std::cerr << rhothick << " ";
-		std::cerr << rhohalo << " ";
-		std::cerr << rhom << ": ";
-		FORj(j, 0, ndof())
-		{
-			std::cerr << gsl_matrix_get(J, i, j) << " ";
-		}
-		std::cerr << "\n";
-#endif
 	}
-//	exit(0);
 
 	return GSL_SUCCESS;
 }
@@ -916,7 +744,6 @@ void model_fitter::residual_distribution(std::map<int, int> &hist, double binwid
 		double rhom = rho(x.r, x.z, x.ri_bin);
 		double r = (x.rho - rhom) / x.sigma;
 		int ir = (int)floor((r+0.5*binwidth) / binwidth);
-// 		std::cerr << r << " " << binwidth*ir << "\n";
 
 		if(hist.find(ir) == hist.end()) hist[ir] = 1;
 		else hist[ir]++;
@@ -989,57 +816,7 @@ void model_fitter::print(ostream &out, int format, int ri_bin)
 	}
 }
 
-/// model_factory class
-
-#if 0
-model_factory::model_factory(const std::string &modelsfile)
-{
-	if(modelsfile.size()) { load(modelsfile); }
-}
-
-void model_factory::load(const std::string &modelsfile)
-{
-	text_input_or_die(in, modelsfile);
-
-	float ri0, ri1;	
-	disk_model dm;
-	bind(in, ri0, 0, ri1, 1);
-	FOR(0, disk_model::nparams) { bind(in, dm.p[i], i+2); }
-
-	while(in.next())
-	{
-		models.push_back(make_pair(make_pair(ri0, ri1), dm));
-	}
-
-	// luminosity function
-	text_input_or_die(lfin, "lumfun.txt")
-	vector<double> ri, phi;
-	::load(lfin, ri, 0, phi, 1);
-	lf.construct(ri, phi);
-}
-
-disk_model *model_factory::get(float ri, double dri)
-{
-#if 0
-	FOR(0, models.size())
-	{
-		std::pair<float, float> &bin = models[i].first;
-		if(bin.first <= ri && ri <= bin.second)
-		{
-			disk_model *dm = new disk_model(models[i].second);
-/*			if(!(0.5 <= ri && ri <= 0.52)) { dm->rho0 /= 1000; }*/
-			return dm;
-		}
-	}
-#else
-	std::auto_ptr<disk_model> dm(new disk_model(models[0].second));
-	dm->rho0 = lf(ri);
-	//dm->f = 0;
-#endif
-	return dm.release();
-}
-
-#endif
+/// spline class
 
 spline::spline(const double *x, const double *y, int n)
 	: f(NULL), acc(NULL)
@@ -1060,9 +837,6 @@ spline& spline::operator= (const spline& a)
 
 void spline::construct(const double *x, const double *y, int n)
 {
-//	gsl_interp_accel_free(acc);
-//	gsl_interp_free(f);
-
 	// copy data
 	xv.resize(n); yv.resize(n);
 	copy(x, x+n, &xv[0]);
@@ -1075,7 +849,6 @@ void spline::construct_aux()
 {
 	// construct spline
 	f = gsl_interp_alloc(gsl_interp_linear, xv.size());
-	//f = gsl_interp_alloc(gsl_interp_cspline, n);
 	gsl_interp_init(f, &xv[0], &yv[0], xv.size());
 	acc = gsl_interp_accel_alloc();
 }
@@ -1105,11 +878,6 @@ double ToyHomogeneous_model::rho(double x, double y, double z, double ri)
 {
 	return rho0;
 }
-
-// double ToyHomogeneous_model::absmag(double ri)
-// {
-// 	return paralax.Mr(ri);
-// }
 
 ToyHomogeneous_model::ToyHomogeneous_model(peyton::system::Config &cfg)
 	: galactic_model(cfg)
@@ -1143,11 +911,6 @@ double ToyGeocentricPowerLaw_model::rho(double x, double y, double z, double ri)
 	return norm * rho0 * pow(d2, n/2.);
 }
 
-// double ToyGeocentricPowerLaw_model::absmag(double ri)
-// {
-// 	return paralax.Mr(ri);
-// }
-
 ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::system::Config &cfg)
 	: galactic_model(cfg)
 {
@@ -1179,65 +942,6 @@ ToyGeocentricPowerLaw_model::ToyGeocentricPowerLaw_model(peyton::io::ibstream &i
 	ASSERT(in);
 }
 
-////////////////////////////////////////////////////
-#if 0
-toy_geo_plaw_abspoly_model::toy_geo_plaw_abspoly_model(const std::string &prefix)
-{
-	Config conf(prefix + ".conf");
-
-	// Get model parameters
-	conf.get(alpha, "alpha", 0.);
-	conf.get(rho0, "rho0", 1.);
-
-	// Get absolute magnitude relation coefficients
-	std::string key; ostringstream poly;
-	double c;
-	for(int i = 0; conf.get(c, key = std::string("Mr_") + str(i), 0.); i++)
-	{
-		Mr_coef.push_back(c);
-		if(i == 0) { poly << c; }
-		else { poly << " + " << c << "*x^" << i; }
-	}
-
-	for(double ri=0; ri < 1.5; ri += 0.1)
-	{
-		std::cerr << absmag(ri) << "\n";
-	}
-
-	LOG(app, verb1) << "rho(d) = " << rho0 << "*d^" << alpha;
-	LOG(app, verb1) << "Mr(r-i) = " << poly.str();
-}
-
-double toy_geo_plaw_abspoly_model::rho(double x, double y, double z, double ri)
-{
-	// geocentric powerlaw distribution
-#if 1
- 	x -= Rg;
- 	double d2 = sqr(x) + sqr(y) + sqr(z);
- 	return rho0 * pow(d2, alpha/2.);
-#else
-	// geocentric shell distribution
-	x -= Rg;
-	double d2 = sqr(x) + sqr(y) + sqr(z);
-	if(sqr(3000) < d2 && d2 < sqr(4000))
-	{
-		return rho0 * pow(d2, alpha/2.);
-		//return pow(d2, -3./2.);
-	}
-	return 0;
-	return 0.01*rho0 * pow(d2, alpha/2.);
-#endif
-}
-
-double toy_geo_plaw_abspoly_model::absmag(double ri)
-{
-	// evaluate the polynomial
-	ASSERT(0 <= ri && ri <= 1.5) { std::cerr << ri << "\n"; }
-//	return 4;
-//	return 4+2*ri-3;
-	return gsl_poly_eval(&Mr_coef[0], Mr_coef.size(), ri);
-}
-#endif
 
 void BahcallSoneira_model::load(peyton::system::Config &cfg)
 {
@@ -1270,37 +974,14 @@ void BahcallSoneira_model::load(peyton::system::Config &cfg)
 	r_cut2 *= r_cut2;
 }
 
-// BahcallSoneira_model::BahcallSoneira_model()
-// {
-// }
-
 BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
 	: galactic_model(cfg)
 {
 	load(cfg);
 }
-/*
-BahcallSoneira_model::BahcallSoneira_model(const std::string &prefix)
-{
-	Config cfg(prefix);
-	load(cfg);
-}*/
 
-// double BahcallSoneira_model::absmag(double ri)
-// {
-// 	return paralax.Mr(ri);
-// }
-
-#if 0
-sstruct::factory_t sstruct::factory;
-std::map<sstruct *, char *> sstruct::owner;
-#endif
-
-#if 1
 bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 {
-//	galactic_model::add_details(out, row, x, y, z, ri, rng);
-
 	using namespace column_types;
 	cfloat &XYZ = t.col<float>("XYZ");
 	cint  &comp = t.col<int>("comp");
@@ -1326,12 +1007,8 @@ bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 		else { comp[row] = HALO; }
 	}
 
-//	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
-//	std::cerr << r << " " << z << " : " << pthin << " " << pthick << " -> " << u << " " << t.comp << "\n";
-
 	return true;
 }
-#endif
 
 double BahcallSoneira_model::rho(double x, double y, double z, double ri)
 {
@@ -1375,18 +1052,6 @@ void BahcallSoneira_model::load_luminosity_function(istream &in, std::pair<doubl
 		FOREACH(phi) { *i /= stars_per_mag; };
 	}
 	lf.construct(ri, phi);
-#if 0
-	std::cerr << "Norm.: " << 1./stars_per_mag << "\n";
-	std::cerr << "New int: " << lf.integral(rho0_ri.first, rho0_ri.second) / dr << "\n";
-	std::cerr << "lf(1.0): " << lf(1.0) << "\n";
-	std::cerr << "lf(1.1): " << lf(1.1) << "\n";
-#endif
-#if 0
-	for(double ri=0; ri < 1.5; ri += 0.005)
-	{
-		std::cerr << ri << " " << lf(ri) << "\n";
-	}
-#endif
 }
 
 BLESS_POD(disk_model);
@@ -1474,20 +1139,3 @@ galactic_model::galactic_model(peyton::system::Config &cfg)
 		paralax_loaded = true;
 	}
 }
-
-#if 0
-bool galactic_model::setup_tags(sstruct::factory_t &factory)
-{
-	factory.useTag("comp");
-	factory.useTag("XYZ[3]");
-	return true;
-}
-
-bool galactic_model::draw_tag(sstruct &t, double x, double y, double z, double ri, gsl_rng *rng)
-{
-	t.component() = 0;
-	float *f = t.XYZ(); f[0] = x; f[1] = y; f[2] = z;
-
-	return true;
-}
-#endif

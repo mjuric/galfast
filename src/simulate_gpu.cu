@@ -618,15 +618,15 @@ void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc
 			}
 			os_photometry_tex_set(idx, texc, texf);
 		}
-		printf("%f %f %f %f\n%f %f %f %f\n",
-			texc(317, 28).x,
-			texc(317, 28).y,
-			texc(317, 28).z,
-			texc(317, 28).w,
-			(*loc)[i+0](317, 28),
-			(*loc)[i+1](317, 28),
-			(*loc)[i+2](317, 28),
-			(*loc)[i+3](317, 28));
+// 		printf("%f %f %f %f\n%f %f %f %f\n",
+// 			texc(317, 28).x,
+// 			texc(317, 28).y,
+// 			texc(317, 28).z,
+// 			texc(317, 28).w,
+// 			(*loc)[i+0](317, 28),
+// 			(*loc)[i+1](317, 28),
+// 			(*loc)[i+2](317, 28),
+// 			(*loc)[i+3](317, 28));
 
 		// Bind isochrone array to texture reference
 		cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);

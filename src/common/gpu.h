@@ -142,6 +142,15 @@ private:
 	}
 };
 
+// Rounds up v to nearest integer divisable by mod
+inline int roundUpModulo(int v, int mod)
+{
+	int r = v % mod;
+	int pitch = r ? v + (mod-r) : v;
+	return pitch;
+}
+
+#if 0
 // A pointer type that keeps the information of the type
 // and size of the array it's pointing to
 struct xptr
@@ -198,14 +207,6 @@ public:
 #if !__CUDACC__
 #include <iostream>
 #endif
-
-// Rounds up v to nearest integer divisable by mod
-inline int roundUpModulo(int v, int mod)
-{
-	int r = v % mod;
-	int pitch = r ? v + (mod-r) : v;
-	return pitch;
-}
 
 // typed "extended" pointer -- this pointer knows about the dimension of the array
 // it points to, and properly pads it on allocation (useful for on-GPU use)
@@ -300,6 +301,7 @@ public:
 #endif
 };
 extern GPUMM gpuMMU;
+#endif
 
 // For CPU versions of GPU algorithms
 #if !__CUDACC__

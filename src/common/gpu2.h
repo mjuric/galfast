@@ -18,12 +18,109 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#ifndef _gpu2_h__
+#define _gpu2_h__
+
 #include "gpu.h"
 #include <astro/macros.h>
 #include <assert.h>
+#include <map>
+
+// CUDA API wrappers
+struct cuxException
+{
+	cudaError err;
+	cuxException(cudaError err_) : err(err_) {}
+	const char *msg() const { return cudaGetErrorString(err); }
+};
+
+void cuxErrCheck(cudaError err);
+
+template<typename T>
+	T *cuxNew(uint32_t size = 1)
+	{
+		T *v;
+		cuxErrCheck( cudaMalloc((void**)&v, sizeof(T)*size) );
+		return v;
+	}
+
+template<typename T>
+	void cuxFree(T *v)
+	{
+		cuxErrCheck( cudaFree(v) );
+	}
+
+template<typename T>
+	struct cux_ptr
+	{
+		T *ptr;
+
+		void   upload(const T* src, int count = 1)  { if(!ptr) { alloc(count); } cuxErrCheck( cudaMemcpy(ptr,  src, count*sizeof(T), cudaMemcpyHostToDevice) ); }
+		void download(T* dest, int count = 1) const {                            cuxErrCheck( cudaMemcpy(dest, ptr, count*sizeof(T), cudaMemcpyDeviceToHost) ); }
+		void alloc(int count) { ptr = cuxNew<T>(count); }
+		void free() { cuxFree(ptr); }
+		cux_ptr<T> operator =(T *p) { ptr = p; return *this; }
+		cux_ptr<T> operator =(const cux_ptr<T> &p) { ptr = p.ptr; return *this; }
+		
+		#if __CUDACC__
+		T &operator[](uint32_t idx) const { return ptr[idx]; }
+		#endif
+	};
+	template<typename T>
+	inline cux_ptr<T> make_cux_ptr(void *data)
+	{
+		cux_ptr<T> ptr = { data };
+		return ptr;
+	}
+
+template<typename T>
+	void cuxUploadConst(T &dest, const T &source)
+	{
+		unsigned size = sizeof(source);
+		cuxErrCheck( cudaMemcpyToSymbol(dest, &source, size) );
+	}
+
+template<typename T>
+	void cuxUploadConst(const char *symbol, const T &source)
+	{
+		unsigned size = sizeof(source);
+		cuxErrCheck( cudaMemcpyToSymbol(symbol, &source, size) );
+	}
 
 namespace xptrng
 {
+	// Pointer to 2D array, GPU interface.
+	//     - Used to point to device memory, in kernels
+	//     - May be obtained from tptr<>
+	template<typename T>
+	struct gptr
+	{
+		char *data;
+		uint32_t pitch;
+
+		// Access
+		__device__ T &operator()(const size_t x, const size_t y)	// 2D accessor
+		{
+			return *((T*)(data + y * pitch) + x);
+		}
+		__device__ T &operator[](const size_t i)			// 1D accessor
+		{
+			return ((T*)data)[i];
+		}
+	};
+	template<typename T>
+	inline gptr<T> make_gptr(void *data, uint32_t pitch)
+	{
+		gptr<T> ptr = { (char*)data, pitch };
+		return ptr;
+	}
+
+	// Smart pointer, inner part, low level implementation.
+	//     - only meant to be used from tptr and derivatives
+	//     - points to a well-formed block of memory with 2D dimensions m_dim, of elements of size m_elementSize,
+	//	 with subsequent rows separated by m_pitch bytes.
+	//     - is reference counted, auto de-allocates on all devices upon final release
+	//     - can upload the data to global device memory, or CUDA array
 	struct ptr_desc
 	{
 		friend struct GPUMM;
@@ -54,7 +151,9 @@ namespace xptrng
 		ptr_desc *addref() { ++refcnt; return this; }
 		int release()
 		{
-			if(--refcnt == 0) { delete this; return 0; }
+			--refcnt;
+			assert(refcnt >= 0);
+			//if(refcnt == 0) { delete this; return 0; }
 			return refcnt;
 		}
 
@@ -64,31 +163,49 @@ namespace xptrng
 
 		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2, bool forceUpload = false);
 
-		private:
+	private:
 		// ensure no shenanigans (no copy constructor & operator)
 		ptr_desc(const ptr_desc &);
 		ptr_desc& operator=(const ptr_desc &);
 	};
 
+	// Smart pointer, public interface.
+	//     - attempts to mimic shared_ptr<> semantics
+	//     - works in conjunction with gptr<> to provide copies of data on compute devices
 	template<typename T>
 	struct tptr
 	{
 		ptr_desc *desc;
 
-		uint32_t elementSize() const { return sizeof(T); }
+		uint32_t elementSize() const { return desc->m_elementSize; }
 		uint32_t width()   const { return desc->m_dim.x; }
 		uint32_t height()  const { return desc->m_dim.y; }
 		uint32_t ncols()   const { return width(); }
 		uint32_t nrows()   const { return height(); }
 		uint32_t pitch()   const { return desc->m_pitch; }
+		size_t size() const { return width()*height(); }
 
 		tptr()
 		{
 			desc = ptr_desc::getnullptr()->addref();
 		}
-		tptr(uint32_t width, uint32_t height, uint32_t align = 128)
+		tptr(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
 		{
-			desc = new ptr_desc(sizeof(T), width, height, roundUpModulo(sizeof(T)*width, align));
+			desc = new ptr_desc(elemSize, width, height, roundUpModulo(elemSize*width, align));
+		}
+		void realloc(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
+		{
+			*this = tptr<T>(width, height, elemSize, align);
+		}
+		tptr<T> clone(bool copyData = false) const
+		{
+			tptr<T> ret(new ptr_desc(elementSize(), width(), height(), pitch()));
+			if(copyData)
+			{
+				syncToHost();
+				memcpy(ret.desc->m_data, desc->m_data, desc->memsize());
+			}
+			return ret;
 		}
 		tptr(const tptr& t)
 		{
@@ -96,8 +213,11 @@ namespace xptrng
 		}
 		tptr &operator =(const tptr &t)
 		{
-			desc->release();
-			desc = t.desc->addref();
+			if(t.desc != desc)
+			{
+				desc->release();
+				desc = t.desc->addref();
+			}
 			return *this;
 		}
 		~tptr()
@@ -106,10 +226,10 @@ namespace xptrng
  		}
 
 		// comparisons/tests
-		operator bool() const
-		{
-			return desc != ptr_desc::getnullptr();
-		}
+ 		bool isNull() const
+ 		{
+ 			return desc == ptr_desc::getnullptr();
+ 		}
 
 		// debugging
 		void assert_synced(int whichDev)
@@ -121,11 +241,15 @@ namespace xptrng
 		T &operator()(const size_t x, const size_t y)	// 2D accessor
 		{
 			assert_synced(-1);
-			return *((T*)((char*)desc->m_data + y * pitch()) + x);
+			size_t offs = y * pitch() + elementSize()*x;
+			assert(offs < desc->memsize());
+			return *(T*)((char*)desc->m_data + offs);
+//			return *((T*)((char*)desc->m_data + y * pitch()) + x);
 		}
 		T &operator[](const size_t i)			// 1D accessor
 		{
 			assert_synced(-1);
+			assert(i > 0 && i < size());
 			return ((T*)desc->m_data)[i];
 		}
 
@@ -134,32 +258,28 @@ namespace xptrng
 			return desc->getCUDAArray(channelDesc, dev, forceUpload);
 		}
 
+	public:
+		operator gptr<T>()
+		{
+			return make_gptr<T>(syncToDevice(), pitch());
+		}
+		operator cux_ptr<T>()
+		{
+			return make_cux_ptr<T>(syncToDevice());
+		}
+
+	protected:
 		// multi-device support. Don't call these directly; use gptr instead.
-		void syncToHost() { desc->syncToDevice(-1); }
-		void* syncToDevice(int dev) { return desc->syncToDevice(dev); }
-	};
+		T *syncToHost() const { return (T*)const_cast<tptr<T> *>(this)->desc->syncToDevice(-1); }
+		T* syncToDevice(int dev = -2) { return (T*)desc->syncToDevice(dev); }
 
-	template<typename T>
-	struct gptr
-	{
-		char *data;
-		uint32_t pitch;
-
-		gptr(tptr<T> &ptr)
+		// protected constructors
+		tptr(ptr_desc *d)
 		{
-			pitch = ptr.pitch();
-			data = ptr.syncToDevice();
-		}
-
-		// Access
-		__device__ T &operator()(const size_t x, const size_t y)	// 2D accessor
-		{
-			return *((T*)(data + y * pitch) + x);
-		}
-		__device__ T &operator[](const size_t i)			// 1D accessor
-		{
-			return ((T*)data)[i];
+			desc = d;
 		}
 	};
 
 };
+
+#endif // _gpu2_h__

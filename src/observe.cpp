@@ -568,8 +568,8 @@ class os_photometry : public osink
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 ///		std::vector<std::vector<float> > clt;
-		std::vector<tptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
-		std::vector<tptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
+		std::vector<xptrng::tptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
+		std::vector<xptrng::tptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
 /*		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
 		std::vector<std::vector<cbool> > eclt;	// extrapolation flags*/
 		int nMr, nFeH;
@@ -735,8 +735,8 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
 ///	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
 //	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
-	isochrones.resize(ncolors); FOREACH(isochrones)  { i->alloc(nFeH, nMr); }
-	eflags.resize(ncolors);     FOREACH(eflags)      { i->alloc(nFeH, nMr); }
+	isochrones.resize(ncolors); FOREACH(isochrones)  { i->realloc(nFeH, nMr); }
+	eflags.resize(ncolors);     FOREACH(eflags)      { i->realloc(nFeH, nMr); }
 
 	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
 	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
@@ -781,12 +781,19 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	{
 //		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 		nextrap[i] = 0;
-		tptr<uint> &ptr = eflags[i];
-		FOREACHj(cf, ptr)
+		xptrng::tptr<uint> &ptr = eflags[i];
+/*		FOREACHj(cf, ptr)
 		{
 			if(*cf != 0) { nextrap[i] += 1; }
+		}*/
+		FORj(x, 0, ptr.width())
+		{
+			FORj(y, 0, ptr.height())
+			{
+				if(ptr(x, y) != 0) { nextrap[i] += 1; }
+			}
 		}
-		nextrap[i] /= eflags[i].size();
+		nextrap[i] /= ptr.width()*ptr.height();
 	}
 ///	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
@@ -863,7 +870,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 typedef ct::cfloat::gpu_t gcfloat;
 typedef ct::cint::gpu_t gcint;
 DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH));
-void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs);
+void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {

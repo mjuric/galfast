@@ -424,14 +424,14 @@ protected:
 		otable &parent;					// parent table of this column
 
 	protected:
-		//boost::shared_ptr<columndef> clone(const std::string &newColumnName) const;
 		boost::shared_ptr<columndef> clone(const std::string &newColumnName) const
 		{
 			boost::shared_ptr<columndef> c(new columndef(parent));
 			c->columnName = newColumnName;
 
-			c->ptr.base = ptr.base;
-			c->ptr.base = 0;
+// 			c->ptr.base = ptr.base;
+// 			c->ptr.base = 0;
+			c->ptr.reshape(ptr);
 
 			c->columnClass = columnClass;
 			c->formatString = formatString;

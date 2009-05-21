@@ -154,8 +154,9 @@ namespace gpuemu	// prevent collision with nvcc's symbols
 }
 
 __TLS int  active_compute_device;
+#if 0
 GPUMM gpuMMU;
-
+#endif
 
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct rng_mwc
@@ -273,7 +274,7 @@ gpu_rng_t::gpu_rng_t(rng_t &rng)
 }
 #endif
 
-
+#if 0
 //////////////////////////////////////////////
 #define ENABLE_PAGELOCKED 0
 void xptr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
@@ -306,6 +307,7 @@ void xptr::free()
 	base = NULL;
 }
 //////////////////////////////////////////////
+#endif
 
 #if HAVE_CUDA
 
@@ -433,7 +435,7 @@ bool cuda_init()
 }
 
 //////////////////////////////////////////////
-
+#if 0
 size_t GPUMM::allocated() const
 {
 	size_t total = 0;
@@ -526,6 +528,7 @@ void GPUMM::syncToHost(xptr &hptr)
 		g.lastop = SYNCED_TO_HOST;
 	}
 }
+#endif
 
 void abort_on_cuda_error(cudaError err)
 {
@@ -534,7 +537,7 @@ void abort_on_cuda_error(cudaError err)
 	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
 	abort();
 }
-
+#if 0
 cudaArray *GPUMM::mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc)
 {
 	cudaArray* cu_array;
@@ -548,6 +551,7 @@ cudaArray *GPUMM::mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc)
 
 	return cu_array;
 }
+#endif
 
 #endif // HAVE_CUDA
 

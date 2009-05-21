@@ -495,11 +495,11 @@ KERNEL(
 #include <vector>
 
 #if BUILD_FOR_CPU
-extern __TLS std::vector<tptr<float> > *locuses;
-extern __TLS std::vector<tptr<uint> >   *flags;
+extern __TLS std::vector<xptrng::tptr<float> > *locuses;
+extern __TLS std::vector<xptrng::tptr<uint> >   *flags;
 #else
-__TLS std::vector<tptr<float> > *locuses;
-__TLS std::vector<tptr<uint> >   *flags;
+__TLS std::vector<xptrng::tptr<float> > *locuses;
+__TLS std::vector<xptrng::tptr<uint> >   *flags;
 #endif
 
 #if HAVE_CUDA && !BUILD_FOR_CPU
@@ -574,12 +574,13 @@ void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr
 void os_photometry_tex_get(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
 void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
 
-void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc, std::vector<tptr<uint> > *flgs)
+void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs)
 {
 	locuses = loc;
 	flags = flgs;
 
 #if HAVE_CUDA
+	activeDevice dev(gpuExecutionEnabled("os_photometry_kernel")? 0 : -1);
 	if(gpuGetActiveDevice() < 0) { return; }
 
 	size_t width  = (*loc)[0].width();
@@ -595,7 +596,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<tptr<float> > *loc
 		char idx[50];
 		sprintf(idx, "%s%d", id, i);
 		os_photometry_tex_get(idx, texc, texf);
-		if(!texc || !texf)
+		if(texc.isNull() || texf.isNull())
 		{
 			texc = xptrng::tptr<float4>(width, height);
 			texf =  xptrng::tptr<uint4>(width, height);

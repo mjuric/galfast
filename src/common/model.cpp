@@ -232,16 +232,11 @@ void otable::columndef::alloc(const size_t nrows)
 
 	const column_type_traits *tt = type();
 	size_t elementSize = tt->elementSize;
+	ptr.resize(nrows, ptr.width(), elementSize);
 
-	size_t pitch = elementSize*nrows;
-	if(pitch % 128)
-	{
-		// round up to 128-byte boundary, to optimize GPU memory access
-		pitch += 128 - (pitch % 128);
-	}
-	ptr.base.alloc(elementSize, nrows, ptr.width(), pitch);
-
-	char *base = ptr.base.get<char>();
+	// call constructors
+	char *base = ptr.get();
+	size_t pitch = ptr.pitch();
 	for(size_t i = 0; i != ptr.width(); i++)
 	{
 		for(size_t j = 0; j != ptr.nrows(); j++)
@@ -254,12 +249,13 @@ void otable::columndef::alloc(const size_t nrows)
 
 void otable::columndef::dealloc()
 {
-	if(!ptr.base) { return; }
+	if(!ptr.size()) { return; }
 
+	// call destructors
 	const column_type_traits *tt = type();
-	size_t elementSize = ptr.base.elementSize();
-	size_t pitch = ptr.base.pitch();
-	char *base = ptr.base.get<char>();
+	size_t elementSize = ptr.elementSize();
+	size_t pitch = ptr.pitch();
+	char *base = ptr.get();
 	for(size_t i = 0; i != ptr.width(); i++)
 	{
 		for(size_t j = 0; j != ptr.nrows(); j++)
@@ -269,7 +265,8 @@ void otable::columndef::dealloc()
 		}
 	}
 
-	ptr.base.free();
+	// deallocate the memory without erasing the metadata
+	ptr.resize(0, ptr.width());
 }
 
 void otable::columnclass::set_property(const std::string &key, const std::string &value)
@@ -326,7 +323,7 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 		dealloc();
 		int width = atoi(value.c_str());
 		ASSERT(width > 1);
-		ptr.base.set_height(width);
+		ptr.resize(ptr.nrows(), width);
 		return;
 	}
 	if(key == "type")
@@ -347,7 +344,7 @@ void otable::columndef::serialize(fmtout &line, const size_t row) const
 	FOR(0, ptr.width())
 	{
 		tt->serialize(line, fmt, at);
-		at += ptr.base.pitch();
+		at += ptr.pitch();
 	}
 }
 void otable::columndef::unserialize(std::istream &in, const size_t row)
@@ -358,7 +355,7 @@ void otable::columndef::unserialize(std::istream &in, const size_t row)
 	FOR(0, ptr.width())
 	{
 		tt->unserialize(at, in);
-		at += ptr.base.pitch();
+		at += ptr.pitch();
 	}
 }
 

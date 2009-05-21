@@ -132,17 +132,17 @@ KERNEL(
 template<typename T>
 __device__ inline __device__ T sqr(const T x) { return x*x; }
 
-static const double degToRadCoef=0.017453292519943295769; // PI/180
-inline __device__ double radDouble(double degrees) { return degrees*degToRadCoef; }
+__device__ inline double rad(double deg) { return 0.017453292519943295769  * deg; } // convert deg to rad
+__device__ inline float  radf(float deg) { return 0.017453292519943295769f * deg; } // convert deg to rad
 
 // convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
-__device__ void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const double l, const double b)
+__device__ inline void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
 {
-	double cl, sl, cb, sb;
-	cl = cos(l);
-	sl = sin(l);
-	cb = cos(b);
-	sb = sin(b);
+	float cl, sl, cb, sb;
+	cl = cosf(l);
+	sl = sinf(l);
+	cb = cosf(b);
+	sb = sinf(b);
 
 	float tmp;
 	vl  =  vx*sl  - vy*cl;
@@ -151,10 +151,10 @@ __device__ void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, con
 	vb  =  sb*tmp + vz*cb;
 }
 
-__device__ void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
+__device__ inline void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
 {
 	// convert galactocentric cylindrical to cartesian velocities
-	float rho = sqrt(X*X + Y*Y);
+	float rho = sqrtf(X*X + Y*Y);
 	float cphi = X / rho;
 	float sphi = Y / rho;
 
@@ -179,8 +179,9 @@ KERNEL(
 	for(uint32_t row=ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// fetch prerequisites
-		double l = radDouble(lb0(row, 0));
-		double b = radDouble(lb0(row, 1));
+		// NOTE: Single precision should be sufficient here for (l,b)
+		float l = radf(lb0(row, 0));
+		float b = radf(lb0(row, 1));
 		float X = XYZ(row, 0);
 		float Y = XYZ(row, 1);
 		float Z = XYZ(row, 2);
@@ -188,16 +189,12 @@ KERNEL(
 		float vy = vcyl(row, 1);
 		float vz = vcyl(row, 2);
 
-#if 1
+#if 0
+		// These must produce (mu_l, mu_b, v_radial) = (12.72 mas/yr, -14.75 mas/yr, -27.34 km/s)
 		X = 8100; Y = 100; Z = 3000;
-//		X = 8000; Y = 0.001; Z = 100;
+		vx = 10; vy = 50; vz = -30;
 		l = atan2(-Y, 8000-X);
 		b = asin(Z / sqrt(sqr(8000-X) + sqr(Y) + sqr(Z)));
-		vx = 10;
-		vy = 50;
-		vz = -30;
-//		std::cerr << deg(lb[0]) << " " << deg(lb[1]) << "\n";
-//		std::cerr << " VELcyl: " << vcyl[0] << " " << vcyl[1] << " " << vcyl[2] << "\n";
 #endif
 		// convert the velocities from cylindrical to galactocentric cartesian system
 		float pm[3];
@@ -207,40 +204,34 @@ KERNEL(
 		pm[0] -= par.u0;
 		pm[1] -= par.v0 + par.vLSR;
 		pm[2] -= par.w0;
-		#ifdef __DEVICE_EMULATION__
-		printf(" VELsol: %f %f %f\n", pm[0], pm[1], pm[2]);
-		#endif
 
 		// convert to velocities wrt. the observer
 		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
-		#ifdef __DEVICE_EMULATION__
-		printf(" VELrad: %f %f %f\n", pm[0], pm[1], pm[2]);
-		#endif
 
 		// convert to proper motions
-		float D = sqrt(sqr(8000.f-X) + sqr(Y) + sqr(Z));
+		float D = sqrtf(sqr(8000.f-X) + sqr(Y) + sqr(Z));
 		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
 		pm[1] /= 4.74 * D*1e-3;
-		#ifdef __DEVICE_EMULATION__
-		printf(" VELpmr: %f %f %f\n", pm[0], pm[1], pm[2]);
-		#endif
 
 		// rotate to output coordinate system
 		switch(par.coordsys)
 		{
 		case GAL:
-			pmlb(row, 0) = pm[0];
-			pmlb(row, 1) = pm[1];
-			pmlb(row, 2) = pm[2];
 			break;
 		case EQU:
 			//THROW(EAny, "Output in equatorial system not implemented yet.");
 			//array_copy(s.pmradec(), pm, 3);
+			pm[0] = pm[1] = pm[2] = -9.99;
 			break;
 		default:
 			//THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+			pm[0] = pm[1] = pm[2] = -9.99;
 			break;
 		}
+
+		pmlb(row, 0) = pm[0];
+		pmlb(row, 1) = pm[1];
+		pmlb(row, 2) = pm[2];
 	}
 }
 
@@ -536,7 +527,7 @@ __device__ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 {
 	float4 clr;
 	uint4 f;
-	uint flags;
+	uint flags = 0;
 
 	clr = tex2D(color0, FeH, Mr); f = tex2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
 	clr = tex2D(color1, FeH, Mr); f = tex2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;

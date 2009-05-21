@@ -37,6 +37,109 @@
 
 xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
 
+xptrng::ptr_desc::ptr_desc(size_t es, size_t width, size_t height, size_t pitch)
+	: m_elementSize(es), m_dim(width, height, 1), m_pitch(pitch), m_data(NULL)
+{
+	refcnt = 1;
+	masterDevice = -1;
+	deviceDataPointers[-1] = m_data = new char[memsize()];
+}
+xptrng::ptr_desc::~ptr_desc()
+{
+	delete [] ((char*)m_data);
+	FOREACH(deviceDataPointers)
+	{
+		if(i->first < 0) { continue; }
+
+		cudaError err = cudaFree(i->second);
+		abort_on_cuda_error(err);
+	}
+	FOREACH(cudaArrayPointers)
+	{
+		cudaError err = cudaFreeArray(i->second);
+		abort_on_cuda_error(err);
+	}
+}
+void *xptrng::ptr_desc::syncToDevice(int dev)
+{
+	if(dev == -2)
+	{
+		dev = gpuGetActiveDevice();
+	}
+
+	if(masterDevice != dev)
+	{
+		// check if this device-to-device copy. If so, do the copy via host
+		if(masterDevice != -1 && dev != -1)
+		{
+			syncToDevice(-1); // this will change masterDevice to -1
+		}
+
+		// allocate/copy to device
+		cudaError err;
+
+		// determine destination and copy direction
+		cudaMemcpyKind dir = cudaMemcpyDeviceToHost;
+		if(dev != -1)
+		{
+			dir = cudaMemcpyHostToDevice;
+
+			// allocate device space (if unallocated)
+			if(!deviceDataPointers.count(dev))
+			{
+				err = cudaMalloc(&deviceDataPointers[dev], memsize());
+				abort_on_cuda_error(err);
+			}
+		}
+		void *dest = deviceDataPointers[dev];
+		void *src = deviceDataPointers[masterDevice];
+
+		// do the copy
+		err = cudaMemcpy(dest, src, memsize(), dir);
+		abort_on_cuda_error(err);
+
+		// record new master device
+		masterDevice = dev;
+	}
+	return deviceDataPointers[masterDevice];
+}
+cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev, bool forceUpload)
+{
+	syncToDevice(-1);	// ensure the data is on the host
+
+	if(dev == -2)
+	{
+		dev = gpuGetActiveDevice();
+		assert(dev >= 0);
+	}
+
+	cudaArray* cu_array;
+	cudaError err;
+
+	if(cudaArrayPointers.count(dev))
+	{
+		cu_array = cudaArrayPointers[dev];
+	}
+	else
+	{
+		// autocreate
+		err = cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y);
+		CUDA_ASSERT(err);
+
+		cudaArrayPointers[dev] = cu_array;
+		forceUpload = true;
+	}
+
+	if(forceUpload)
+	{
+		err = cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice);
+		CUDA_ASSERT(err);
+	}
+
+	return cu_array;
+}
+
+
 stopwatch kernelRunSwatch;
 
 // CUDA emulation for the CPU

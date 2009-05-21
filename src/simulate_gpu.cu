@@ -188,6 +188,17 @@ KERNEL(
 		float vy = vcyl(row, 1);
 		float vz = vcyl(row, 2);
 
+#if 1
+		X = 8100; Y = 100; Z = 3000;
+//		X = 8000; Y = 0.001; Z = 100;
+		l = atan2(-Y, 8000-X);
+		b = asin(Z / sqrt(sqr(8000-X) + sqr(Y) + sqr(Z)));
+		vx = 10;
+		vy = 50;
+		vz = -30;
+//		std::cerr << deg(lb[0]) << " " << deg(lb[1]) << "\n";
+//		std::cerr << " VELcyl: " << vcyl[0] << " " << vcyl[1] << " " << vcyl[2] << "\n";
+#endif
 		// convert the velocities from cylindrical to galactocentric cartesian system
 		float pm[3];
 		vel_cyl2xyz(pm[0], pm[1], pm[2],   vx, vy, vz,   X, Y);
@@ -196,21 +207,28 @@ KERNEL(
 		pm[0] -= par.u0;
 		pm[1] -= par.v0 + par.vLSR;
 		pm[2] -= par.w0;
+		#ifdef __DEVICE_EMULATION__
+		printf(" VELsol: %f %f %f\n", pm[0], pm[1], pm[2]);
+		#endif
 
 		// convert to velocities wrt. the observer
 		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
+		#ifdef __DEVICE_EMULATION__
+		printf(" VELrad: %f %f %f\n", pm[0], pm[1], pm[2]);
+		#endif
 
 		// convert to proper motions
-//		float D = sqrt(sqrDouble(X) + sqrDouble(Y) + sqrDouble(Z));
 		float D = sqrt(sqr(8000.f-X) + sqr(Y) + sqr(Z));
 		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
 		pm[1] /= 4.74 * D*1e-3;
+		#ifdef __DEVICE_EMULATION__
+		printf(" VELpmr: %f %f %f\n", pm[0], pm[1], pm[2]);
+		#endif
 
 		// rotate to output coordinate system
 		switch(par.coordsys)
 		{
 		case GAL:
-//			array_copy(s.pmlb(), pm, 3);
 			pmlb(row, 0) = pm[0];
 			pmlb(row, 1) = pm[1];
 			pmlb(row, 2) = pm[2];

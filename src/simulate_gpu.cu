@@ -129,31 +129,14 @@ KERNEL(
 //======================================================================
 //======================================================================
 
-inline __device__ double sqrDouble(double x) { return x*x;}
+template<typename T>
+__device__ inline __device__ T sqr(const T x) { return x*x; }
 
-static const double degToRadCoef=0.0174532925;//PI/180
+static const double degToRadCoef=0.017453292519943295769; // PI/180
 inline __device__ double radDouble(double degrees) { return degrees*degToRadCoef; }
 
-inline __device__ void vel_cyl2xyz(
-		float &vx, float &vy, float &vz, 
-		const float vr, const float vphi, const float vz0, 
-		const float X, const float Y)
-{
-	// convert galactocentric cylindrical to cartesian velocities
-	float rho = sqrt(X*X + Y*Y);
-	float cphi = X / rho;
-	float sphi = Y / rho;
-
-	vx = -sphi * vr + cphi * vphi;
-	vy =  cphi * vr + sphi * vphi;
-	vz = vz0;
-}
-
 // convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
-inline __device__ void vel_xyz2lbr(
-		float &vl, float &vr, float &vb, 
-		const float vx, const float vy, const float vz, 
-		const double l, const double b)
+__device__ void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const double l, const double b)
 {
 	double cl, sl, cb, sb;
 	cl = cos(l);
@@ -166,6 +149,18 @@ inline __device__ void vel_xyz2lbr(
 	tmp =  vx*cl  + vy*sl;
 	vr  = -cb*tmp + vz*sb;
 	vb  =  sb*tmp + vz*cb;
+}
+
+__device__ void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
+{
+	// convert galactocentric cylindrical to cartesian velocities
+	float rho = sqrt(X*X + Y*Y);
+	float cphi = X / rho;
+	float sphi = Y / rho;
+
+	vx = -sphi * vphi + cphi * vr;
+	vy =  cphi * vphi + sphi * vr;
+	vz = vz0;
 }
 
 KERNEL(
@@ -206,7 +201,8 @@ KERNEL(
 		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
 
 		// convert to proper motions
-		float D = sqrt(sqrDouble(X) + sqrDouble(Y) + sqrDouble(Z));
+//		float D = sqrt(sqrDouble(X) + sqrDouble(Y) + sqrDouble(Z));
+		float D = sqrt(sqr(8000.f-X) + sqr(Y) + sqr(Z));
 		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
 		pm[1] /= 4.74 * D*1e-3;
 

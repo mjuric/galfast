@@ -20,9 +20,6 @@
 
 #include "config.h"
 
-#ifdef COMPILE_SIMULATE_X
-#define COMPILING_SIMULATE
-
 #include "gpc_cpp.h"
 
 #include <boost/shared_ptr.hpp>
@@ -34,7 +31,7 @@
 #include "model.h"
 #include "paralax.h"
 #include "analysis.h"
-#include "dm.h"
+//#include "dm.h"
 #include "io.h"
 #include "gpu.h"
 #include "simulate_base.h"
@@ -104,7 +101,3 @@ bool os_vel2pm::init(const Config &cfg, otable &t)
 
 	return true;
 }
-
-
-#endif
-

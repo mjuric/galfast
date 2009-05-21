@@ -23,8 +23,8 @@
 
 #include "projections.h"
 #include "model.h"
-#include "dm.h"
-#include "conic_volume_map.h"
+//#include "dm.h"
+//#include "conic_volume_map.h"
 
 #include <string>
 
@@ -168,7 +168,7 @@ struct star_output_function
 {
 	typedef peyton::Radians Radians;
 
-	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
+	//virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
 	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t) = 0;
 	virtual void output(const otable &t) = 0;
 	virtual void output_header(const otable &t) {};
@@ -182,7 +182,7 @@ protected:
 public:
 	star_output_to_textstream(std::ostream &out_) : out(out_) {}
 
-	virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
+	//virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
 	virtual void output(const otable &t);
 	virtual void output_header(const otable &t);
 };

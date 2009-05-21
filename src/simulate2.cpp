@@ -57,9 +57,6 @@
 
 #include "config.h"
 
-#ifdef COMPILE_SIMULATE_X
-#define COMPILING_SIMULATE
-
 #include "gsl/gsl_randist.h"
 
 #if 0
@@ -88,7 +85,7 @@ namespace lapack
 #include "model.h"
 #include "paralax.h"
 #include "analysis.h"
-#include "dm.h"
+//#include "dm.h"
 
 #include <vector>
 #include <map>
@@ -1236,12 +1233,12 @@ void star_output_to_textstream::output(const otable &t)
 	t.serialize_body(out);
 }
 
-void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
-{
-	// simple ascii-text dump
-	double ri = obsvs[0].first.mag[1] - obsvs[0].first.mag[2];
-	out << ra << " " << dec << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
-}
+// void star_output_to_textstream::output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs)
+// {
+// 	// simple ascii-text dump
+// 	double ri = obsvs[0].first.mag[1] - obsvs[0].first.mag[2];
+// 	out << ra << " " << dec << " " << ri << " " << obsvs[0].first.mag[1] << "\n";
+// }
 
 #if 0
 // Quick hack -- a position-independent luminosity function for binaries
@@ -1655,5 +1652,3 @@ void pdfinfo(std::ostream &out, const std::string &pdffile)
 
 	out << "nstars\t" << pdf.N << "\n";
 }
-
-#endif // COMPILE_SIMULATE_X

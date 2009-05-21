@@ -19,7 +19,6 @@
  ***************************************************************************/
 
 #include "config.h"
-#define COMPILING_SIMULATE
 
 #include <astro/io/binarystream.h>
 #include <astro/math/vector.h>
@@ -38,6 +37,7 @@
 #include "gpc_cpp.h"
 #include "io.h"
 #include "gpu.h"
+#include "analysis.h"
 
 #include <astro/useall.h>
 using namespace std;

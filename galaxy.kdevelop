@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
@@ -88,18 +88,18 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --enable-simulate --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
         <cxxflags>-O0 -g3 -Wno-deprecated</cxxflags>
-        <topsourcedir/>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
-        <ldflags/>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ldflags></ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-Wno-deprecated</cflags>
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>
@@ -185,7 +185,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -211,11 +211,11 @@
   <kdevdebugger>
     <general>
       <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell></dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

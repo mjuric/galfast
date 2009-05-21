@@ -23,18 +23,6 @@ AC_caolan_CHECK_PACKAGE(libpeyton, main, peyton, astro/constants.h,
    AC_MSG_RESULT([libpeyton found.]),
    AC_MSG_ERROR([libpeyton NOT found]) )
 
-AC_caolan_CHECK_PACKAGE(cfitsio, ffpss, cfitsio, fitsio.h,
-   AC_MSG_RESULT([cfitsio found.]),
-   AC_MSG_RESULT([cfitsio 2.4 or later NOT found]) )
-
-AC_caolan_CHECK_PACKAGE(CCfits, main, CCfits, CCfits/CCfits,
-   AC_MSG_RESULT([CCfits found.]),
-   AC_MSG_RESULT([CCfits 2.4 or later NOT found. Not compiling FITS support.]) )
-
-AC_caolan_CHECK_PACKAGE(nagc, main, nagc, nag.h,
-   AC_MSG_RESULT([NAG C library found.]),
-   AC_MSG_RESULT([NAG C library NOT found. Not compiling code which depends on nagc.]) )
-
 RS_BOOST([1.33.0],
 	[
 	  CXXFLAGS="$CXXFLAGS $BOOST_CPPFLAGS"
@@ -58,19 +46,6 @@ RS_BOOST_REGEX(
 	],[
 	  AC_MSG_RESULT([    - Boost.Regex NOT found. Omitting Boost.Regex dependent code.])
 	])
-
-AC_ARG_ENABLE(simulate,
- [  --enable-simulate  Enable compilation of simulate.x ],
- [
-	simulate_x=yes
-	AC_MSG_RESULT([Compiling full simulate.x])
- ])
-
-if test "${simulate_x}" == yes; then
-	AC_DEFINE(COMPILE_SIMULATE_X, 1, Define to compile simulate.x)
-else
-	AC_MSG_RESULT([NOT compiling simulate.x (leaving a stub)])
-fi
 
 
 ########################
@@ -134,5 +109,3 @@ LIBS="$LIBS $BOOST_LIBS $CUDA_LIBS"
 CPPFLAGS="-DDATADIR=\"\\\"\$(pkgdatadir)\\\"\" $CPPFLAGS"
 
 AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile)
-
-# -L/usr/local/nag/cllux07ddl -lnurbsf -lmatrix -lmatrixN -lmatrixI -lGL -lGLU -llapack -lg2c -lnagc

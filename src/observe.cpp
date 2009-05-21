@@ -20,21 +20,20 @@
 
 #include "config.h"
 
-#ifdef COMPILE_SIMULATE_X
-#define COMPILING_SIMULATE
-
 #include "gpc_cpp.h"
 
 #include <boost/shared_ptr.hpp>
 #include <boost/lambda/lambda.hpp>
 #include <sstream>
+#include <iostream>
+#include <fstream>
 
 #include "simulate.h"
 #include "projections.h"
 #include "model.h"
 #include "paralax.h"
 #include "analysis.h"
-#include "dm.h"
+//#include "dm.h"
 #include "io.h"
 #include "gpu.h"
 
@@ -1774,5 +1773,3 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	int nstars = pipe.run(t, rng);
 	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
 }
-
-#endif

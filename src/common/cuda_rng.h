@@ -42,9 +42,9 @@ Using RNGs from constant memory:
 // extern __shared__ int shmem[];
 // #endif
 
-#define cuda_assert(err) \
-	if((err) != cudaSuccess) { abort_on_cuda_error(err); }
-void abort_on_cuda_error(cudaError err);
+// #define cuda_assert(err) \
+// 	if((err) != cudaSuccess) { abort_on_cuda_error(err); }
+// void abort_on_cuda_error(cudaError err);
 
 namespace prngs
 {
@@ -98,8 +98,8 @@ namespace prngs
 			this->nstreams = nstreams;
 			if(on_gpu)
 			{
-				cuda_assert( cudaMalloc((void**)&gstate, sizeof(uint32_t)*nstreams*statewidth) );
-				cuda_assert( cudaMemcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyHostToDevice) );
+				cuxErrCheck( cudaMalloc((void**)&gstate, sizeof(uint32_t)*nstreams*statewidth) );
+				cuxErrCheck( cudaMemcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyHostToDevice) );
 			} else {
 				gstate = new uint32_t[nstreams*statewidth];
 				memcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth);
@@ -107,18 +107,19 @@ namespace prngs
 		}
 
 		// download the states. The caller must ensure there's enough room in
-		// the output buffer
+		// the output buffer.
 		int download(uint32_t *states)
 		{
 			if(!gstate) { return 0; }
 			if(on_gpu)
 			{
-				cuda_assert( cudaMemcpy(states, gstate, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyDeviceToHost) );
+				cuxErrCheck( cudaMemcpy(states, gstate, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyDeviceToHost) );
 			}
 			else
 			{
 				memcpy(states, gstate, sizeof(uint32_t)*nstreams*statewidth);
 			}
+			return nstreams*statewidth;
 		}
 
 		// Rounds up v to nearest integer divisable by mod
@@ -137,7 +138,7 @@ namespace prngs
 
 			if(on_gpu)
 			{
-				cuda_assert( cudaFree(gstate) );
+				cuxErrCheck( cudaFree(gstate) );
 			}
 			else
 			{

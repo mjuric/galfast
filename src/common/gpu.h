@@ -321,8 +321,7 @@ typedef kernel_state otable_ks;
 			\
 			kernelRunSwatch.start(); \
 			gpu_##kName<<<gridDim, threadsPerBlock, threadsPerBlock*dynShmemPerThread>>>kArgs; \
-			cudaError err = cudaThreadSynchronize();\
-			if(err != cudaSuccess) { abort(); } \
+			cuxErrCheck( cudaThreadSynchronize() );\
 			kernelRunSwatch.stop(); \
 		} \
 		__global__ void gpu_##kDecl

@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding></defaultencoding>
+    <defaultencoding/>
   </general>
   <kdevautoproject>
     <general>
@@ -25,15 +25,15 @@
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
-      <customdirectory>/home/kreso/projects/galaxy/tests/os_photometry/</customdirectory>
+      <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
       <programargs>postprocess postprocess.conf sky.cat.txt sky.obs.txt</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
-        <envvar value="0" name="CUDA_DEVICE" />
+        <envvar value="-1" name="CUDA_DEVICE" />
       </envvars>
       <runarguments>
         <unique.x/>
@@ -88,7 +88,7 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemuX --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
@@ -113,7 +113,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>8</numberofjobs>
       <dontact>false</dontact>
-      <makebin></makebin>
+      <makebin/>
       <prio>0</prio>
       <runmultiplejobs>true</runmultiplejobs>
     </make>
@@ -198,8 +198,8 @@
       <includestyle>3</includestyle>
       <root>/usr/lib64/qt-3.3</root>
       <designerintegration>EmbeddedKDevDesigner</designerintegration>
-      <qmake></qmake>
-      <designer></designer>
+      <qmake/>
+      <designer/>
       <designerpluginpaths/>
     </qt>
     <splitheadersource>

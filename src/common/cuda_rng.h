@@ -46,9 +46,9 @@ Using RNGs from constant memory:
 	if((err) != cudaSuccess) { abort_on_cuda_error(err); }
 void abort_on_cuda_error(cudaError err);
 
-namespace gpu_prng
+namespace prngs
 {
-	template<uint32_t state_dim>
+	template<uint32_t state_dim, bool on_gpu>
 	struct rng_base
 	{
 		static const int statewidth = state_dim;
@@ -89,14 +89,36 @@ namespace gpu_prng
 		}
 //		#endif
 
-	protected:
+	public:
 		// upload the state vector to the GPU
-		void upload(uint32_t *states)
+		void upload(const uint32_t *states, const uint32_t nstreams)
 		{
 			// copy rng stream state to GPU
 			free();
-			cuda_assert( cudaMalloc((void**)&gstate, sizeof(uint32_t)*nstreams*statewidth) );
-			cuda_assert( cudaMemcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyHostToDevice) );
+			this->nstreams = nstreams;
+			if(on_gpu)
+			{
+				cuda_assert( cudaMalloc((void**)&gstate, sizeof(uint32_t)*nstreams*statewidth) );
+				cuda_assert( cudaMemcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyHostToDevice) );
+			} else {
+				gstate = new uint32_t[nstreams*statewidth];
+				memcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth);
+			}
+		}
+
+		// download the states. The caller must ensure there's enough room in
+		// the output buffer
+		int download(uint32_t *states)
+		{
+			if(!gstate) { return 0; }
+			if(on_gpu)
+			{
+				cuda_assert( cudaMemcpy(states, gstate, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyDeviceToHost) );
+			}
+			else
+			{
+				memcpy(states, gstate, sizeof(uint32_t)*nstreams*statewidth);
+			}
 		}
 
 		// Rounds up v to nearest integer divisable by mod
@@ -111,11 +133,17 @@ namespace gpu_prng
 		// free the GPU state vector
 		void free()
 		{
-			if(gstate)
+			if(!gstate) { return; }
+
+			if(on_gpu)
 			{
 				cuda_assert( cudaFree(gstate) );
-				gstate = NULL;
 			}
+			else
+			{
+				delete [] gstate;
+			}
+			gstate = NULL;
 		}
 
 		void srand(uint32_t seed, uint32_t nstreams_=0)
@@ -128,7 +156,7 @@ namespace gpu_prng
 			{
 				streams[i] = lrand48();
 			}
-			upload(streams);
+			upload(streams, nstreams);
 			delete [] streams;
 		}
 		static const char *name() { return "unknown"; }
@@ -368,7 +396,8 @@ namespace gpu_prng
 //		#endif
 	};
 
-	struct ran0_impl : public rng_base<1>
+	template<bool on_gpu>
+	struct ran0_impl : public rng_base<1, on_gpu>
 	{
 		static const int IA = 16807;
 		static const int IM = 2147483647;
@@ -378,7 +407,7 @@ namespace gpu_prng
 		static const int MASK = 123459876;
 
 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		ran0_impl(uint32_t seed, uint32_t nstreams) : rng_base<1>() { srand(seed, nstreams); }
+		ran0_impl(uint32_t seed, uint32_t nstreams) : rng_base<1, on_gpu>() { this->srand(seed, nstreams); }
 		#endif
 
 		// An ultra-simple random number generator (straight out of NR)
@@ -404,13 +433,13 @@ namespace gpu_prng
 
 		static const char *name() { return "ran0"; }
 	};
-	typedef rng<ran0_impl> ran0;
 
-	struct mwc_impl : public rng_base<3>
+	template<bool on_gpu>
+	struct mwc_impl : public rng_base<3, on_gpu>
 	{
 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		mwc_impl(uint32_t seed, uint32_t nstreams) : rng_base<3>() { srand(seed, nstreams); }
-		mwc_impl() : rng_base<3>() { }
+		mwc_impl(uint32_t seed, uint32_t nstreams) : rng_base<3, on_gpu>() { this->srand(seed, nstreams); }
+		mwc_impl() : rng_base<3, on_gpu>() { }
 		#endif
 
 //		#ifdef __CUDACC__
@@ -462,9 +491,9 @@ namespace gpu_prng
 		}
 //		#endif
 
-		void srand(uint32_t seed, uint32_t nstreams_=0, const char *safeprimes_file = NULL)
+		void srand(uint32_t seed, uint32_t nstreams=0, const char *safeprimes_file = NULL)
 		{
-			if(nstreams_) { nstreams = roundUpModulo(nstreams_, 64); }
+			if(nstreams) { nstreams = roundUpModulo(nstreams, 64); }
 			uint32_t *streams = new uint32_t[3*nstreams];
 
 			assert(nstreams <= 1<<16);
@@ -487,18 +516,18 @@ namespace gpu_prng
 			}
 			fclose(f);
 
-			upload(streams);
+			this->upload(streams, nstreams);
 			delete [] streams;
 		}
 
 		static const char *name() { return "mwc"; }
 	};
-	typedef rng<mwc_impl> mwc;
 
-	struct taus2_impl : public rng_base<3>
+	template<bool on_gpu>
+	struct taus2_impl : public rng_base<3, on_gpu>
 	{
 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		taus2_impl(int seed, int nstreams) : rng_base<3>() { srand(seed, nstreams); }
+		taus2_impl(int seed, int nstreams) : rng_base<3, on_gpu>() { this->srand(seed, nstreams); }
 		#endif
 
 		#ifdef __CUDACC__
@@ -527,12 +556,12 @@ namespace gpu_prng
 
 		static const char *name() { return "taus2"; }
 	};
-	typedef rng<taus2_impl> taus2;
 
-	struct rand48_impl : public rng_base<3>
+	template<bool on_gpu>
+	struct rand48_impl : public rng_base<3, on_gpu>
 	{
 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		rand48_impl(int seed, int nstreams) : rng_base<3>() { srand(seed, nstreams); }
+		rand48_impl(int seed, int nstreams) : rng_base<3, on_gpu>() { this->srand(seed, nstreams); }
 		#endif
 
 		// Adapted from:
@@ -608,25 +637,40 @@ namespace gpu_prng
 		#undef statex
 		#undef statey
 
-		void srand(uint32_t seed, int nstreams_=0)
+		void srand(uint32_t seed, int nstreams=0)
 		{
-			if(nstreams_) { nstreams = roundUpModulo(nstreams_, 64); }
-			uint32_t *streams = new uint32_t[statewidth*nstreams];
+			if(nstreams) { nstreams = roundUpModulo(nstreams, 64); }
+			uint32_t *streams = new uint32_t[this->statewidth*nstreams];
 
 			for(int i = 0; i != nstreams; i++)
 			{
 				unsigned long long x = (((unsigned long long)(seed+i)) << 16) | 0x330E;
-				streams[i]          =         x & 0xFFFFFFLL;
-				streams[nstreams+i] = (x >> 24) & 0xFFFFFFLL;
+				streams[i]           =         x & 0xFFFFFFLL;
+				streams[nstreams+i]  = (x >> 24) & 0xFFFFFFLL;
 			}
 
-			upload(streams);
+			this->upload(streams, nstreams);
 			delete [] streams;
 		}
 
 		static const char *name() { return "rand48"; }
 	};
-	typedef rng<rand48_impl> rand48;
+	
+	namespace gpu
+	{
+		typedef rng<ran0_impl<true> >   ran0;
+		typedef rng<mwc_impl<true> >    mwc;
+		typedef rng<taus2_impl<true> >  taus2;
+		typedef rng<rand48_impl<true> > rand48;
+	}
+	
+	namespace cpu
+	{
+		typedef rng<ran0_impl<false> >   ran0;
+		typedef rng<mwc_impl<false> >    mwc;
+		typedef rng<taus2_impl<false> >  taus2;
+		typedef rng<rand48_impl<false> > rand48;
+	}
 }
 
 #endif // cuda_rng_h__

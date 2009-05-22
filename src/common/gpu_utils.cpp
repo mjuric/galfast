@@ -141,16 +141,36 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 stopwatch kernelRunSwatch;
 gpu_rng_t::persistent_rng gpu_rng_t::gpuRNG;
 
-gpu_prng::mwc &gpu_rng_t::persistent_rng::get(rng_t &seeder)
+gpu_prng_impl &gpu_rng_t::persistent_rng::get(rng_t &seeder)
 {
-	if(!gpuRNG)
+	if(state == EMPTY)
 	{
+		// initialize CPU and GPU RNGs
+		uint32_t seed = (uint32_t)(seeder.uniform()*(1<<24));
 		std::string file = datadir() + "/safeprimes32.txt";
 
-		gpuRNG = new gpu_prng::mwc;
-		gpuRNG->srand((uint32_t)(seeder.uniform()*(1<<24)), 1<<16, file.c_str());
+		cpuRNG.srand(seed, 1<<16, file.c_str());
+		state = CPU;
 	}
-	return *gpuRNG;
+
+	// GPU active
+	if(gpuGetActiveDevice() >= 0)
+	{
+		if(state == CPU)
+		{
+			gpuRNG.upload(cpuRNG.gstate, cpuRNG.nstreams);
+			state = GPU;
+		}
+		return gpuRNG;
+	}
+	
+	// CPU active
+	if(state == GPU)
+	{
+		gpuRNG.download(cpuRNG.gstate);
+		state = CPU;
+	}
+	return (gpu_prng_impl&)cpuRNG;
 }
 
 // CUDA emulation for the CPU

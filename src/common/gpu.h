@@ -388,26 +388,30 @@ typedef rng_t &gpu_rng_t;
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 	#include "cuda_rng.h"
 	//typedef gpu_prng::mwc gpu_rng_t;
-	struct gpu_rng_t : public gpu_prng::mwc
+	typedef prngs::gpu::mwc gpu_prng_impl;
+	typedef prngs::cpu::mwc cpu_prng_impl;
+	struct gpu_rng_t : public gpu_prng_impl
 	{
 		struct persistent_rng
 		{
-			gpu_prng::mwc *gpuRNG;
+			gpu_prng_impl gpuRNG;
+			cpu_prng_impl cpuRNG;
+			enum { EMPTY, GPU, CPU } state;
 
-			persistent_rng() : gpuRNG(NULL) { }
+			persistent_rng() : state(EMPTY) { }
 			~persistent_rng()
 			{
-				if(gpuRNG) gpuRNG->free();
-				delete gpuRNG;
+				gpuRNG.free();
+				cpuRNG.free();
 			}
 
-			gpu_prng::mwc &get(rng_t &seeder);
+			gpu_prng_impl &get(rng_t &seeder);
 		};
 		static persistent_rng gpuRNG;
 
 		gpu_rng_t(rng_t &seeder)
 		{
-			(gpu_prng::mwc&)*this = gpuRNG.get(seeder);
+			(gpu_prng_impl&)*this = gpuRNG.get(seeder);
 		}
 	};
 #endif

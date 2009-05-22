@@ -980,8 +980,8 @@ BahcallSoneira_model::BahcallSoneira_model(peyton::system::Config &cfg)
 bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 {
 	using namespace column_types;
-	cfloat &XYZ = t.col<float>("XYZ");
-	cint  &comp = t.col<int>("comp");
+	cfloat::host_t XYZ = t.col<float>("XYZ");
+	cint::host_t  comp = t.col<int>("comp");
 
 	for(size_t row = 0; row != t.size(); row++)
 	{

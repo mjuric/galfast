@@ -31,9 +31,12 @@ extern __TLS char shmem[16384];
 
 	#define __device__
 	#define __host__
+	#define __constant__
 
+	struct float4 { float x, y, z, w; };
 	struct double2 { double x, y; };
 	struct uint3 { unsigned int x, y, z; };
+	struct uint4 { unsigned int x, y, z, w; };
 
 	struct dim3
 	{
@@ -44,6 +47,147 @@ extern __TLS char shmem[16384];
 		operator uint3(void) { uint3 t; t.x = x; t.y = y; t.z = z; return t; }
 		#endif /* __cplusplus */
 	};
+
+	/*
+	* Copyright 1993-2009 NVIDIA Corporation.  All rights reserved.
+	*
+	* NOTICE TO USER:
+	*
+	* This source code is subject to NVIDIA ownership rights under U.S. and
+	* international Copyright laws.  Users and possessors of this source code
+	* are hereby granted a nonexclusive, royalty-free license to use this code
+	* in individual and commercial software.
+	*
+	* NVIDIA MAKES NO REPRESENTATION ABOUT THE SUITABILITY OF THIS SOURCE
+	* CODE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS" WITHOUT EXPRESS OR
+	* IMPLIED WARRANTY OF ANY KIND.  NVIDIA DISCLAIMS ALL WARRANTIES WITH
+	* REGARD TO THIS SOURCE CODE, INCLUDING ALL IMPLIED WARRANTIES OF
+	* MERCHANTABILITY, NONINFRINGEMENT, AND FITNESS FOR A PARTICULAR PURPOSE.
+	* IN NO EVENT SHALL NVIDIA BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL,
+	* OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+	* OF USE, DATA OR PROFITS,  WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+	* OR OTHER TORTIOUS ACTION,  ARISING OUT OF OR IN CONNECTION WITH THE USE
+	* OR PERFORMANCE OF THIS SOURCE CODE.
+	*
+	* U.S. Government End Users.   This source code is a "commercial item" as
+	* that term is defined at  48 C.F.R. 2.101 (OCT 1995), consisting  of
+	* "commercial computer  software"  and "commercial computer software
+	* documentation" as such terms are  used in 48 C.F.R. 12.212 (SEPT 1995)
+	* and is provided to the U.S. Government only as a commercial end item.
+	* Consistent with 48 C.F.R.12.212 and 48 C.F.R. 227.7202-1 through
+	* 227.7202-4 (JUNE 1995), all U.S. Government End Users acquire the
+	* source code with only those rights set forth herein.
+	*
+	* Any use of this source code in individual and commercial software must
+	* include, in the user documentation and internal comments to the code,
+	* the above Disclaimer and U.S. Government End Users Notice.
+	*/
+
+	enum cudaError
+	{
+	cudaSuccess                           =      0,   ///< No errors
+	cudaErrorMissingConfiguration         =      1,   ///< Missing configuration error
+	cudaErrorMemoryAllocation             =      2,   ///< Memory allocation error
+	cudaErrorInitializationError          =      3,   ///< Initialization error
+	cudaErrorLaunchFailure                =      4,   ///< Launch failure
+	cudaErrorPriorLaunchFailure           =      5,   ///< Prior launch failure
+	cudaErrorLaunchTimeout                =      6,   ///< Launch timeout error
+	cudaErrorLaunchOutOfResources         =      7,   ///< Launch out of resources error
+	cudaErrorInvalidDeviceFunction        =      8,   ///< Invalid device function
+	cudaErrorInvalidConfiguration         =      9,   ///< Invalid configuration
+	cudaErrorInvalidDevice                =     10,   ///< Invalid device
+	cudaErrorInvalidValue                 =     11,   ///< Invalid value
+	cudaErrorInvalidPitchValue            =     12,   ///< Invalid pitch value
+	cudaErrorInvalidSymbol                =     13,   ///< Invalid symbol
+	cudaErrorMapBufferObjectFailed        =     14,   ///< Map buffer object failed
+	cudaErrorUnmapBufferObjectFailed      =     15,   ///< Unmap buffer object failed
+	cudaErrorInvalidHostPointer           =     16,   ///< Invalid host pointer
+	cudaErrorInvalidDevicePointer         =     17,   ///< Invalid device pointer
+	cudaErrorInvalidTexture               =     18,   ///< Invalid texture
+	cudaErrorInvalidTextureBinding        =     19,   ///< Invalid texture binding
+	cudaErrorInvalidChannelDescriptor     =     20,   ///< Invalid channel descriptor
+	cudaErrorInvalidMemcpyDirection       =     21,   ///< Invalid memcpy direction
+	cudaErrorAddressOfConstant            =     22,   ///< Address of constant error
+	cudaErrorTextureFetchFailed           =     23,   ///< Texture fetch failed
+	cudaErrorTextureNotBound              =     24,   ///< Texture not bound error
+	cudaErrorSynchronizationError         =     25,   ///< Synchronization error
+	cudaErrorInvalidFilterSetting         =     26,   ///< Invalid filter setting
+	cudaErrorInvalidNormSetting           =     27,   ///< Invalid norm setting
+	cudaErrorMixedDeviceExecution         =     28,   ///< Mixed device execution
+	cudaErrorCudartUnloading              =     29,   ///< CUDA runtime unloading
+	cudaErrorUnknown                      =     30,   ///< Unknown error condition
+	cudaErrorNotYetImplemented            =     31,   ///< Function not yet implemented
+	cudaErrorMemoryValueTooLarge          =     32,   ///< Memory value too large
+	cudaErrorInvalidResourceHandle        =     33,   ///< Invalid resource handle
+	cudaErrorNotReady                     =     34,   ///< Not ready error
+	cudaErrorInsufficientDriver           =     35,   ///< CUDA runtime is newer than driver
+	cudaErrorSetOnActiveProcess           =     36,   ///< Set on active process error
+	cudaErrorNoDevice                     =     38,   ///< No available CUDA device
+	cudaErrorStartupFailure               =   0x7f,   ///< Startup failure
+	cudaErrorApiFailureBase               =  10000    ///< API failure base
+	};
+
+	enum cudaMemcpyKind
+	{
+	cudaMemcpyHostToHost          =   0,      ///< Host   -> Host
+	cudaMemcpyHostToDevice        =   1,      ///< Host   -> Device
+	cudaMemcpyDeviceToHost        =   2,      ///< Device -> Host
+	cudaMemcpyDeviceToDevice      =   3       ///< Device -> Device
+	};
+
+	/**
+	* Channel format kind
+	*/
+	/*DEVICE_BUILTIN*/
+	enum cudaChannelFormatKind
+	{
+	cudaChannelFormatKindSigned           =   0,      ///< Signed channel format
+	cudaChannelFormatKindUnsigned         =   1,      ///< Unsigned channel format
+	cudaChannelFormatKindFloat            =   2,      ///< Float channel format
+	cudaChannelFormatKindNone             =   3,      ///< No channel format
+	};
+
+	/**
+	* CUDA Channel format descriptor
+	*/
+	/*DEVICE_BUILTIN*/
+	struct cudaChannelFormatDesc
+	{
+	int                        x; ///< x
+	int                        y; ///< y
+	int                        z; ///< z
+	int                        w; ///< w
+	enum cudaChannelFormatKind f; ///< Channel format kind
+	};
+	/*        END NVIDIA CODE          */
+
+	inline const char *cudaGetErrorString(cudaError err) { return "CUDA Error: CUDA Error when no CUDA used (?!)"; }
+
+	inline cudaError cudaMalloc(void** devPtr, size_t count)
+	{
+		*devPtr = malloc(count);
+		return cudaSuccess;
+	}
+	inline cudaError cudaFree(void* devPtr)
+	{
+		free(devPtr);
+		return cudaSuccess;
+	}
+	inline cudaError cudaMemcpy(void* dst, const void* src, size_t count, cudaMemcpyKind kind)
+	{
+		memcpy(dst, src, count);
+		return cudaSuccess;
+	}
+
+	/**
+	* CUDA array
+	*/
+	/*DEVICE_BUILTIN*/
+	struct cudaArray;
+
+	inline cudaError cudaFreeArray(cudaArray* array ) { assert(0); }
+	inline cudaError cudaMallocArray(cudaArray** array, const struct cudaChannelFormatDesc* desc, size_t width, size_t height ) { assert(0); }
+	inline cudaError cudaMemcpy2DToArray(cudaArray* dstArray, size_t dstX, size_t dstY, const void* src, size_t spitch, size_t width, size_t height, enum cudaMemcpyKind kind) { assert(0); }
 #endif
 
 void abort_on_cuda_error(cudaError err);
@@ -150,158 +294,6 @@ inline int roundUpModulo(int v, int mod)
 	return pitch;
 }
 
-#if 0
-// A pointer type that keeps the information of the type
-// and size of the array it's pointing to
-struct xptr
-{
-protected:
-	friend struct GPUMM;
-
-	char *base;		// data pointer
-	uint32_t m_elementSize;	// size of array element (bytes)
-	uint32_t dim[2];	// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height
-	uint32_t m_pitch[1];	// array pitch (in bytes). pitch[1] == width of the (padded) row (in bytes)
-
-public:
-	uint32_t elementSize() const { return m_elementSize; }
-	uint32_t ncols()   const { return dim[0]; }
-	uint32_t nrows()   const { return dim[1]; }
-	uint32_t width()   const { return dim[0]; }
-	uint32_t height()  const { return dim[1]; }
-	void set_height(uint32_t h) { dim[1] = h; }
-	uint32_t &pitch()  { return m_pitch[0]; }
-	uint32_t pitch()  const { return m_pitch[0]; }
-	uint32_t memsize() const { return nrows() * pitch(); }
-
-	template<typename T> const T *get() const { return (const T*)base; }
-	template<typename T> T *get() { return (T*)base; }
-
-	operator bool() const { return base; }
-	bool compatibleWith(const xptr &t) const
-	{
-		return     width() == t.width()
-			&& height() == t.height()
-			&& pitch() == t.pitch()
-			&& elementSize() == t.elementSize();
-	}
-
-	xptr(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0) { init(es, ncol, nrow, p); }
-
-	void alloc(size_t eSize = (size_t)-1, size_t ncol = (size_t)-1, size_t nrow = (size_t)-1, size_t ptch = (size_t)-1);
-	void free();
-	~xptr() { }
-
-	void init(size_t es = 0, size_t ncol = 0, size_t nrow = 1, size_t p = 0)
-	{
-		m_elementSize = es;
-		dim[0] = ncol;
-		dim[1] = nrow;
-		m_pitch[0] = p;
-		base = NULL;
-
-		if(memsize()) { alloc(); }
-	}
-};
-
-#if !__CUDACC__
-#include <iostream>
-#endif
-
-// typed "extended" pointer -- this pointer knows about the dimension of the array
-// it points to, and properly pads it on allocation (useful for on-GPU use)
-template<typename T>
-struct tptr : public xptr
-{
-	static const uint32_t align = 256;	// default byte alignment
-
-	tptr(size_t ncol = 0, size_t nrow = 0) : xptr(sizeof(T), ncol, nrow, roundUpModulo(ncol*sizeof(T), align)) {}
-	void alloc(size_t ncol, size_t nrow) { xptr::alloc(sizeof(T), ncol, nrow, roundUpModulo(ncol*sizeof(T), align)); }
-
-	T &operator()(const size_t col, const size_t row)
-	{
-		size_t at = row * pitch() + m_elementSize*col;
-#if !__CUDACC__
-		ASSERT(at >= 0 && at < memsize())
-		{
-			std::cerr << "col=" << col << " row=" << row << "\n";
-			std::cerr << "ncols()=" << ncols() << " nrows()=" << nrows() << "\n";
-			std::cerr << "at=" << at << " memsize=" << memsize() << "\n";
-		}
-#endif
-		return *(T*)(base + at);
-//		return *((T*)(base + row * pitch()) + col);
-	}
-	T &operator[](const size_t i)	// 1D table column accessor (i == the table row)
-	{
-		if(nrows() == 1) { return ((T*)base)[i]; }
-		return (*this)(i % ncols(), i / ncols());
-	}
-
-#if 1
-	// simple iterator-like interface
-	struct iterator
-	{
-		tptr<T> *parent;
-		size_t x, y;
-
-		iterator(tptr<T> *parent_ = NULL, size_t x_ = 0, size_t y_ = 0) : parent(parent_), x(x_), y(y_) {}
-		iterator &operator++()
-		{
-			if(++x == parent->width()) { x = 0; ++y; }
-			return *this;
-		}
-		bool operator==(const iterator &it) const { return it.x == x && it.y == y && it.parent == parent; }
-		bool operator!=(const iterator &it) const { return !(it == *this); }
-		T &operator*()
-		{
-			return (*parent)(x, y);
-		}
-	};
-#endif
-	iterator begin() { return iterator(this); }
-	iterator end() { return iterator(this, 0, height()); }
-	size_t size() const { return width()*height(); }
-};
-
-#include <map>
-/*
-Tracks whether the memory has allreadz been transfered to GPU.
-*/
-struct GPUMM 
-{
-	static const int gc_treshold = 512*1024*1024;
-
-	static const int NOT_EXIST = -1;
-	static const int NEWPTR = 0;
-	static const int SYNCED_TO_DEVICE = 1;
-	static const int SYNCED_TO_HOST = 2;
-	static const int RELEASED_TO_HOST = 3;
-
-protected:
-	struct gpu_ptr
-	{
-		xptr ptr;
-		int lastop;
-
-		gpu_ptr() : lastop(NEWPTR) {}
-	};
-	std::map<void *, gpu_ptr> gpuPtrs;
-
-	size_t allocated() const;
-	void gc();	// do garbage collection
-public:
-#if HAVE_CUDA
-	xptr syncToDevice(const xptr &hptr);
-	void syncToHost(xptr &hptr);
-	cudaArray *mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc);
-#else
-	xptr syncToDevice(const xptr &hptr) const { return hptr; }
-	void syncToHost(xptr &hptr) { }
-#endif
-};
-extern GPUMM gpuMMU;
-#endif
 
 // For CPU versions of GPU algorithms
 #if !__CUDACC__

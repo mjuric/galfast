@@ -35,6 +35,10 @@
 #include "model.h"
 #include "analysis.h"
 
+#if HAVE_CUDA
+#include <cuda_runtime.h>
+#endif // HAVE_CUDA
+
 xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
 
 xptrng::ptr_desc::ptr_desc(size_t es, size_t width, size_t height, size_t pitch)
@@ -154,9 +158,6 @@ namespace gpuemu	// prevent collision with nvcc's symbols
 }
 
 __TLS int  active_compute_device;
-#if 0
-GPUMM gpuMMU;
-#endif
 
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct rng_mwc
@@ -309,11 +310,6 @@ void xptr::free()
 //////////////////////////////////////////////
 #endif
 
-#if HAVE_CUDA
-
-#include <cuda_runtime.h>
-
-
 ///////////////////////////////////////////////////////////
 // CUDA helpers
 
@@ -390,10 +386,24 @@ const char *cpuinfo()
 	return buf;
 }
 
+
+void abort_on_cuda_error(cudaError err)
+{
+	if(err == cudaSuccess) { return; }
+
+	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
+	abort();
+}
+
+#if HAVE_CUDA
 static int cuda_initialized = 0;
 static int cuda_enabled = 0;
 bool gpuExecutionEnabled(const char *kernel)
 {
+/*	if(strcmp(kernel, "os_kinTMIII_kernel") == 0)
+	{
+		return false;
+	}*/
 	return cuda_enabled;
 }
 
@@ -434,128 +444,9 @@ bool cuda_init()
 	return true;
 }
 
-//////////////////////////////////////////////
-#if 0
-size_t GPUMM::allocated() const
-{
-	size_t total = 0;
-	FOREACH(gpuPtrs)
-	{
-		total += i->second.ptr.memsize();
-	}
-	return total;
-}
-
-// garbage collection: free GPU memory that has been synced to the host or released
-void GPUMM::gc()
-{
-	std::vector<void*> toDelete;
-	FOREACH(gpuPtrs)
-	{
-		gpu_ptr &g = i->second;
-		if(g.lastop != SYNCED_TO_HOST || g.lastop != RELEASED_TO_HOST) { continue; }
-
-		cudaFree(g.ptr.base);
-		toDelete.push_back(i->first);
-	}
-	FOREACH(toDelete)
-	{
-		gpuPtrs.erase(*i);
-	}
-}
-
-// copies the data to GPU device, allocating GPU memory if necessary
-xptr GPUMM::syncToDevice(const xptr &hptr)
-{
-	// get GPU buffer
-	gpu_ptr &g = gpuPtrs[hptr.base];
-	if(!g.ptr.elementSize())
-	{
-		// check if any GC is needed
-		size_t total = allocated();
-		size_t newmem = hptr.memsize();
-		if(total + newmem > gc_treshold) { gc(); }
-
-		// allocate GPU memory
-		g.ptr = hptr;
-#if 0
-		cudaError err = cudaMallocPitch(&g.ptr.base, &g.ptr.pitch(), hptr.ncols() * hptr.elementSize(), hptr.nrows());
-#else
-		cudaError err = cudaMalloc((void**)&g.ptr.base, hptr.memsize());
-#endif
-		if(err != cudaSuccess)
-		{
-			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
-		}
-	}
-
-	// sync GPU with host, if needed
-	if(g.lastop != SYNCED_TO_DEVICE)
-	{
-//		MLOG(verb1) << "Syncing to device (" << hptr.memsize() << " bytes)";
-#if 0
-		cudaError err = cudaMemcpy2D(g.ptr.base, g.ptr.pitch(), hptr.base, hptr.pitch(), hptr.width()*hptr.elementSize(), hptr.height(), cudaMemcpyHostToDevice);
-#else
-		cudaError err = cudaMemcpy(g.ptr.base, hptr.base, hptr.memsize(), cudaMemcpyHostToDevice);
-#endif
-		if(err != cudaSuccess)
-		{
-			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
-		}
-		g.lastop = SYNCED_TO_DEVICE;
-	}
-
-	return g.ptr;
-}
-
-void GPUMM::syncToHost(xptr &hptr)
-{
-	// get GPU buffer
-	if(!gpuPtrs.count(hptr.base)) { return; }
-	gpu_ptr &g = gpuPtrs[hptr.base];
-
-	if(g.lastop != SYNCED_TO_HOST)
-	{
-#if 0
-		cudaError err = cudaMemcpy2D(hptr.base, hptr.pitch(), g.ptr.base, g.ptr.pitch(), hptr.width()*hptr.elementSize(), hptr.height(), cudaMemcpyDeviceToHost);
-#else
-		cudaError err = cudaMemcpy(hptr.base, g.ptr.base, hptr.memsize(), cudaMemcpyDeviceToHost);
-#endif
-		if(err != cudaSuccess)
-		{
-			MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err) << "\n";
-		}
-		g.lastop = SYNCED_TO_HOST;
-	}
-}
-#endif
-
-void abort_on_cuda_error(cudaError err)
-{
-	if(err == cudaSuccess) { return; }
-
-	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
-	abort();
-}
-#if 0
-cudaArray *GPUMM::mapToCUDAArray(xptr &ptr, cudaChannelFormatDesc &channelDesc)
-{
-	cudaArray* cu_array;
-	cudaError err;
-	
-	err = cudaMallocArray(&cu_array, &channelDesc, ptr.width(), ptr.height());
-	CUDA_ASSERT(err);
-
-	err = cudaMemcpy2DToArray(cu_array, 0, 0, ptr.get<char>(), ptr.pitch(), ptr.width()*ptr.elementSize(), ptr.height(), cudaMemcpyHostToDevice);
-	CUDA_ASSERT(err);
-
-	return cu_array;
-}
-#endif
-
 #endif // HAVE_CUDA
 
-#ifdef HAVE_CUDA
+#if HAVE_CUDA
 #if CUDART_VERSION < 2020
 cudaError_t cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream);
 cudaError_t cudaSetupArgument(const void *arg, size_t size, size_t offset);

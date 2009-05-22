@@ -50,7 +50,7 @@ template<typename T>
 		cuxErrCheck( cudaFree(v) );
 	}
 
-template<typename T>
+	template<typename T>
 	struct cux_ptr
 	{
 		T *ptr;
@@ -69,7 +69,8 @@ template<typename T>
 	template<typename T>
 	inline cux_ptr<T> make_cux_ptr(void *data)
 	{
-		cux_ptr<T> ptr = { data };
+		cux_ptr<T> ptr;
+		ptr.ptr = data;
 		return ptr;
 	}
 
@@ -111,7 +112,25 @@ namespace xptrng
 	template<typename T>
 	inline gptr<T> make_gptr(void *data, uint32_t pitch)
 	{
-		gptr<T> ptr = { (char*)data, pitch };
+		gptr<T> ptr;
+		ptr.data = (char*)data;
+		ptr.pitch = pitch;
+		return ptr;
+	}
+
+	// Pointer to 2D array, CPU interface.
+	//     - Used to access host memory, on the host
+	//     - May be obtained from tptr<>
+	template<typename T>
+	struct hptr : public gptr<T>
+	{
+	};
+	template<typename T>
+	inline hptr<T> make_hptr(void *data, uint32_t pitch)
+	{
+		hptr<T> ptr;
+		ptr.data = (char*)data;
+		ptr.pitch = pitch;
 		return ptr;
 	}
 
@@ -153,7 +172,7 @@ namespace xptrng
 		{
 			--refcnt;
 			assert(refcnt >= 0);
-			//if(refcnt == 0) { delete this; return 0; }
+			if(refcnt == 0) { delete this; return 0; }
 			return refcnt;
 		}
 
@@ -193,20 +212,6 @@ namespace xptrng
 		{
 			desc = new ptr_desc(elemSize, width, height, roundUpModulo(elemSize*width, align));
 		}
-		void realloc(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
-		{
-			*this = tptr<T>(width, height, elemSize, align);
-		}
-		tptr<T> clone(bool copyData = false) const
-		{
-			tptr<T> ret(new ptr_desc(elementSize(), width(), height(), pitch()));
-			if(copyData)
-			{
-				syncToHost();
-				memcpy(ret.desc->m_data, desc->m_data, desc->memsize());
-			}
-			return ret;
-		}
 		tptr(const tptr& t)
 		{
 			desc = t.desc->addref();
@@ -225,6 +230,22 @@ namespace xptrng
  			desc->release();
  		}
 
+		// memory allocation
+		void realloc(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
+		{
+			*this = tptr<T>(width, height, elemSize, align);
+		}
+		tptr<T> clone(bool copyData = false) const
+		{
+			tptr<T> ret(new ptr_desc(elementSize(), width(), height(), pitch()));
+			if(copyData)
+			{
+				syncToHost();
+				memcpy(ret.desc->m_data, desc->m_data, desc->memsize());
+			}
+			return ret;
+		}
+
 		// comparisons/tests
  		bool isNull() const
  		{
@@ -236,29 +257,32 @@ namespace xptrng
 		{
 			assert(desc->masterDevice == whichDev);
 		}
-
-		// accessors
-		T &operator()(const size_t x, const size_t y)	// 2D accessor
+#if 1
+		// host data accessors -- deprecated in favor of hptr<> interface
+		T &elem(const size_t x, const size_t y)	// 2D accessor
 		{
 			assert_synced(-1);
 			size_t offs = y * pitch() + elementSize()*x;
 			assert(offs < desc->memsize());
 			return *(T*)((char*)desc->m_data + offs);
-//			return *((T*)((char*)desc->m_data + y * pitch()) + x);
 		}
-		T &operator[](const size_t i)			// 1D accessor
+		T &elem(const size_t i)			// 1D accessor
 		{
 			assert_synced(-1);
 			assert(i > 0 && i < size());
 			return ((T*)desc->m_data)[i];
 		}
-
+#endif
 		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2, bool forceUpload = false)
 		{
 			return desc->getCUDAArray(channelDesc, dev, forceUpload);
 		}
 
 	public:
+		operator hptr<T>()
+		{
+			return make_hptr<T>(syncToHost(), pitch());
+		}
 		operator gptr<T>()
 		{
 			return make_gptr<T>(syncToDevice(), pitch());

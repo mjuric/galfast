@@ -397,9 +397,9 @@ size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	double tmp[3]; bool firstGaussian;
-	ct::cint   &comp = in.col<int>("comp");
-	ct::cfloat &XYZ  = in.col<float>("XYZ");
-	ct::cfloat &vcyl = in.col<float>("vcyl");
+	ct::cint::host_t   comp = in.col<int>("comp");
+	ct::cfloat::host_t XYZ  = in.col<float>("XYZ");
+	ct::cfloat::host_t vcyl = in.col<float>("vcyl");
 
 	// ASSUMPTIONS:
 	//	- Fe/H exists in input
@@ -589,9 +589,9 @@ class os_photometry : public osink
 //			std::cerr << "fm = " << f << " " << m << "   " << ((FeH - FeH0) / dFeH) << " " << ((Mr  -  Mr0) / dMr) << "\n";
 //			int idx = m*nFeH + f;
 //			if(e) { *e = eclt[ic][idx]; }
-			if(e) { *e = eflags[ic](f, m); }
+			if(e) { *e = eflags[ic].elem(f, m); }
 //			return clt[ic][idx];
-			return isochrones[ic](f, m);
+			return isochrones[ic].elem(f, m);
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -768,9 +768,9 @@ bool os_photometry::init(const Config &cfg, otable &t)
 				int idx = m*nFeH + f;
 
 ///				clt[ic][idx] = s(FeH);
-				isochrones[ic](f, m) = s(FeH);
+				isochrones[ic].elem(f, m) = s(FeH);
 //				eclt[ic][idx] = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
-				eflags[ic](f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
+				eflags[ic].elem(f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
 //				if(eflags[ic](f, m) && ic > 1) { std::cerr << ic << " " << Mr << " " << FeH << " : " << isochrones[ic](f, m) << " " << eflags[ic](f,m) << "\n"; }
 			}
 		}
@@ -781,19 +781,19 @@ bool os_photometry::init(const Config &cfg, otable &t)
 	{
 //		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 		nextrap[i] = 0;
-		xptrng::tptr<uint> &ptr = eflags[i];
+		xptrng::hptr<uint> ptr = eflags[i];
 /*		FOREACHj(cf, ptr)
 		{
 			if(*cf != 0) { nextrap[i] += 1; }
 		}*/
-		FORj(x, 0, ptr.width())
+		FORj(x, 0, nFeH)
 		{
-			FORj(y, 0, ptr.height())
+			FORj(y, 0, nMr)
 			{
 				if(ptr(x, y) != 0) { nextrap[i] += 1; }
 			}
 		}
-		nextrap[i] /= ptr.width()*ptr.height();
+		nextrap[i] /= nFeH*nMr;
 	}
 ///	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";

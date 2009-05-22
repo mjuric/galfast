@@ -494,7 +494,7 @@ KERNEL(
 
 #include <vector>
 
-#if BUILD_FOR_CPU
+#if BUILD_FOR_CPU && HAVE_CUDA
 extern __TLS std::vector<xptrng::tptr<float> > *locuses;
 extern __TLS std::vector<xptrng::tptr<uint> >   *flags;
 #else
@@ -546,8 +546,8 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 	uint fl = 0;
 	for(int ic=0; ic != ncolors; ic++)
 	{
-		colors[ic] = (*locuses)[ic](f, m);
-		fl |= (*flags)[ic](f, m);
+		colors[ic] = (*locuses)[ic].elem(f, m);
+		fl |= (*flags)[ic].elem(f, m);
 	}
 	return fl;
 }
@@ -606,15 +606,15 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 			{
 				for(int x=0; x != width; x++)
 				{
-					texc(x, y).x =                     (*loc)[i+0](x, y)    ;
-					texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
-					texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
-					texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
+					texc.elem(x, y).x =                     (*loc)[i+0].elem(x, y)    ;
+					texc.elem(x, y).y = i+1 < loc->size() ? (*loc)[i+1].elem(x, y) : 0;
+					texc.elem(x, y).z = i+2 < loc->size() ? (*loc)[i+2].elem(x, y) : 0;
+					texc.elem(x, y).w = i+3 < loc->size() ? (*loc)[i+3].elem(x, y) : 0;
 
-					texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
-					texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
-					texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
-					texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
+					texf.elem(x, y).x =                      (*flgs)[i+0].elem(x, y)    ;
+					texf.elem(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1].elem(x, y) : 0;
+					texf.elem(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2].elem(x, y) : 0;
+					texf.elem(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3].elem(x, y) : 0;
 				}
 			}
 			os_photometry_tex_set(idx, texc, texf);

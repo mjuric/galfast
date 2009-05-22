@@ -139,10 +139,23 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 
 
 stopwatch kernelRunSwatch;
+gpu_rng_t::persistent_rng gpu_rng_t::gpuRNG;
+
+gpu_prng::mwc &gpu_rng_t::persistent_rng::get(rng_t &seeder)
+{
+	if(!gpuRNG)
+	{
+		std::string file = datadir() + "/safeprimes32.txt";
+
+		gpuRNG = new gpu_prng::mwc;
+		gpuRNG->srand((uint32_t)(seeder.uniform()*(1<<24)), 1<<16, file.c_str());
+	}
+	return *gpuRNG;
+}
 
 // CUDA emulation for the CPU
 // Used by CPU versions of CUDA kernels
-__TLS char shmem[16384];
+__TLS char impl_shmem[16384];
 namespace gpuemu	// prevent collision with nvcc's symbols
 {
 	__TLS uint3 blockIdx;
@@ -153,6 +166,7 @@ namespace gpuemu	// prevent collision with nvcc's symbols
 
 __TLS int  active_compute_device;
 
+#if 0
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 struct rng_mwc
 {
@@ -267,6 +281,7 @@ gpu_rng_t::gpu_rng_t(rng_t &rng)
 	nstreams = rng_mwc::nstreams;
 	streams = gpuGetActiveDevice() < 0 ? rng_mwc::cpuStreams() : rng_mwc::gpuStreams();
 }
+#endif
 #endif
 
 #if 0

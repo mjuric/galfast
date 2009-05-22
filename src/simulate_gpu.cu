@@ -52,8 +52,8 @@ KERNEL(
 	(ks, par, rng, comp, XYZ, FeH)
 )
 {
-	rng.load(ks);
 	uint32_t tid = threadID();
+	rng.load(tid);
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
 //		FeH[row] = -((threadID() % 300) / 100.f);
@@ -120,7 +120,7 @@ KERNEL(
 #endif
 		FeH[row] = feh;
 	}
-	rng.store(ks);
+	rng.store(threadID());
 }
 
 //======================================================================
@@ -352,7 +352,7 @@ KERNEL(
 	(ks, rng, comp, XYZ, vcyl)
 )
 {
-	rng.load(ks); 
+	rng.load(threadID());
 
 #define par os_kinTMIII_par
 	farray5 diskEllip[6], haloEllip[6], diskMeans[3], haloMeans[3];
@@ -379,7 +379,7 @@ KERNEL(
 
 	float tmp[3]; 
 	uint32_t tid = threadID();
-	for(size_t row=ks.row_begin(); row < ks.row_end(); row++)
+	for(int row=ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// fetch prerequisites
 		const int component = comp[row];
@@ -388,6 +388,10 @@ KERNEL(
 		float Zpc = XYZ(row, 2);
 		const float Rsquared = 1e-6 * (X*X + Y*Y);
 		const float Z = 1e-3 * Zpc;
+
+// #ifdef __DEVICE_EMULATION__
+// 		printf("%d %d %d R=%f Z=%f\n", tid, (int)row, component, sqrtf(Rsquared), Z);
+// #endif
 
 		switch(component) 
 		{
@@ -405,7 +409,10 @@ KERNEL(
 		vcyl(row, 1) = tmp[1];
 		vcyl(row, 2) = tmp[2];
 	}
-	rng.store(ks);
+/*#ifdef __DEVICE_EMULATION__
+	printf("leaving.\n");
+#endif*/
+	rng.store(threadID());
 #undef par
 }
 #endif

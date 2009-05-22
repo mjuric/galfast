@@ -33,10 +33,10 @@
 // Shared memory access and CPU emulation
 //////////////////////////////////////////////////////////////////////////
 #if __CUDACC__
-	extern __shared__ char shmem[];
+	extern __shared__ char impl_shmem[];
 #else
 	// For CPU versions of GPU algorithms
-	extern __TLS char shmem[16384];
+	extern __TLS char impl_shmem[16384];
 	namespace gpuemu // prevent collision with nvcc's symbols
 	{
 		extern __TLS uint3 blockIdx;
@@ -46,6 +46,15 @@
 	}
 	using namespace gpuemu;
 #endif
+// template<typename T> inline __device__ T* shmem()              { return (T*)impl_shmem; }
+// template<typename T> inline __device__ T& shmem(const int idx) { return ((T*)impl_shmem)[idx]; }
+// 
+// // explicit instantiations are necessary to work around a bug in nvcc, that appears to
+// // forget __device__ when automatically instantiating the templates above (?)
+// template<> inline __device__ uint32_t& shmem(const int idx) { return ((uint32_t*)impl_shmem)[idx]; }
+// template<> inline __device__      int& shmem(const int idx) { return      ((int*)impl_shmem)[idx]; }
+
+#define shmem(type) ((type*)impl_shmem)
 
 // Based on NVIDIA's LinuxStopWatch class
 // TODO: Should be moved to libpeyton
@@ -197,7 +206,7 @@ struct kernel_state
 	template<typename T>
 	__device__ T* sharedMemory() const
 	{
-		return (T*)(shmem + sharedBytesPerThread*threadIdx.x);
+		return (T*)(shmem(char) + sharedBytesPerThread*threadIdx.x);
 	}
 	uint32_t shmemBytes() const { return sharedBytesPerThread; }
 
@@ -352,6 +361,58 @@ typedef kernel_state otable_ks;
 		void cpu_##kDecl
 #endif
 
+//////////////////////////////////////////////////////////////////////////
+// GPU random number generators
+//////////////////////////////////////////////////////////////////////////
+// thin random number generator abstraction
+struct rng_t
+{
+	virtual float uniform() = 0;
+	virtual float gaussian(const float sigma) = 0;
+	virtual ~rng_t() {}
+	// interface compatibility with gpu_rng_t
+	void load(const otable_ks &o) {}
+};
+#define ALIAS_GPU_RNG 0
+
+// GPU random number generator abstraction
+#if !HAVE_CUDA && ALIAS_GPU_RNG
+typedef rng_t &gpu_rng_t;
+#endif
+
+#include <gsl/gsl_rng.h>
+#if !__CUDACC__
+#include <iostream>
+#endif
+
+#if HAVE_CUDA || !ALIAS_GPU_RNG
+	#include "cuda_rng.h"
+	//typedef gpu_prng::mwc gpu_rng_t;
+	struct gpu_rng_t : public gpu_prng::mwc
+	{
+		struct persistent_rng
+		{
+			gpu_prng::mwc *gpuRNG;
+
+			persistent_rng() : gpuRNG(NULL) { }
+			~persistent_rng()
+			{
+				if(gpuRNG) gpuRNG->free();
+				delete gpuRNG;
+			}
+
+			gpu_prng::mwc &get(rng_t &seeder);
+		};
+		static persistent_rng gpuRNG;
+
+		gpu_rng_t(rng_t &seeder)
+		{
+			(gpu_prng::mwc&)*this = gpuRNG.get(seeder);
+		}
+	};
+#endif
+
+#if 0
 // thin random number generator abstraction
 struct rng_t
 {
@@ -490,6 +551,7 @@ struct gpu_rng_t
 		seed = s;
 	}*/
 };
+#endif
 #endif
 
 #endif

@@ -29,7 +29,7 @@
 #include <astro/constants.h>
 
 #include "column.h"
-#include "gpu2.h"
+#include "gpu.h"
 
 #include "simulate_base.h"
 
@@ -588,7 +588,6 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 
 	xptrng::tptr<float4> texc;
 	xptrng::tptr<uint4>  texf;
-	cudaError err;
 	int texid = 0;
 	for(int i=0; i != loc->size(); i += 4)
 	{
@@ -638,8 +637,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		colorTextures[texid]->addressMode[1] = cudaAddressModeClamp;
 		colorTextures[texid]->filterMode = cudaFilterModeLinear;
 		colorTextures[texid]->normalized = false;    // access with normalized texture coordinates
-		err = cudaBindTextureToArray( *colorTextures[texid], cu_array, channelDesc);
-		CUDA_ASSERT(err);
+		cuxErrCheck( cudaBindTextureToArray( *colorTextures[texid], cu_array, channelDesc) );
 
 		// Bind flags array to texture reference
 		channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
@@ -650,8 +648,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		cflagsTextures[texid]->addressMode[1] = cudaAddressModeClamp;
 		cflagsTextures[texid]->filterMode = cudaFilterModePoint;
 		cflagsTextures[texid]->normalized = false;    // access with normalized texture coordinates
-		err = cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc);
-		CUDA_ASSERT(err);
+		cuxErrCheck( cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc) );
 	}
 #endif
 }

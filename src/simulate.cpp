@@ -540,6 +540,23 @@ namespace footprints
 //void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
 
+inline uint32_t rng_mwc(uint32_t *xc)
+{
+	#define c (xc[0])
+	#define x (xc[1])
+	#define a (xc[2])
+
+	uint64_t xnew = (uint64_t)a*x + c;
+//	printf("%016llx\n", xnew);
+	c = xnew >> 32;
+	x = (xnew << 32) >> 32;
+	return x;
+
+	#undef c
+	#undef x
+	#undef a
+}
+
 void test_mwc_rng()
 {
 	return;
@@ -661,14 +678,12 @@ try
 	}
 
 	/////// Start your application code here
-	
-#if HAVE_CUDA
+
 	if(!cuda_init())
 	{
 		MLOG(verb1) << "Error initializing GPU acceleration. Aborting.";
 		return -1;
 	}
-#endif
 
 	if(cmd == "pdfinfo")
 	{

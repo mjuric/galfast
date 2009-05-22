@@ -21,8 +21,7 @@
 #ifndef _gpu2_h__
 #define _gpu2_h__
 
-#include "gpu.h"
-#include <astro/macros.h>
+//#include "gpu.h"
 #include <assert.h>
 #include <map>
 
@@ -171,7 +170,6 @@ namespace xptrng
 		int release()
 		{
 			--refcnt;
-			assert(refcnt >= 0);
 			if(refcnt == 0) { delete this; return 0; }
 			return refcnt;
 		}
@@ -257,7 +255,7 @@ namespace xptrng
 		{
 			assert(desc->masterDevice == whichDev);
 		}
-#if 1
+
 		// host data accessors -- deprecated in favor of hptr<> interface
 		T &elem(const size_t x, const size_t y)	// 2D accessor
 		{
@@ -272,7 +270,7 @@ namespace xptrng
 			assert(i > 0 && i < size());
 			return ((T*)desc->m_data)[i];
 		}
-#endif
+
 		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2, bool forceUpload = false)
 		{
 			return desc->getCUDAArray(channelDesc, dev, forceUpload);

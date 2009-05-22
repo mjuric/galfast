@@ -31,7 +31,7 @@
 #include <astro/useall.h>
 
 #include <vector>
-#include "gpu2.h"
+#include "gpu.h"
 #include "model.h"
 #include "analysis.h"
 
@@ -55,13 +55,11 @@ xptrng::ptr_desc::~ptr_desc()
 	{
 		if(i->first < 0) { continue; }
 
-		cudaError err = cudaFree(i->second);
-		abort_on_cuda_error(err);
+		cuxErrCheck( cudaFree(i->second) );
 	}
 	FOREACH(cudaArrayPointers)
 	{
-		cudaError err = cudaFreeArray(i->second);
-		abort_on_cuda_error(err);
+		cuxErrCheck( cudaFreeArray(i->second) );
 	}
 }
 void *xptrng::ptr_desc::syncToDevice(int dev)
@@ -91,16 +89,14 @@ void *xptrng::ptr_desc::syncToDevice(int dev)
 			// allocate device space (if unallocated)
 			if(!deviceDataPointers.count(dev))
 			{
-				err = cudaMalloc(&deviceDataPointers[dev], memsize());
-				abort_on_cuda_error(err);
+				cuxErrCheck( cudaMalloc(&deviceDataPointers[dev], memsize()) );
 			}
 		}
 		void *dest = deviceDataPointers[dev];
 		void *src = deviceDataPointers[masterDevice];
 
 		// do the copy
-		err = cudaMemcpy(dest, src, memsize(), dir);
-		abort_on_cuda_error(err);
+		cuxErrCheck( cudaMemcpy(dest, src, memsize(), dir) );
 
 		// record new master device
 		masterDevice = dev;
@@ -127,8 +123,7 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 	else
 	{
 		// autocreate
-		err = cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y);
-		CUDA_ASSERT(err);
+		cuxErrCheck( cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y) );
 
 		cudaArrayPointers[dev] = cu_array;
 		forceUpload = true;
@@ -136,8 +131,7 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 
 	if(forceUpload)
 	{
-		err = cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice);
-		CUDA_ASSERT(err);
+		cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice) );
 	}
 
 	return cu_array;
@@ -393,6 +387,15 @@ void abort_on_cuda_error(cudaError err)
 
 	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
 	abort();
+}
+
+void cuxErrCheck(cudaError err)
+{
+	if(err != cudaSuccess)
+	{
+		abort_on_cuda_error(err);
+//		throw cuxException(err);
+	}
 }
 
 #if HAVE_CUDA

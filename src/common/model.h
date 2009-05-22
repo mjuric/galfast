@@ -429,8 +429,6 @@ protected:
 			boost::shared_ptr<columndef> c(new columndef(parent));
 			c->columnName = newColumnName;
 
-// 			c->ptr.base = ptr.base;
-// 			c->ptr.base = 0;
 			c->ptr.reshape(ptr);
 
 			c->columnClass = columnClass;
@@ -464,10 +462,6 @@ protected:
 			The memory location of element j in row i, use:
 				Aij = data + pitch*i + elementSize*j
 		*/
-/*		void *data;			// the actual data
-		size_t width;			// number of data elements (1 scalar, >1 if array)
-		size_t length;			// length of the column (the number of rows)
-		size_t pitch;			// the actuall row-length in bytes (may include some padding for proper memory alignment)*/
  		column<char>	ptr;
 
 		friend struct cmp_in;

@@ -1,7 +1,7 @@
 #ifndef __column_h
 #define __column_h
 
-#include "gpu2.h"
+#include "gpu.h"
 
 template<typename T>
 struct column : public xptrng::tptr<T>

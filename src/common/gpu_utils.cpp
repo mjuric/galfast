@@ -424,10 +424,11 @@ void abort_on_cuda_error(cudaError err)
 	abort();
 }
 
-void cuxErrCheck(cudaError err)
+void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const int line)
 {
 	if(err != cudaSuccess)
 	{
+		MLOG(verb1) << "CUDA Error: In " << fun << " (" << file << ":" << line << ")\n";
 		abort_on_cuda_error(err);
 //		throw cuxException(err);
 	}

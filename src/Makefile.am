@@ -23,8 +23,9 @@ SUBDIRS = common gpc
 
 
 
-noinst_HEADERS = simulate.h simulate_base.h
+noinst_HEADERS = simulate.h simulate_base.h skygen.h
 simulate_x_SOURCES = observe.cpp observe_FeH.cpp observe_kinTMIII.cpp \
-	observe_vel2pm.cpp simulate.cpp simulate.h simulate2.cpp simulate_cpu.cpp simulate_gpu.cu
+	observe_vel2pm.cpp os_skygen.cpp simulate.cpp simulate.h simulate2.cpp simulate_cpu.cpp \
+	simulate_gpu.cu skygen.cu
 simulate_x_LDADD = $(top_builddir)/src/gpc/libgpc.a \
 	$(top_builddir)/src/common/libcommon.a

@@ -33,7 +33,9 @@ struct cuxException
 	const char *msg() const { return cudaGetErrorString(err); }
 };
 
-void cuxErrCheck(cudaError err);
+void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const int line);
+#define cuxErrCheck(expr) \
+	cuxErrCheck_impl(expr, __PRETTY_FUNCTION__, __FILE__, __LINE__)
 
 template<typename T>
 	T *cuxNew(uint32_t size = 1)
@@ -99,11 +101,11 @@ namespace xptrng
 		uint32_t pitch;
 
 		// Access
-		__device__ T &operator()(const size_t x, const size_t y)	// 2D accessor
+		__device__ T &operator()(const size_t x, const size_t y) const	// 2D accessor
 		{
 			return *((T*)(data + y * pitch) + x);
 		}
-		__device__ T &operator[](const size_t i)			// 1D accessor
+		__device__ T &operator[](const size_t i) const			// 1D accessor
 		{
 			return ((T*)data)[i];
 		}

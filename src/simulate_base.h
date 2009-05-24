@@ -21,6 +21,8 @@
 #ifndef __simulate_base_h
 #define __simulate_base_h
 
+#include "gpu.h"
+
 struct os_FeH_data
 {
 	float A[2], sigma[3], offs[3];
@@ -103,19 +105,5 @@ struct os_kinTMIII_data
 			HvPhi, HvR, HvZ,
 			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
 };
-/*
-struct os_kinTMIII_data_int
-{	
-		float fk, DeltavPhi;
-		iarray5 	vPhi1, vR, vZ,
-			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ;
-		
-		i8array5 HvPhi, HvR, HvZ,
-			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;		
-};
-*/
-
-
-
 
 #endif

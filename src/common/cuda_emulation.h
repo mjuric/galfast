@@ -21,6 +21,9 @@
 #ifndef _cuda_emulation_h__
 #define _cuda_emulation_h__
 
+#include <string.h>
+#include <assert.h>
+
 // Emulate CUDA types and keywords
 
 #define __device__

@@ -1080,139 +1080,6 @@ bool os_ugriz::init(const Config &cfg, otable &t)
 #endif
 
 
-
-
-
-// template<typename T>
-// void array_copy(T *dest, const T *src, const size_t n)
-// {
-// 	FOR(0, n) { dest[i] = src[i]; }
-// }
-
-
-
-#if 0
-#if GPU
-// GPU Implementation Sketch
-
-typedef otable::column<double> cdouble;
-typedef otable::column<float> cfloat;
-
-size_t os_vel2pm::push(otable *&in)
-{
-	// ASSUMPTIONS:
-	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
-	//
-	// OUTPUT:
-	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
-	//	Radial velocity in km/s in pm[2]
-
-	push2<<<...>>>((gpu_rng *)in.rng->deviceobject(), in["lb"], in["vcyl"], in["XYZ"], in["pmlb"], in["pmradec"]);
-
-	return nextlink->push2(in, rng);
-}
-
-#ifdef GPU
-	#define DECLARE_KERNEL(kernelName, ...) \
-		bool kernelName(size_t nthreads, __VA_ARGS__);
-
-	#define KERNEL(kernelName, ...) \
-		__global__ bool kernelName(__VA_ARGS__); \
-		bool kernelName(size_t nthreads, __VA_ARGS__) \
-		{ \
-			kernelName<<<1,1,1>>>(__VA_ARGS__); \
-		} \
-		__global__ bool kernelName(__VA_ARGS__)
-#else
-	#define DECLARE_KERNEL(kernelName, ...) \
-		bool kernelName(size_t nthreads, __VA_ARGS__);
-
-	#define KERNEL(kernelName, ...) \
-		__global__ bool kernelName##_aux(size_t nthreads, __VA_ARGS__); \
-		bool kernelName(size_t nthreads, __VA_ARGS__) \
-		{ \
-			for(int __i=0; __i != nthreads; __i++) \
-			{ \
-				kernelName##_aux(__VA_ARGS__); \
-			} \
-		} \
-		__global__ bool kernelName##_aux(size_t nthreads, __VA_ARGS__)
-#endif
-
-__constant__ float ctn_vLSR, ctn_u0, ctn_v0, ctn_w0;
-__global__ void kernel_os_vel2pm(gpu_rng_state rng, const int coordsys, xdouble lb0, xfloat vcyl, xfloat XYZ, xfloat pmlb, xfloat pmradec)
-{
-	rng.load();
-
-	uint idx = blockIdx.x*blockDim.x + threadIdx.x;
-
-	// fetch prerequisites
-	double l = rad(lb0(idx, 0));
-	double b = rad(lb0(idx, 1));
-
-	// convert the velocities from cylindrical to galactocentric cartesian system
-	float pm[3];
-	vel_cyl2xyz(pm[0], pm[1], pm[2],   vcyl(idx, 0), vcyl(idx, 1), vcyl(idx, 2),   XYZ(idx, 0), XYZ(idx, 1));
-
-	// switch to Solar coordinate frame
-	pm[0] -= ctn_u0;
-	pm[1] -= ctn_v0 + ctn_vLSR;
-	pm[2] -= ctn_w0;
-
-	// convert to velocities wrt. the observer
-	vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],   l, b);
-
-	// convert to proper motions
-	float D = sqrt(sqr(XYZ[0]) + sqr(XYZ[1]) + sqr(XYZ[2]));
-	pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
-	pm[1] /= 4.74 * D*1e-3;
-
-	// rotate to output coordinate system
-	switch(coordsys)
-	{
-	case GAL:
-		pmlb(idx, 0) = pm[0];
-		pmlb(idx, 1) = pm[1];
-		pmlb(idx, 2) = pm[2];
-		break;
-	case EQU:
-/*		THROW(EAny, "Output in equatorial system not implemented yet.");
-		array_copy(s.pmradec(), pm, 3);*/
-		break;
-	default:
-/*		THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");*/
-		break;
-	}
-
-	rng.store();
-}
-
-bool os_vel2pm::init(const Config &cfg, otable &t)
-{
-	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	std::string cs;
-	cfg.get(cs, "coordsys", "gal");
-	if(cs == "gal") { coordsys = GAL; prov.insert("pmlb[3]"); }
-	else if(cs == "equ") { coordsys = EQU; prov.insert("pmradec[3]"); }
-	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
-
-	// LSR and peculiar Solar motion
-	cfg.get(vLSR, "vLSR", -220.0f);
-	cfg.get(u0,   "u0",    -10.0f);
-	cfg.get(v0,   "v0",     -5.3f);
-	cfg.get(w0,   "w0",      7.2f);
-
-	// upload to constant memory
-	cudaMemcpyToSymbol(ctn_vLSR, vLSR, 1);
-	cudaMemcpyToSymbol(ctn_u0, u0, 1);
-	cudaMemcpyToSymbol(ctn_v0, v0, 1);
-	cudaMemcpyToSymbol(ctn_w0, w0, 1);
-
-	return true;
-}
-#endif
-#endif
-
 /////////////////////////////////////////////////////////////
 
 // convert between coordinate systems
@@ -1420,18 +1287,6 @@ bool os_textout::init(const Config &cfg, otable &t)
 	return out.out();
 }
 
-class osource : public opipeline_stage
-{
-	public:
-		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
-
-	public:
-		osource() : opipeline_stage()
-		{
-			prov.insert("_source");
-		}
-};
-
 class os_textin : public osource
 {
 	protected:
@@ -1487,6 +1342,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	boost::shared_ptr<opipeline_stage> s;
 
 	if(name == "textin") { s.reset(new os_textin); }
+	else if(name == "skygen") { s.reset(new os_skygen); }
 	else if(name == "textout") { s.reset(new os_textout); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
@@ -1605,84 +1461,6 @@ size_t opipeline::run(otable &t, rng_t &rng)
 
 	return ret;
 }
-
-#if 0
-void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output)
-{
-	Config cfg; cfg.load(conffn);
-
-	int seed;
-	std::string inmod, outmod;
-	cfg.get(seed,	  "seed", 	  42);
-	cfg.get(inmod,	  "input_module",  "textin");
-	cfg.get(outmod,	  "output_module", "textout");
-
-	opipeline pipe;
-
-	std::set<std::string> keys;
-	cfg.get_matching_keys(keys, "module\\[.+\\]");
-	FOREACH(keys)
-	{
-		std::pair<std::string, std::string> moddef = cfg[*i];
-
-		Config modcfg;
-		if(!moddef.second.empty())
-		{
-			modcfg.load(moddef.second);
-		}
-		if(moddef.first ==  inmod) { modcfg.insert(make_pair("filename", input)); }	// some special handling for input/output modules
-		if(moddef.first == outmod) { modcfg.insert(make_pair("filename", output)); }
-
-		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(moddef.first) );
-		if(!stage.get()) { THROW(EAny, "Module " + moddef.first + " unknown or failed to load."); }
-
-		if(!stage->init(modcfg)) { THROW(EAny, "Failed to initialize output pipeline stage '" + moddef.first + "'"); }
-
-		pipe.add(stage);
-	}
-
-	rng_gsl_t rng(seed);
-
-	static const size_t Kbatch = 100000;
-	otable t(Kbatch);
-
-	int nstars = pipe.run(t, rng);
-	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
-#if 0
-	cfg.get(Ar,	"Ar", 		0.);	// extinction
-
-	// load magnitude error map
-					if(cfg.count("photo_error_map"))
-			{
-					std::string fn = cfg["photo_error_map"];
-					std::ifstream iin(fn.c_str()); ASSERT(iin) { std::cerr << "Could not open magnitude error map " << fn << "\n"; }
-					io::ibstream in(iin);
-
-					if(!(in >> magerrs_cvm)) { ASSERT(in >> magerrs); }
-					magerrs.initialize(magerrs_cvm);
-
-					cfg.get(magerrs.use_median_beam_for_all, "magerr_only_use_median", false);
-					if(magerrs.use_median_beam_for_all) { std::cerr << "Using median error only.\n"; }
-}
-
-					cfg.get(constant_photo_error, "constant_photo_error", 0.);
-					cfg.get(paralax_dispersion, "paralax_dispersion", 0.);
-
-	// load various flags
-					int flag;
-					cfg.get(flag, "apply_photo_errors", 0); 	if(flag) flags |= APPLY_PHOTO_ERRORS;
-	
-	// dump short status
-					std::cerr << "constant_photo_error = " << constant_photo_error << "\n";
-					std::cerr << "paralax_dispersion = " << paralax_dispersion << "\n";
-					std::cerr << "magerrs.use_median_beam_for_all = " << magerrs.use_median_beam_for_all << "\n";
-					std::cerr << "magerrs.empty() = " << magerrs.empty() << "\n";
-					std::cerr << "Flags: "
-					<< (flags & APPLY_PHOTO_ERRORS ? "APPLY_PHOTO_ERRORS" : "")
-					<< "\n";
-#endif
-}
-#endif
 
 void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
 {

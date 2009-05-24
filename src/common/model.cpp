@@ -902,7 +902,7 @@ ToyHomogeneous_model::ToyHomogeneous_model(peyton::io::ibstream &in)
 
 double ToyGeocentricPowerLaw_model::rho(double x, double y, double z, double ri)
 {
-	x -= Rg;
+	x -= Rg();
 	double d2 = sqr(x) + sqr(y) + sqr(z);
 	double norm = lf.empty() ? 1. : lf(ri);
 	return norm * rho0 * pow(d2, n/2.);

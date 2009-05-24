@@ -36,6 +36,7 @@ Using RNGs from constant memory:
 */
 
 #include <assert.h>
+#include <cmath>
 
 // This array is how we access the "shared memory" (== cache) on the SM
 // #ifdef __CUDACC__

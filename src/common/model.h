@@ -509,6 +509,12 @@ protected:
 
 public:
 	size_t size() const { return nrows; }
+	void set_size(size_t newsize)
+	{
+		nrows = newsize;
+		if(nrows > capacity()) { THROW(peyton::exceptions::EAny, "Attempted to set more rows than capacity allows."); }
+	}
+
 	size_t capacity() const { return length; }
 	void clear() { nrows = 0; }
 	size_t add_row()

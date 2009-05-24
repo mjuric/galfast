@@ -18,12 +18,44 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#ifndef __observe_h
+#define __observe_h
+
+#include "simulate_base.h"
+#include "model.h"
+#include "gpu.h"
+#include <astro/system/config.h>
+
+class osource : public opipeline_stage
+{
+	public:
+		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
+
+	public:
+		osource() : opipeline_stage()
+		{
+			prov.insert("_source");
+		}
+};
+
+// GPU generator input
+class os_skygen : public osource
+{
+	public:
+		virtual bool init(const peyton::system::Config &cfg, otable &t);
+		virtual size_t run(otable &t, rng_t &rng);
+		virtual const std::string &name() const { static std::string s("skygen"); return s; }
+		virtual const std::string &type() const { static std::string s("input"); return s; }
+
+		os_skygen() {};
+};
+
 // add Fe/H information
 class os_FeH : public osink, os_FeH_data
 {
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t);
+	virtual bool init(const peyton::system::Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
 	os_FeH() : osink()
@@ -42,7 +74,7 @@ class os_fixedFeH : public osink
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
+		virtual bool init(const peyton::system::Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
 		os_fixedFeH() : osink(), fixedFeH(0)
@@ -56,7 +88,7 @@ class os_vel2pm : public osink , public os_vel2pm_data
 {	
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t);
+	virtual bool init(const peyton::system::Config &cfg, otable &t);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
 	os_vel2pm() : osink()
@@ -75,7 +107,7 @@ class os_kinTMIII : public osink, os_kinTMIII_data
 	float DeltavPhi;
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
+		virtual bool init(const peyton::system::Config &cfg, otable &t);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
 		os_kinTMIII() : osink()
@@ -86,5 +118,4 @@ class os_kinTMIII : public osink, os_kinTMIII_data
 		}
 };
 
-
-
+#endif // __observe_h

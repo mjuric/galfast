@@ -25,7 +25,7 @@
 #include <astro/util.h>
 #include <astro/useall.h>
 
-double Rg = 8000.;
+double Rg_impl = 8000.;
 
 inline OSTREAM(const std::vector<double> &a)
 {

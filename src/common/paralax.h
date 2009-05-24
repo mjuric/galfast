@@ -8,7 +8,8 @@
 
 #include <astro/io/binarystream.h>
 
-extern double Rg;	// galactic center distance
+extern double Rg_impl;	// galactic center distance
+inline double Rg() { return Rg_impl; }
 
 namespace stardist
 {

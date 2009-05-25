@@ -411,6 +411,9 @@ __device__ void skyConfigGPU<T>::kernel() const
 					y += dx*(rng.uniform() - 0.5f);
 					double l, b;
 					proj.inverse(x, y, l, b);
+					l *= dbl_r2d;
+					if(l < 0) l += 360.;
+					b *= dbl_r2d;
 					stars.lb(idx, 0) = l;
 					stars.lb(idx, 1) = b;
 

@@ -50,7 +50,7 @@ lfParams lfTextureManager::load(const char *fn)
 	float lfM0 = M.front(), lfM1 = M.back(), lfdM = (lfM1 - lfM0) / (nlf-1);
 	for(int i=0; i != nlf; i++)
 	{
-		lfp[i] = lfM0 + i*lfdM;
+		lfp[i] = lf(lfM0 + i*lfdM);
 	}
 	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
 }
@@ -330,11 +330,11 @@ bool skyConfig<T>::init(
 	}
 
 	// Density binning parameters
-	this->dM = cfg.get("dM");
-	this->M0 = cfg.get("M0");
-	this->M1 = cfg.get("M1");
-	this->m0 = cfg.get("m0");
-	this->m1 = cfg.get("m1");
+	this->M0 = cfg.get_any_of("M0", "ri0");
+	this->M1 = cfg.get_any_of("M1", "ri1");
+	this->dM = cfg.get_any_of("dM", "dri");
+	this->m0 = cfg.get_any_of("m0", "r0");
+	this->m1 = cfg.get_any_of("m1", "r1");
 	this->dm = cfg.get("dm");
 	assert(this->dM == this->dm);
 
@@ -488,7 +488,15 @@ bool os_skygen::init(const Config &cfg, otable &t)
 	std::string footfn = cfg.get("foot");
 	Config cfgFoot(footfn);
 
-	return skygen->init(cfg, cfgFoot, cfgModel, t);
+	if(cfg.count("pdf"))
+	{
+		Config cfgPDF(cfg["pdf"]);
+		return skygen->init(cfgPDF, cfgFoot, cfgModel, t);
+	}
+	else
+	{
+		return skygen->init(cfg, cfgFoot, cfgModel, t);
+	}
 }
 
 size_t os_skygen::run(otable &in, rng_t &rng)

@@ -180,6 +180,7 @@ public:
 
 static const double dbl_pi  = 3.14159265358979323846264338;
 static const double dbl_d2r = 0.01745329251994329576923691; // (pi/180.0)
+static const double dbl_r2d = 57.2957795130823208767981548; // (180.0/pi)
 static const double flt_pi  = 3.14159265358979323846264338;
 static const double flt_d2r = 0.01745329251994329576923691; // (pi/180.0)
 

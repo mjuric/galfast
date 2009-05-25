@@ -1507,6 +1507,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	// merge-in modules with options given in the config file
 	opipeline pipe;
 
+	bool hasinput = false, hasoutput = false;
 	FOREACH(modules)
 	{
 		const std::string &cffn = *i;
@@ -1534,12 +1535,34 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 
 		stage->setUniqueId(modcfg["module"]);
 
-		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
-		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
+		if(stage->type() == "input")  { hasinput = true;  modcfg.insert(make_pair("filename", input)); }
+		if(stage->type() == "output") { hasoutput = true; modcfg.insert(make_pair("filename", output)); }
 
 		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 
+		pipe.add(stage);
+	}
+
+	// set default I/O, if not overriden by othe modules
+	if(!hasinput)
+	{
+		name = "textin";
+		Config modcfg;
+		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
+		modcfg.insert(make_pair("filename", input));
+		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
+		pipe.add(stage);
+	}
+	if(!hasoutput)
+	{
+		name = "textout";
+		Config modcfg;
+		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
+		modcfg.insert(make_pair("filename", output));
+		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}
 

@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
-      <programargs>postprocess --inmodule=skygen postprocess.conf sky.cat.txt sky.obs.txt</programargs>
+      <programargs>postprocess postprocess.conf skygen.conf</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
@@ -57,7 +57,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>postprocess --inmodule=skygen postprocess.conf sky.cat.txt sky.obs.txt</globaldebugarguments>
+      <globaldebugarguments>postprocess postprocess.conf skygen.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>

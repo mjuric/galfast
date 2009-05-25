@@ -741,15 +741,16 @@ try
 		"Otherwise, textual output, possibly compressed depending on file extension, is stored $(output).";
 	sopts["catalog"]->add_standard_options();
 
-	std::string catalog, in_module = "textin", out_module = "textout";
+/*	std::string catalog, in_module = "textin", out_module = "textout";*/
 	std::vector<std::string> modules;
+	std::string infile("sky.cat.txt"), outfile("sky.obs.txt");
 	sopts["postprocess"].reset(new Options(argv0 + " postprocess", progdesc + " Apply postprocessing steps to catalog sources.", version, Authorship::majuric));
 	sopts["postprocess"]->argument("conf").bind(input).desc("Postprocessing (\"postprocess.conf\") configuration file");
-	sopts["postprocess"]->argument("input").bind(catalog).desc("Input catalog file");
-	sopts["postprocess"]->argument("output").bind(output).desc("Output catalog file");
-	sopts["postprocess"]->argument("modules").bind(modules).optional().gobble().desc("List of postprocessing module configuration files");
-	sopts["postprocess"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
-	sopts["postprocess"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");
+	sopts["postprocess"]->argument("modules").bind(modules).optional().gobble().desc("List of postprocessing module configuration files (or module names)");
+	sopts["postprocess"]->option("i").addname("input").bind(infile).param_required().desc("Input catalog file");
+	sopts["postprocess"]->option("o").addname("output").bind(outfile).param_required().desc("Output catalog file");
+/*	sopts["postprocess"]->option("i").bind(in_module).addname("inmodule").param_required().desc("Input file reading module");
+	sopts["postprocess"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");*/
 	sopts["postprocess"]->add_standard_options();
 
 	//
@@ -872,12 +873,10 @@ try
 		// may barf
 		gsl_set_error_handler_off();
 
-		// ./simulate.x postprocess postprocess.conf file.in.txt file.out.txt [module1 [module2]....]
+		// ./simulate.x postprocess postprocess.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
 		std::set<std::string> mset;
 		mset.insert(modules.begin(), modules.end());
-		mset.insert(in_module);
-		mset.insert(out_module);
-		postprocess_catalog(input, catalog, output, mset);
+		postprocess_catalog(input, infile, outfile, mset);
 	}
 	else
 	{

@@ -216,3 +216,58 @@ gpc_polygon xgpc_read(const std::string &fn, peyton::math::lambert &proj, bool *
 	fclose(fp);
 	return sky;
 }
+
+//
+// Simple crossing number algorithm, valid for non-self intersecting polygons.
+// See http://softsurfer.com/Archive/algorithm_0103/algorithm_0103.htm for details.
+//
+bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl)
+{
+	int cn = 0;
+	const int n = vl.num_vertices;
+	for(int i = 0; i != n; i++)
+	{
+		gpc_vertex &a = vl.vertex[i];
+		gpc_vertex &b = (i + 1 == n) ? vl.vertex[0] : vl.vertex[i+1];
+
+		if   (((a.y <= t.y) && (b.y > t.y))    		// an upward crossing
+		   || ((a.y > t.y)  && (b.y <= t.y)))  		// a downward crossing
+		{
+			// compute the actual edge-ray intersect x-coordinate
+			double vt = (float)(t.y - a.y) / (b.y - a.y);
+			if (t.x < a.x + vt * (b.x - a.x)) 	// t.x < intersect
+                		++cn;				// a valid crossing of y=t.y right of t.x
+		}
+	}
+
+	return (cn&1);    // 0 if even (out), and 1 if odd (in)	
+}
+
+// test if a given gpc_vertex in inside of a given gpc_polygon
+bool in_polygon(const gpc_vertex &t, const gpc_polygon &p)
+{
+	bool in = false;
+	FOR(0, p.num_contours)
+	{
+		bool inc = in_contour(t, p.contour[i]);
+		in = (in != inc);
+	}
+	return in;
+}
+
+// test if a given point is inside of the partitioned_skymap
+bool partitioned_skymap::in(peyton::Radians x, peyton::Radians y)
+{
+	int X = (int)((x - x0)/dx);
+	int Y = (int)((y - y0)/dx);
+
+	std::map<std::pair<int, int>, pixel_t>::iterator it = skymap.find(std::make_pair(X, Y));
+	if(it == skymap.end()) { return false; }
+
+	gpc_polygon &poly = it->second.poly;
+	gpc_vertex vtmp = { x, y };
+	if(!in_polygon(vtmp, poly))
+	{
+		return false;
+	}
+}

@@ -104,46 +104,6 @@ gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx
 	return p;
 }
 
-//
-// Simple crossing number algorithm, valid for non-self intersecting polygons.
-// See http://softsurfer.com/Archive/algorithm_0103/algorithm_0103.htm for details.
-//
-bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl)
-{
-	int cn = 0;
-	const int n = vl.num_vertices;
-	for(int i = 0; i != n; i++)
-	{
-		gpc_vertex &a = vl.vertex[i];
-		gpc_vertex &b = (i + 1 == n) ? vl.vertex[0] : vl.vertex[i+1];
-
-		if   (((a.y <= t.y) && (b.y > t.y))    		// an upward crossing
-		   || ((a.y > t.y)  && (b.y <= t.y)))  		// a downward crossing
-		{
-			// compute the actual edge-ray intersect x-coordinate
-			double vt = (float)(t.y - a.y) / (b.y - a.y);
-			if (t.x < a.x + vt * (b.x - a.x)) 	// t.x < intersect
-                		++cn;				// a valid crossing of y=t.y right of t.x
-		}
-	}
-
-	return (cn&1);    // 0 if even (out), and 1 if odd (in)	
-}
-
-// test if a given gpc_vertex in inside of a given gpc_polygon
-bool in_polygon(const gpc_vertex &t, const gpc_polygon &p)
-{
-	bool in = false;
-	FOR(0, p.num_contours)
-	{
-		bool inc = in_contour(t, p.contour[i]);
-		in = (in != inc);
-//		if(inc) { cerr << "+"; }
-	}
-//	cerr << "\n";
-	return in;
-}
-
 class striped_polygon
 {
 public:
@@ -317,9 +277,110 @@ void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const la
 
 }
 
-void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians rhole, const lambert &proj, bool smOutput)
+gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 {
-	Radians dx = rad(.1); /* polygon sampling resolution in radians */
+	// coordinate system (default: galactic)
+	std::string coordsys;
+	cfg.get(coordsys, "coordsys", std::string("gal"));
+
+	// transformer from the chosen to galactic coordinate system
+	peyton::coordinates::transform xxx2gal= peyton::coordinates::get_transform(coordsys, "gal");
+	if(xxx2gal == NULL) { THROW(EAny, "Don't know how to convert from coordinate system '" + coordsys + "' to galactic coordinates."); }
+
+	// set up the lambert projection (in galactic coordinates), with the pole being the
+	// pole of the chosen coordinate system
+	Radians lp, bp;
+	xxx2gal(rad(90), rad(90), lp, bp);
+	proj = lambert(lp, bp);
+
+	// load rectangle bounds and sampling scale dx
+	std::string rect; double l0, l1, b0, b1;
+	cfg.get(rect, "rect", std::string("0 1 0 1"));
+	std::istringstream ss(rect);
+	ss >> l0 >> l1 >> b0 >> b1;
+	double dx;
+	cfg.get(dx, "dx", .1);
+
+	// Rationalize l
+	l0 = peyton::math::modulo(l0, 360);
+	l1 = peyton::math::modulo(l1, 360);
+	// The complicated if is there to ensure that the common case
+	// of l0=l1=0 (all sky) gets printed out as l0=0, l1=360
+	if(l0 >= l1) { if(l0 == 0) { l1 = 360; } else { l0 -= 360; } }
+
+	MLOG(verb1) << "Projection pole (l, b)               = " << deg(lp) << " " << deg(bp);
+	MLOG(verb1) << "Observed rectangle (l0, l1, b0, b1)  = " << l0 << " " << l1 << " " << b0 << " " << b1;
+	MLOG(verb1) << "Sampling resolution (dx)             = " << dx;
+
+	// South pole causes a divergence in lambert routines
+	if(b0 <= -89.99999999)
+	{
+		b0 = -89.9999;
+		MLOG(verb1) << "Footprint includes the south pole. Setting b0=" << b0 << " to avoid numerical issues.";
+	}
+
+	// Upper/lower edge
+	std::vector<gpc_vertex> vup, vdown;
+	gpc_vertex v;
+	for(double l = l0; true; l += dx)
+	{
+		if(l > l1) { l = l1; }
+
+		//std::cerr << l << " " << l1 << " " << dx << "\n";
+		v.x = rad(l); v.y = rad(b1);
+		xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+		vup.push_back(v);
+
+		v.x = rad(l); v.y = rad(b0);
+		xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+		vdown.push_back(v);
+
+		if(l >= l1) { break; }
+	}
+
+	// Note: There's no reason to sample the sides, as they're going to be
+	// straight lines in lambert projection because of the choice of coordinate
+	// system pole as the projection pole.
+
+	// Put together the rectangle
+	std::vector<gpc_vertex> vv;
+	vv.reserve(vup.size() + vdown.size());
+	//std::cerr << "b1 = " << b1 << "\n";
+	if(b1 <= 89.99999999)
+	{
+		vv.insert(vv.end(), vup.begin(), vup.end());
+	}
+	else
+	{
+		// insert a single vertex for the pole
+		MLOG(verb1) << "Footprint includes the north pole. Reducing upper edge to a single vertex.";
+		vv.push_back((gpc_vertex){0, 0});
+	}
+	vv.insert(vv.end(), vdown.rbegin(), vdown.rend());
+
+	// construct the GPC polygon and write it to file
+	gpc_polygon sky = {0, 0, NULL};
+	gpc_vertex_list c = { vv.size(), &vv[0] };
+	gpc_add_contour(&sky, &c, false);
+
+	return sky;
+}
+
+// Create rectangular footprint based on cfg, store to output, possibly with sm if smOutput=true
+void makeRectMap(const std::string &output, peyton::system::Config &cfg, bool smOutput)
+{
+	lambert proj;
+	gpc_polygon sky = makeRectMap(cfg, proj);
+
+	writeGPCPolygon(output, sky, proj, smOutput);
+	gpc_free_polygon(&sky);
+}
+
+gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
+{
+//	Radians dx = rad(.1); /* polygon sampling resolution in radians */
+	Radians dx = (rhole > 0 ? std::min(r, rhole) : r) / 100.;
+	dx = std::min(dx, rad(.1));
 
 	double x, y;
 	MLOG(verb1) << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole);
@@ -365,10 +426,31 @@ void makeBeamMap(std::string &output, Radians l, Radians b, Radians r, Radians r
 		sky = poly;
 	}
 
-	writeGPCPolygon(output, sky, proj, smOutput);
+	return sky;
+}
 
-	// free memory
-	gpc_free_polygon(&sky);
+#define CFG_THROW(str) THROW(EAny, str)
+
+gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
+{
+	// projection
+	std::string pole; double l0, b0;
+	cfg.get(pole,	"projection",	std::string("90 90"));
+	std::istringstream ss(pole);
+	ss >> l0 >> b0;
+	proj = lambert(rad(l0), rad(b0));
+
+	// beam direction and radius
+	double l, b, r, rhole = 0;
+	if(!cfg.count("footprint_beam")) { CFG_THROW("Configuration key footprint_beam must be set"); }
+	std::istringstream ss2(cfg["footprint_beam"]);
+	ss2 >> l >> b >> r >> rhole;
+
+	MLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
+	DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
+
+	return makeBeamMap(rad(l), rad(b), rad(r), rad(rhole), proj);
+
 }
 
 void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &proj, Radians b0 = rad(0.))
@@ -416,8 +498,6 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 	gpc_free_polygon(&circle);
 }
 
-#define CFG_THROW(str) THROW(EAny, str)
-
 namespace footprints
 {
 	std::string output;
@@ -425,6 +505,13 @@ namespace footprints
 
 	int pencilBeam(peyton::system::Config &cfg)
 	{
+		lambert proj;
+		gpc_polygon sky = makeBeamMap(cfg, proj);
+		writeGPCPolygon(output, sky, proj, smOutput);
+		gpc_free_polygon(&sky);
+
+		return 0;
+#if 0
 		// projection
 		std::string pole; double l0, b0;
 		cfg.get(pole,	"projection",	std::string("90 90"));
@@ -443,10 +530,14 @@ namespace footprints
 		makeBeamMap(output, rad(l), rad(b), rad(r), rad(rhole), proj, smOutput);
 
 		return 0;
+#endif
 	}
 
 	int rectangle(peyton::system::Config &cfg)
 	{
+		makeRectMap(output, cfg, smOutput);
+		return 0;
+#if 0
 		// coordinate system (default: galactic)
 		std::string coordsys;
 		cfg.get(coordsys, "coordsys", std::string("gal"));
@@ -534,6 +625,7 @@ namespace footprints
 		gpc_free_polygon(&sky);
 
 		return 0;
+#endif
 	}
 }
 
@@ -781,9 +873,11 @@ try
 		gsl_set_error_handler_off();
 
 		// ./simulate.x postprocess postprocess.conf file.in.txt file.out.txt [module1 [module2]....]
-		modules.push_back(in_module);
-		modules.push_back(out_module);
-		postprocess_catalog(input, catalog, output, modules);
+		std::set<std::string> mset;
+		mset.insert(modules.begin(), modules.end());
+		mset.insert(in_module);
+		mset.insert(out_module);
+		postprocess_catalog(input, catalog, output, mset);
 	}
 	else
 	{

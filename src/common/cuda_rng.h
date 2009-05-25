@@ -38,22 +38,14 @@ Using RNGs from constant memory:
 #include <assert.h>
 #include <cmath>
 
-// This array is how we access the "shared memory" (== cache) on the SM
-// #ifdef __CUDACC__
-// extern __shared__ int shmem[];
-// #endif
-
-// #define cuda_assert(err) \
-// 	if((err) != cudaSuccess) { abort_on_cuda_error(err); }
-// void abort_on_cuda_error(cudaError err);
-
 namespace prngs
 {
 	template<uint32_t state_dim, bool on_gpu>
 	struct rng_base
 	{
 		static const int statewidth = state_dim;
-		int state_width() const { return state_dim; }
+		static int state_width() { return state_dim; }
+		static int state_bytes() { return state_dim * sizeof(uint32_t); }
 
 		uint32_t *gstate;
 		uint32_t nstreams;

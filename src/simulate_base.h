@@ -106,4 +106,18 @@ struct os_kinTMIII_data
 			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
 };
 
+namespace peyton { namespace system { class Config; }};
+class otable;
+class osink;
+
+struct skyConfigInterface
+{
+	virtual bool init(const peyton::system::Config &cfg,
+		const peyton::system::Config &foot_cfg,
+		const peyton::system::Config &model_cfg,
+		otable &t) = 0;
+	virtual size_t run(otable &in, osink *nextlink, rng_t &rng) = 0;
+	virtual ~skyConfigInterface() {};
+};
+
 #endif

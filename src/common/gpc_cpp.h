@@ -45,6 +45,7 @@ BISTREAM2(gpc_polygon& p);
 void poly_bounding_box(double &x0, double &x1, double &y0, double &y1, const gpc_polygon &p);
 gpc_polygon poly_rect(double x0, double x1, double y0, double y1);
 double polygon_area(const gpc_polygon &p);
+bool in_polygon(const gpc_vertex &t, const gpc_polygon &p);
 
 // polygon split into little rectangular pieces
 struct partitioned_skymap
@@ -58,6 +59,8 @@ struct partitioned_skymap
 	};
 	
 	std::map<std::pair<int, int>, pixel_t> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup
+
+	bool in(peyton::Radians x, peyton::Radians y);
 };
 BOSTREAM2(const partitioned_skymap::pixel_t &m);
 BISTREAM2(partitioned_skymap::pixel_t &m);

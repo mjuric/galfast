@@ -1462,7 +1462,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	return ret;
 }
 
-void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::vector<std::string> modules)
+void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules)
 {
 	Config cfg; cfg.load(conffn);
 
@@ -1480,21 +1480,8 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects\n";
 	otable t(Kbatch);
 
-	// merge-in any modules included from the config file via the 'modules' keyword
-	// modules keyword may either contain the module name (in which case the config
-	// will be read from the current config file's module.<module_name>.XXXX keys)
-	// or a filename with module configuration. (*********DEPRECATED********)
 	std::string name;
 	std::ostringstream msg;
-	if(cfg.count("modules"))
-	{
-		std::istringstream ss(cfg["modules"]);
-		while(ss >> name)
-		{
-			msg << " " << name;
-			modules.push_back(name);
-		}
-	}
 
 	// merge in any modules with module.<module_name>.XXXX present and
 	// module.<module_name>.enabled != 0. Configuration will be read from
@@ -1514,7 +1501,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		if(!smodules.count(name)) { msg << " " << name; }
 		smodules.insert(name);
 	}
-	modules.insert(modules.end(), smodules.begin(), smodules.end());
+	modules.insert(smodules.begin(), smodules.end());
 	MLOG(verb2) << "Adding modules from config file:" << msg.str();
 
 	// merge-in modules with options given in the config file

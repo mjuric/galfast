@@ -23,10 +23,100 @@
 #include "observe.h"
 #include "io.h"
 #include "skygen.h"
+#include "analysis.h"
+#include "gpc_cpp.h"
 #include <iomanip>
+#include <fstream>
+#include <vector>
 
 #include <astro/useall.h>
 
+/***********************************************************************/
+
+lfParams lfTextureManager::load(const char *fn)
+{
+	// load the luminosity function and normalize to m.rho0.
+	// rho0 is assumed to contain the number of stars per cubic parsec
+	// per 1mag of r-i
+	text_input_or_die(lfin, fn);
+	std::vector<double> M, phi;
+	::load(lfin, M, 0, phi, 1);
+	spline lf;
+	lf.construct(M, phi);
+
+	// resample the LF to texture
+	const int nlf = 1024;
+	std::vector<float> lfp(nlf);
+	float lfM0 = M.front(), lfM1 = M.back(), lfdM = (lfM1 - lfM0) / (nlf-1);
+	for(int i=0; i != nlf; i++)
+	{
+		lfp[i] = lfM0 + i*lfdM;
+	}
+	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
+}
+
+void expModel::load(const peyton::system::Config &cfg)
+{
+	// density distribution parameters
+	rho0  = cfg.get("rho0");
+	l     = cfg.get("l");
+	h     = cfg.get("h");
+	z0    = cfg.get("z0");
+	f     = cfg.get("f");
+	lt    = cfg.get("lt");
+	ht    = cfg.get("ht");
+	fh    = cfg.get("fh");
+	q     = cfg.get("q");
+	n     = cfg.get("n");
+
+	// luminosity function
+	if(cfg.count("lumfunc"))
+	{
+		lf = texLFMgr.load(cfg["lumfunc"].c_str());
+	}
+
+	// cutoff radius (default: 1Mpc)
+	cfg.get(r_cut2,  "rcut",   1e6f);
+	r_cut2 *= r_cut2;
+}
+
+/***********************************************************************/
+
+template<typename T>
+skyConfig<T>::skyConfig()
+{
+	cpu_pixels = NULL;
+	cpu_hist = NULL;
+	cpu_maxCount = NULL;
+	cpu_state = NULL;
+	skymap = NULL;
+	rng = NULL;
+
+	this->pixels = 0;
+	this->lock = 0;
+	this->counts = 0;
+	this->nstars = 0;
+
+	this->ks.constructor();
+}
+
+template<typename T>
+skyConfig<T>::~skyConfig()
+{
+	delete [] cpu_pixels;
+	delete [] cpu_hist;
+	delete [] cpu_maxCount;
+	delete [] cpu_state;
+	delete skymap;
+	delete rng;
+
+	this->lock.free();
+	this->pixels.free();
+	this->counts.free();
+	this->nstars.free();
+
+	this->ks.destructor();
+}
 
 template<typename T>
 int skyConfig<T>::bufferSafetyMargin()
@@ -54,198 +144,298 @@ int skyConfig<T>::bufferSafetyMargin()
 	return bufsize;
 }
 
-template<>
-void skyConfig<expModel>::upload(bool draw)
+template<typename T>
+void skyConfig<T>::upload_generic(bool draw)
 {
 	// Upload pixels to be processed
-	pixels.upload(cpu_pixels, npixels);
+	this->pixels.upload(cpu_pixels, this->npixels);
 
 	// prepare locks and outputs
 	int zero = 0;
 
 	if(!draw)
 	{
-		lock.upload(&zero, 1);
+		this->lock.upload(&zero, 1);
 
-		rhoHistograms.alloc(nthreads*nhistbins);
-		cudaMemset(rhoHistograms.ptr, 0, nthreads*nhistbins*4);
+		this->rhoHistograms.alloc(this->nthreads*this->nhistbins);
+		cudaMemset(this->rhoHistograms.ptr, 0, this->nthreads*this->nhistbins*4);
 
-		maxCount.alloc(nthreads);
-		cudaMemset(maxCount.ptr, 0, nthreads*4);
+		this->maxCount.alloc(this->nthreads);
+		cudaMemset(this->maxCount.ptr, 0, this->nthreads*4);
 
-		counts.alloc(nthreads);
-		cudaMemset(counts.ptr, 0, nthreads*4);
+		this->counts.alloc(this->nthreads);
+		cudaMemset(this->counts.ptr, 0, this->nthreads*4);
 	}
 	else
 	{
-		nstars.upload(&zero, 1);
+		this->nstars.upload(&zero, 1);
 
-		stopstars = Kbatch - bufferSafetyMargin();
-		assert(stopstars > 0);
+		this->stopstars = Kbatch - bufferSafetyMargin();
+		assert(this->stopstars > 0);
 
-		ks.alloc(nthreads);
+		this->ks.alloc(this->nthreads);
 	}
 
 	cuxUploadConst("Rg_gpu", this->Rg);
 	cuxUploadConst("rng", *this->rng);
 	cuxUploadConst("proj", this->proj);
+}
+
+template<typename T>
+void skyConfig<T>::upload(bool draw)
+{
+	assert(0); // Generic version of upload should _never_ be called
+}
+
+template<>
+void skyConfig<expModel>::upload(bool draw)
+{
+	this->upload_generic(draw);
 	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
 }
 
 template<typename T>
-void skyConfig<T>::loadConfig(rng_t &seeder)
+void skyConfig<T>::loadConfig()
+{
+	// Galactic center distance (in pc)
+// 	Rg = 8000.;
+
+	// Galactic model initialization
+//	this->model.setmodel(2150., 245., 25,  0.13, 3261, 743,   0.0051, 1./0.64, 2.77);
+//	this->model.setmodel(2150., 300., 25.,  0.13, 2150, 900,   0.0051, 1./0.64, 2.77);
+
+	// luminosity function initialization
+// 	               //  0      4      8    12    16    20   24
+// 	const int nlf = 7;
+// 	float cpu_lf[] = { 0.00, 0.03, 0.05, 0.07, 0.04, 0.02, 0.00 };
+// 	float lfM0 = 0, lfM1 = 24, lfdM = (lfM1 - lfM0) / (nlf-1);
+// 	this->model.lf = texLFMgr.set(cpu_lf, nlf, lfM0, lfM1, lfdM);
+
+	// density histogram setup
+// 	this->lrho0 = -3.5f;
+// 	this->dlrho = 1.0f;
+
+	// integration limits
+/*	float deltam = 0.01;*/
+//	this->M0 = 10.; this->M1 = 10.05;  this->dM = deltam;
+// 	this->M0 =  4.; this->M1 = 15.;  this->dM = deltam;
+// 	this->m0 = 15.; this->m1 = 24.;  this->dm = deltam;
+// 	this->nM = (int)round((this->M1 - this->M0) / this->dM);
+// 	this->nm = (int)round((this->m1 - this->m0) / this->dm);
+// 	this->m0 += 0.5*this->dm;
+// 	this->M1 -= 0.5*this->dM;
+
+	// generate sky pixels
+// 	this->proj.init(rad(90.), rad(90.));
+// 	this->npixels = 1; //2000;
+// 	this->dx = rad(1.);
+// 	this->dA = sqr(this->dx);
+// 	cpu_pixels = new direction[this->npixels];
+// 	Radians l0 = rad(44), b0 = rad(85.), dx = rad(1), l, b;
+// //	Radians l0 = rad(0.), b0 = rad(5.), dx = rad(1), l, b;
+// 	for(int i=0; i != this->npixels; i++)
+// 	{
+// 		l = l0 + i*dx;
+// 		b = b0;
+// 		cpu_pixels[i] = direction(l, b);
+// 	}
+
+	// compute/set kernel execution parameters
+/*	blockDim.x = 64; //256;
+	gridDim.x = 120; // 30;
+	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
+	std::cout << "nthreads=" << this->nthreads << "\n";
+	shb = 12 * blockDim.x; // for RNG*/
+}
+
+gpc_polygon makeBeamMap(const peyton::system::Config &cfg, peyton::math::lambert &proj);
+gpc_polygon makeRectMap(const peyton::system::Config &cfg, peyton::math::lambert &proj);
+
+gpc_polygon make_footprint(const Config &cfg, peyton::math::lambert &proj)
+{
+	if(!cfg.count("type")) { THROW(EAny, "The footprint configuration file must contain the 'type' keyword."); }
+
+	if(cfg["type"] == "beam") { return makeBeamMap(cfg, proj); }
+	if(cfg["type"] == "rect") { return makeRectMap(cfg, proj); }
+
+	THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
+}
+
+// Calculate the 'skymap', for fast point-in-polygon lookups of the observed
+// sky footprint.
+partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
+{
+	using boost::shared_ptr;
+	using std::cout;
+
+	partitioned_skymap *skymap = new partitioned_skymap;
+	skymap->dx = dx;
+
+ 	poly_bounding_box(skymap->x0, skymap->x1, skymap->y0, skymap->y1, sky);
+
+	int X = 0;
+	for(double x = skymap->x0; x < skymap->x1; x += skymap->dx, X++) // loop over all x values in the bounding rectangle
+	{
+		int Y = 0;
+		double xa = x, xb = x+skymap->dx;
+		for(double y = skymap->y0; y < skymap->y1; y += skymap->dx, Y++) // loop over all y values for a given x
+		{
+			double ya = y, yb = y+skymap->dx;
+			gpc_polygon r = poly_rect(xa, xb, ya, yb);
+
+			gpc_polygon poly;
+			gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
+			if(poly.num_contours == 0) continue; // if there are no observations in this direction
+
+			// store the polygon into a fast lookup map
+			partitioned_skymap::pixel_t &pix = skymap->skymap[std::make_pair(X, Y)];
+			pix.poly = poly;
+			pix.area = polygon_area(poly);
+		}
+	}
+	return skymap;
+}
+
+
+template<typename T>
+bool skyConfig<T>::init(
+			const peyton::system::Config &cfg,
+			const peyton::system::Config &foot_cfg,
+			const peyton::system::Config &model_cfg,
+			otable &t)
 {
 	// Galactic center distance (in pc)
 	Rg = 8000.;
 
-	// Galactic model initialization
-//	this->model.setmodel(2150., 245., 25,  0.13, 3261, 743,   0.0051, 1./0.64, 2.77);
-	this->model.setmodel(2150., 300., 25.,  0.13, 2150, 900,   0.0051, 1./0.64, 2.77);
+	// Footprint polygon computation
+	cfg.get(this->dx,	"dx", 	1.f);
+	this->dx = rad(this->dx);
+	this->dA = sqr(this->dx);
 
-	// density histogram setup
-	this->lrho0 = -3.5f;
-	this->dlrho = 1.0f;
+	peyton::math::lambert proj;
+	gpc_polygon sky = make_footprint(foot_cfg, proj);
+	skymap = make_skymap(this->dx, sky);
 
-	// luminosity function initialization
-	               //  0      4      8    12    16    20   24
-	const int nlf = 7;
-	float cpu_lf[] = { 0.00, 0.03, 0.05, 0.07, 0.04, 0.02, 0.00 };
-	float lfM0 = 0, lfM1 = 24, lfdM = (lfM1 - lfM0) / (nlf-1);
-	this->model.lf = texLFMgr.set(cpu_lf, nlf, lfM0, lfM1, lfdM);
+	this->npixels = skymap->skymap.size();
+	cpu_pixels = new direction[this->npixels];
+	this->proj.init(proj.l0, proj.phi1);
+	int cnt = 0;
+	FOREACH(skymap->skymap)
+	{
+		Radians x, y, l, b;
+		x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
+		y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
+		proj.inverse(x, y, l, b);
+		cpu_pixels[cnt++] = direction(l, b);
+	}
 
-	// integration limits
-	float deltam = 0.01;
-//	this->M0 = 10.; this->M1 = 10.05;  this->dM = deltam;
-	this->M0 =  4.; this->M1 = 15.;  this->dM = deltam;
-	this->m0 = 15.; this->m1 = 24.;  this->dm = deltam;
+	// Density binning parameters
+	this->dM = cfg.get("dM");
+	this->M0 = cfg.get("M0");
+	this->M1 = cfg.get("M1");
+	this->m0 = cfg.get("m0");
+	this->m1 = cfg.get("m1");
+	this->dm = cfg.get("dm");
+	assert(this->dM == this->dm);
+
 	this->nM = (int)round((this->M1 - this->M0) / this->dM);
 	this->nm = (int)round((this->m1 - this->m0) / this->dm);
 	this->m0 += 0.5*this->dm;
 	this->M1 -= 0.5*this->dM;
 
-	// generate sky pixels
-	this->proj.init(rad(90.), rad(90.));
-	this->npixels = 1; //2000;
-	this->dx = rad(1.);
-	this->dA = sqr(this->dx);
-	cpu_pixels = new direction[this->npixels];
-	Radians l0 = rad(44), b0 = rad(85.), dx = rad(1), l, b;
-//	Radians l0 = rad(0.), b0 = rad(5.), dx = rad(1), l, b;
-	for(int i=0; i != this->npixels; i++)
-	{
-		l = l0 + i*dx;
-		b = b0;
-		cpu_pixels[i] = direction(l, b);
-	}
-
-	// compute/set kernel execution parameters
-//	this->Kbatch = 3000000;
-	blockDim.x = 64; //256;
-	gridDim.x = 120; // 30;
-	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
-	std::cout << "nthreads=" << this->nthreads << "\n";
-	shb = 12 * blockDim.x; // for RNG
-
-	// initialize rng
-#if 1
-	seed = 43;
-#else
-	FILE *fp;
-	fp = fopen("/dev/urandom", "r");
-	fread(&seed, sizeof(seed), 1, fp);
-	fclose(fp);
-	std::cerr << "Using seed " << seed << "\n";
-#endif
-//	rng = new gpuRng(seed, this->nthreads);
-	rng = new gpu_rng_t(seeder);
-}
-
-////////////////////////////////////////////////////////////////////////////
-
-bool os_skygen::init(const Config &cfg1, otable &t)
-{
-//	const char *fn = cfg1["filename"].c_str();
-//	Config cfg(fn);
-
-	// this fills the prov vector with columns this module will provide
-/*	prov.insert("lb");
-	prov.insert("XYZ");
-	prov.insert("comp");*/
+	// catalog generation results
 	t.use_column("lb");
 	t.use_column("XYZ");
 	t.use_column("comp");
 
-	std::string 	colorName = "absSDSSr",
-			absmagName = "absSDSSr",
-			magName = "SDSSr";
+	std::string 	colorName, absmagName, magName;
+	colorName = model_cfg.get("color");
+	magName = model_cfg.get("band");
+	absmagName = "abs" + magName;
+	assert(colorName == absmagName);
 
 	t.use_column(colorName);  t.alias_column(colorName, "color");
 	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
 	t.use_column(magName);	  t.alias_column(magName, "mag");
 
+	this->model.load(model_cfg);
+
+	// For debugging/stats
+	this->lrho0 = -3.5f;
+	this->dlrho = 1.0f;
+
+	// GPU kernel execution setup
+	blockDim.x = 64; //256;
+	gridDim.x = 120; // 30;
+	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
+	std::cout << "nthreads=" << this->nthreads << "\n";
+	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
+
+	std::cout << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels << "\n";
+
 	return true;
 }
 
-size_t os_skygen::run(otable &in, rng_t &rng)
+template<typename T>
+size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 {
-	skyConfig<expModel> sky;
-	sky.loadConfig(rng);
-	std::cout << "nm=" << sky.nm << " nM=" << sky.nM << " npixels=" << sky.npixels << "\n";
+	// initialize rng
+	rng = new gpu_rng_t(cpurng);
 
 	//
 	// First pass: compute total expected starcounts
 	//
-	sky.upload(false);
-	sky.compute(false);
-	sky.download(false);
+	upload(false);
+	compute(false);
+	download(false);
 	std::cout << "Histogram:     log(rho) |";
-	for(int i=0; i != sky.nhistbins; i++)
+	for(int i=0; i != this->nhistbins; i++)
 	{
-		std::cout << std::setw(8) << sky.lrho0+i*sky.dlrho << "|";
+		std::cout << std::setw(8) << this->lrho0+i*this->dlrho << "|";
 	}
 	std::cout << "\n";
-	std::cout << "Histogram: rho=" << pow10f(sky.lrho0 - sky.dlrho*0.5) << "-->|";
-	for(int i=0; i != sky.nhistbins; i++)
+	std::cout << "Histogram: rho=" << pow10f(this->lrho0 - this->dlrho*0.5) << "-->|";
+	for(int i=0; i != this->nhistbins; i++)
 	{
-		std::cout << std::setw(8) << sky.cpu_hist[i] << "|";
+		std::cout << std::setw(8) << this->cpu_hist[i] << "|";
 	}
-	std::cout << "<--" << pow10f(sky.lrho0+(sky.nhistbins-0.5)*sky.dlrho) << "\n";
+	std::cout << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho) << "\n";
 
-	std::cout << "Total expected star count: " << std::setprecision(9) << sky.nstarsExpected << "\n";
-	std::cout << "Kernel runtime: " << sky.swatch.getAverageTime() << "\n";
+	std::cout << "Total expected star count: " << std::setprecision(9) << this->nstarsExpected << "\n";
+	std::cout << "Kernel runtime: " << this->swatch.getAverageTime() << "\n";
 
 	//
 	// Second pass: draw stars
 	//
-	sky.Kbatch = in.capacity();
+	this->Kbatch = in.capacity();
 
 	// setup output destination
-	sky.stars.lb    = in.col<double>("lb");
-	sky.stars.XYZ   = in.col<float>("XYZ");
-	sky.stars.comp  = in.col<int>("comp");
-	sky.stars.M     = in.col<float>("absmag");
-	sky.stars.m     = in.col<float>("mag");
-	//sky.stars.color = in.col<float>("color"); -- not implemented yet
-	sky.upload(true);
+	this->stars.lb    = in.col<double>("lb");
+	this->stars.XYZ   = in.col<float>("XYZ");
+	this->stars.comp  = in.col<int>("comp");
+	this->stars.M     = in.col<float>("absmag");
+	this->stars.m     = in.col<float>("mag");
+	//this->stars.color = in.col<float>("color"); -- not implemented yet
+	this->upload(true);
 
 	uint64_t total = 0;
 	do
 	{
 		int zero = 0;
-		sky.nstars.upload(&zero, 1);
-		sky.compute(true);
-		sky.download(true);
-		in.set_size(sky.stars_generated);
+		this->nstars.upload(&zero, 1);
+		this->compute(true);
+		this->download(true);
+		in.set_size(this->stars_generated);
 
-		std::cout << "Generated " << sky.stars_generated << " stars (" << sky.nstarsExpected - total << " expected).\n";
-		std::cout << "Kernel runtime: " << sky.swatch.getAverageTime() << "\n";
+		std::cout << "Generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).\n";
+		std::cout << "Kernel runtime: " << this->swatch.getAverageTime() << "\n";
 
-		total += nextlink->process(in, 0, in.size(), rng);
+		total += nextlink->process(in, 0, in.size(), cpurng);
 #if 0
 		// write out where each thread stopped
-		for(int i=0; i != sky.nthreads; i++)
+		for(int i=0; i != this->nthreads; i++)
 		{
-			printf("Thread %d: %d %d %d\n", i, sky.cpu_state[i].x, sky.cpu_state[i].y, sky.cpu_state[i].z);
+			printf("Thread %d: %d %d %d\n", i, this->cpu_state[i].x, this->cpu_state[i].y, this->cpu_state[i].z);
 		}
 #endif
 
@@ -256,22 +446,52 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 		{
 			fprintf(fp, "# lb[2] absSDSSr{alias=absmag;alias=color;} SDSSr{alias=mag;} XYZ[3] comp\n");
 		}
-		for(int i=0; i != sky.stars_generated; i++)
+		for(int i=0; i != this->stars_generated; i++)
 		{
-			star &s = sky.cpu_stars[i];
+			star &s = this->cpu_stars[i];
 			fprintf(fp, "%13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
 				deg(s.l), deg(s.b), s.M, s.m, s.pos.x, s.pos.y, s.pos.z, s.comp);
 		}
 		fclose(fp);
 #endif
-	} while(sky.stars_generated >= sky.stopstars);
-	std::cout << "Generated " << total << " stars (" << sky.nstarsExpected << " expected).\n";
+	} while(this->stars_generated >= this->stopstars);
+	std::cout << "Generated " << total << " stars (" << this->nstarsExpected << " expected).\n";
 
 	#if _EMU_DEBUG
-	long long voxelsVisitedExpected = sky.npixels;
-	voxelsVisitedExpected *= sky.nm*sky.nM;
+	long long voxelsVisitedExpected = this->npixels;
+	voxelsVisitedExpected *= this->nm*this->nM;
 	std::cout << "voxels visited = " << voxelsVisited << " (expected: " << voxelsVisitedExpected << ")\n";
 	#endif
 
 	return total;
+}
+
+////////////////////////////////////////////////////////////////////////////
+
+bool os_skygen::init(const Config &cfg, otable &t)
+{
+	// Load density model configuration and instantiate
+	// the correct skyConfig kernel
+	std::string modelfn = cfg.get("model");
+	Config cfgModel(modelfn);
+	std::string model = cfgModel.get("model");
+	if(model == "BahcallSoneira")
+	{
+		skygen = new skyConfig<expModel>();
+	}
+	else
+	{
+		THROW(EAny, "Unknow density model '" + model + "'");
+	}
+
+	// Load footprint configuration
+	std::string footfn = cfg.get("foot");
+	Config cfgFoot(footfn);
+
+	return skygen->init(cfg, cfgFoot, cfgModel, t);
+}
+
+size_t os_skygen::run(otable &in, rng_t &rng)
+{
+	return skygen->run(in, nextlink, rng);
 }

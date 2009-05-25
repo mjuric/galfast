@@ -34,7 +34,7 @@
 #include <stdint.h>
 #include <cmath>
 #include <limits>
-#include <assert.h>
+#include <cassert>
 #include "skygen.h"
 
 #include <gsl/gsl_statistics_float.h>
@@ -67,25 +67,23 @@ void lfTextureManager::free()
 	}
 }
 
-template<>
-void skyConfig<expModel>::download(bool draw)
+template<typename T>
+void skyConfig<T>::download(bool draw)
 {
 	if(draw)
 	{
-		nstars.download(&stars_generated, 1);
-#if 0
-		cpu_stars = new star[stars_generated];
-		stars.download(cpu_stars, stars_generated);
-#endif
-		int *ilb = new int[nthreads];
-		int *im = new int[nthreads];
-		int *iM = new int[nthreads];
+		this->nstars.download(&stars_generated, 1);
+
+		// this is for debugging purposes mostly
+		int *ilb = new int[this->nthreads];
+		int *im = new int[this->nthreads];
+		int *iM = new int[this->nthreads];
 		delete [] cpu_state;
-		cpu_state = new int3[nthreads];
-		ks.ilb.download(ilb, nthreads);
-		ks.im.download(im,   nthreads);
-		ks.iM.download(iM,   nthreads);
-		for(int i=0; i != nthreads; i++)
+		cpu_state = new int3[this->nthreads];
+		this->ks.ilb.download(ilb, this->nthreads);
+		this->ks.im.download(im,   this->nthreads);
+		this->ks.iM.download(iM,   this->nthreads);
+		for(int i=0; i != this->nthreads; i++)
 		{
 			cpu_state[i] = make_int3(ilb[i], im[i], iM[i]);
 		}
@@ -93,36 +91,36 @@ void skyConfig<expModel>::download(bool draw)
 	}
 	else
 	{
-		float *cpu_counts = new float[nthreads];
-		counts.download(cpu_counts, nthreads);
+		float *cpu_counts = new float[this->nthreads];
+		this->counts.download(cpu_counts, this->nthreads);
 
-		// sum up the total
+		// sum up the total expected number of stars
 		nstarsExpected = 0;
-		for(int i=0; i != nthreads; i++)
+		for(int i=0; i != this->nthreads; i++)
 		{
 			nstarsExpected += cpu_counts[i];
 		}
 		delete [] cpu_counts;
 
-		int *cpu_rhoHistograms = new int[nthreads*nhistbins];
-		rhoHistograms.download(cpu_rhoHistograms, nthreads*nhistbins);
+		int *cpu_rhoHistograms = new int[this->nthreads*this->nhistbins];
+		this->rhoHistograms.download(cpu_rhoHistograms, this->nthreads*this->nhistbins);
 
 		// sum up the total
-		cpu_hist = new int[nhistbins];
-		memset(cpu_hist, 0, sizeof(float)*nhistbins);
-		for(int i=0; i != nthreads; i++)
+		cpu_hist = new int[this->nhistbins];
+		memset(cpu_hist, 0, sizeof(float)*this->nhistbins);
+		for(int i=0; i != this->nthreads; i++)
 		{
-			for(int j=0; j != nhistbins; j++)
+			for(int j=0; j != this->nhistbins; j++)
 			{
-				cpu_hist[j] += cpu_rhoHistograms[nthreads*j + i];
+				cpu_hist[j] += cpu_rhoHistograms[this->nthreads*j + i];
 			}
 		}
 		delete [] cpu_rhoHistograms;
 
 		// Download list of maximum densities encountered by each thread
 		delete [] cpu_maxCount;
-		cpu_maxCount = new float[nthreads];
-		maxCount.download(cpu_maxCount, nthreads);
+		cpu_maxCount = new float[this->nthreads];
+		this->maxCount.download(cpu_maxCount, this->nthreads);
 	}
 }
 
@@ -484,29 +482,12 @@ __device__ void skyConfigGPU<T>::kernel() const
 }
 
 // default kernels (do nothing)
-template<typename T>
-__global__ void compute_sky()
-{
-}
+template<typename T> __global__ void compute_sky() { }
+template<typename T> __global__ void draw_sky() { }
 
-template<typename T>
-__global__ void draw_sky()
-{
-}
-
-// per-model overriden kernels
-template<>
-__global__ void compute_sky<expModel>()
-{
-	expModelSky.kernel<0>();
-}
-
-// per-model overriden kernels
-template<>
-__global__ void draw_sky<expModel>()
-{
-	expModelSky.kernel<1>();
-}
+// expModel overriden kernels
+template<> __global__ void compute_sky<expModel>() { expModelSky.kernel<0>(); }
+template<> __global__ void draw_sky<expModel>() { expModelSky.kernel<1>(); }
 
 template<typename T>
 void skyConfig<T>::compute(bool draw)

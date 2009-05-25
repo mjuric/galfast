@@ -26,6 +26,7 @@
 #include <cuda_runtime_api.h>
 #include "gpu.h"
 #include "column.h"
+#include "simulate_base.h"
 #include <astro/types.h>
 
 typedef prngs::gpu::mwc gpuRng;
@@ -71,6 +72,7 @@ struct lfTextureManager
 	~lfTextureManager() { free(); }
 
 	lfParams set(float *cpu_lf, int lfLen, float M0, float M1, float dM);
+	lfParams load(const char *fn);
 	void free();
 };
 
@@ -87,15 +89,18 @@ struct ALIGN(16) expModel
 	struct state {
 		float rho;
 	};
-	float l, h, z0, f, lt, ht, fh, q, n;
+	float rho0, l, h, z0, f, lt, ht, fh, q, n;
+	float r_cut2;
 	lfParams lf;
 
 	// Management functions
-	void setmodel(float l_, float h_, float z0_, float f_, float lt_, float ht_, float fh_, float q_, float n_)
+/*	void setmodel(float l_, float h_, float z0_, float f_, float lt_, float ht_, float fh_, float q_, float n_)
 	{
 		l = l_; h = h_; z0 = z0_; f = f_; lt = lt_; ht = ht_; fh = fh_; q = q_; n = n_;
-	}
+	}*/
+	void load(const peyton::system::Config &cfg);
 
+protected:
  	// Model functions
  	__device__ float sqr(float x) const { return x*x; }
 	__device__ float halo_denom(float r, float z) const { return sqr(r) + sqr(q*(z + z0)); }
@@ -118,12 +123,16 @@ struct ALIGN(16) expModel
 		//fprintf(stderr, "rho=%f\n", rho);
 		return rho;
 	}
-	__device__ float rho(float r, float z)       const {
-		float rho = rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z);
+	__device__ float rho(float r, float z)       const
+	{
+		if(sqr(r) + sqr(z) > r_cut2) { return 0.f; }
+
+		float rho = rho0 * (rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z));
 		//fprintf(stderr, "rho=%f\n", rho);
 		return rho;
 	}
 
+public:
 	__device__ float rho(float x, float y, float z, float M) const
 	{
 		float rh = rho(sqrtf(x*x + y*y), z);
@@ -174,8 +183,8 @@ static const double dbl_d2r = 0.01745329251994329576923691; // (pi/180.0)
 static const double flt_pi  = 3.14159265358979323846264338;
 static const double flt_d2r = 0.01745329251994329576923691; // (pi/180.0)
 
-inline double rad(double dgr) { return dgr * dbl_d2r; }
-inline double deg(double rd)  { return rd  / dbl_d2r; }
+// inline double rad(double dgr) { return dgr * dbl_d2r; }
+// inline double deg(double rd)  { return rd  / dbl_d2r; }
 
 struct direction
 {
@@ -240,16 +249,6 @@ __device__ float3 position(const direction &p, const float d)
 	return ret;
 };
 
-/*struct star
-{
-	Radians l, b;
-	float m, M;
-	float D;
-	float3 pos;
-	int comp;
-	int alignment_dummy;
-};
-*/
 struct ALIGN(16) ocolumns
 {
 	column_types::cdouble::gpu_t	lb;
@@ -287,6 +286,10 @@ struct ALIGN(16) runtime_state
 		cont = ilb = im = iM = k = bc = 0;
 		pos = 0; D = 0; dir = 0;
 		ms = 0;
+	}
+	void destructor()
+	{
+		free();
 	}
 	void reset()
 	{
@@ -340,7 +343,6 @@ struct ALIGN(16) skyConfigGPU
 	int stopstars;			// stop after this many stars have been generated
 
 	cux_ptr<int> lock;
-	//cux_ptr<star> stars;
 	cux_ptr<int> nstars;
 	cux_ptr<float> counts;
 	ocolumns stars;
@@ -358,10 +360,9 @@ struct ALIGN(16) skyConfigGPU
 	__device__ bool advance(int &ilb, int &i, int &j, direction &dir, const int x, const int y) const;
 };
 
-int computeSafetyBuffer(float *cpu_maxCount, int nthreads);
-
+class partitioned_skymap;
 template<typename Model>
-struct skyConfig : public skyConfigGPU<Model>
+struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 {
 	float Rg;	// distance to the galactic center
 
@@ -369,10 +370,10 @@ struct skyConfig : public skyConfigGPU<Model>
 	unsigned seed;
 	direction *cpu_pixels;
 	lambert proj;
+	partitioned_skymap *skymap;
 
 	// return
 	float nstarsExpected;
-/*	star *cpu_stars;*/
 	int stars_generated;
 	int *cpu_hist;
 	float *cpu_maxCount;
@@ -385,26 +386,22 @@ struct skyConfig : public skyConfigGPU<Model>
 	int Kbatch;
 
 	int bufferSafetyMargin();
+	void upload_generic(bool draw = false);
 
 	void compute(bool draw = false);
 	void upload(bool draw = false);
 	void download(bool draw = false);
-	void loadConfig(rng_t &seeder);
+	void loadConfig();
 
-	skyConfig()  : rng(NULL), cpu_state(NULL), cpu_maxCount(NULL), /*cpu_stars(NULL), */cpu_pixels(NULL), cpu_hist(NULL) { this->pixels = 0; this->lock = 0; this->counts = 0; this->nstars = 0; this->ks.constructor(); }
-	~skyConfig()
-	{
-		delete [] cpu_pixels;
-/*		delete [] cpu_stars;*/
-		delete [] cpu_hist;
-		delete [] cpu_maxCount;
-		delete rng;
+	skyConfig();
+	~skyConfig();
 
-		this->lock.free();
-		//this->stars.free();
-		this->pixels.free();
-		this->counts.free();
-	}
+	// external interface
+	virtual bool init(const peyton::system::Config &cfg,
+			const peyton::system::Config &foot_cfg,
+			const peyton::system::Config &model_cfg,
+			otable &t);
+	virtual size_t run(otable &in, osink *nextlink, rng_t &rng);
 };
 
 #if _DEBUG

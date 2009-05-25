@@ -41,13 +41,17 @@ class osource : public opipeline_stage
 // GPU generator input
 class os_skygen : public osource
 {
-	public:
-		virtual bool init(const peyton::system::Config &cfg, otable &t);
-		virtual size_t run(otable &t, rng_t &rng);
-		virtual const std::string &name() const { static std::string s("skygen"); return s; }
-		virtual const std::string &type() const { static std::string s("input"); return s; }
+protected:
+	skyConfigInterface *skygen;
 
-		os_skygen() {};
+public:
+	virtual bool init(const peyton::system::Config &cfg, otable &t);
+	virtual size_t run(otable &t, rng_t &rng);
+	virtual const std::string &name() const { static std::string s("skygen"); return s; }
+	virtual const std::string &type() const { static std::string s("input"); return s; }
+
+	os_skygen() : skygen(NULL) {};
+	virtual ~os_skygen() { delete skygen; }
 };
 
 // add Fe/H information

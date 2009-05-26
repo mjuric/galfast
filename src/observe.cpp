@@ -630,13 +630,17 @@ bool os_photometry::init(const Config &cfg, otable &t, opipeline &pipe)
 	// load band names and construct field definition
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
 	std::istringstream ss(tmp);
+	std::ostringstream sbnames;
 	while(ss >> bname)
 	{
+		if(bnames.size()) { sbnames << ","; }
+		sbnames << bnames.size() << ":" << bname;
+
 		bnames.push_back(bname);
 	}
 
 	const size_t nbands = bnames.size();
-	std::string bfield = bandset2 + "[" + str(nbands) + "]{class=magnitude;}";
+	std::string bfield = bandset2 + "[" + str(nbands) + "]{class=magnitude;fieldNames=" + sbnames.str() + ";}";
 	prov.insert(bfield);
 
 	// determine the number of colors

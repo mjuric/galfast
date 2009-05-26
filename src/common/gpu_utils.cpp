@@ -37,6 +37,7 @@
 
 #if HAVE_CUDA
 #include <cuda_runtime.h>
+#include <cuda.h>
 #endif // HAVE_CUDA
 
 xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
@@ -472,11 +473,15 @@ bool cuda_init()
 
 	// use the device
 	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"") << dev << deviceProp.name;
+
+	// Memory info
+	unsigned free, total;
+	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
+	MLOG(verb1) << "Device memory (free, total): " << free << ", " << total;
 #else
 	MLOG(verb1) << "Using CUDA Device Emulation";
 #endif
-	err = cudaSetDevice(dev);
-	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
+	cuxErrCheck( cudaSetDevice(dev) );
 
 	cuda_initialized = 1;
 	cuda_enabled = 1;

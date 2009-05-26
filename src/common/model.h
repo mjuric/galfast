@@ -420,6 +420,10 @@ protected:
 		const columnclass *columnClass;			// class of this column (note: it's never NULL)
 		const column_type_traits *typeProxy;		// a proxy for type's serialization/construction/properties (note: must be accessed through type())
 		std::string formatString;			// io::formatter format string of the column (note: must be accessed through getFormatString())
+		struct {
+			std::map<std::string, int> str2idx;
+			std::map<int, std::string> idx2str;
+		} fieldNames;
 
 		otable &parent;					// parent table of this column
 

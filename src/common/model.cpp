@@ -326,11 +326,36 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 		ptr.resize(ptr.nrows(), width);
 		return;
 	}
+
 	if(key == "type")
 	{
 		dealloc();
 		typeProxy = column_type_traits::get(value);
 		return;
+	}
+
+	if(key == "fieldNames")
+	{
+		// value = "idx:fieldname,idx:fieldname,..."
+		size_t at = 0;
+		size_t len;
+		do
+		{
+			len = value.find(",", at);
+			if(len != std::string::npos) { len -= at; }
+			std::string pair = value.substr(at, len);
+			at += len+1;
+
+			int semi = pair.find(':');
+			ASSERT(semi != std::string::npos);
+
+			std::string sidx = pair.substr(0, semi);
+			std::string name = pair.substr(semi+1);
+			int idx = atoi(sidx.c_str());
+
+			fieldNames.str2idx[name] = idx;
+			fieldNames.idx2str[idx] = name;
+		} while(len != std::string::npos);
 	}
 }
 

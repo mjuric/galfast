@@ -236,7 +236,7 @@ bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl)
 			// compute the actual edge-ray intersect x-coordinate
 			double vt = (float)(t.y - a.y) / (b.y - a.y);
 			if (t.x < a.x + vt * (b.x - a.x)) 	// t.x < intersect
-                		++cn;				// a valid crossing of y=t.y right of t.x
+				++cn;				// a valid crossing of y=t.y right of t.x
 		}
 	}
 

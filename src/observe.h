@@ -25,6 +25,18 @@
 #include "model.h"
 #include "gpu.h"
 #include <astro/system/config.h>
+#include <projections.h>
+#include <vector>
+
+class opipeline
+{
+	public:
+		std::list<boost::shared_ptr<opipeline_stage> > stages;
+
+	public:
+		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
+		virtual size_t run(otable &t, rng_t &rng);
+};
 
 class osource : public opipeline_stage
 {
@@ -38,6 +50,32 @@ class osource : public opipeline_stage
 		}
 };
 
+// Clips out stars not within the requested observation area
+// Currently only used as support to os_skygen
+class partitioned_skymap;
+class os_clipper : public osink
+{
+protected:
+	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
+	peyton::math::lambert proj;
+	partitioned_skymap *skymap;
+
+public:
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+
+	virtual const std::string &name() const { static std::string s("clipper"); return s; }
+	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this is placed near the end of the pipeline
+
+	int getPixelCenters(std::vector<std::pair<double, double> > &lb, double &l0, double &b0);
+
+	os_clipper() : osink()
+	{
+		req.insert("lb");
+		prov.insert("hidden");
+	}
+};
+
 // GPU generator input
 class os_skygen : public osource
 {
@@ -45,7 +83,7 @@ protected:
 	skyConfigInterface *skygen;
 
 public:
-	virtual bool init(const peyton::system::Config &cfg, otable &t);
+	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual size_t run(otable &t, rng_t &rng);
 	virtual const std::string &name() const { static std::string s("skygen"); return s; }
 	virtual const std::string &type() const { static std::string s("input"); return s; }
@@ -59,7 +97,7 @@ class os_FeH : public osink, os_FeH_data
 {
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const peyton::system::Config &cfg, otable &t);
+	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
 	os_FeH() : osink()
@@ -78,7 +116,7 @@ class os_fixedFeH : public osink
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const peyton::system::Config &cfg, otable &t);
+		virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
 		os_fixedFeH() : osink(), fixedFeH(0)
@@ -92,7 +130,7 @@ class os_vel2pm : public osink , public os_vel2pm_data
 {	
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const peyton::system::Config &cfg, otable &t);
+	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
 	os_vel2pm() : osink()
@@ -111,7 +149,7 @@ class os_kinTMIII : public osink, os_kinTMIII_data
 	float DeltavPhi;
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const peyton::system::Config &cfg, otable &t);
+		virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
 		os_kinTMIII() : osink()

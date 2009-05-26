@@ -152,7 +152,7 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
-bool os_kinTMIII::init(const Config &cfg, otable &t)
+bool os_kinTMIII::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(fk           , "fk"           , 3.0f);
 	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0f);

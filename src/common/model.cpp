@@ -416,7 +416,7 @@ std::ostream& otable::serialize_header(std::ostream &out) const
 }
 
 // serialization/unserialization routines
-std::ostream& otable::serialize_body(std::ostream& out, size_t from, size_t to) const
+size_t otable::serialize_body(std::ostream& out, size_t from, size_t to, const mask_functor &mask) const
 {
 	ASSERT(from >= 0);
 	if(to > size()) { to = size(); }
@@ -424,8 +424,12 @@ std::ostream& otable::serialize_body(std::ostream& out, size_t from, size_t to) 
 	std::vector<const columndef*> outColumns;
 	getColumnsForOutput(outColumns);
 
+	size_t cnt = 0;
 	FORj(row, from, to)
 	{
+		if(!mask.shouldOutput(row)) { continue; }
+		cnt++;
+
 		fmtout line;
 		FOREACH(outColumns)
 		{
@@ -433,7 +437,7 @@ std::ostream& otable::serialize_body(std::ostream& out, size_t from, size_t to) 
 		}
 		out << line.c_str() << "\n";
 	}
-	return out;
+	return cnt;
 };
 
 void otable::getColumnsForInput(std::vector<columndef*> &inColumns)
@@ -576,6 +580,7 @@ void otable::init()
 	"(column) pmlb[3]       {class=propermotion;}"
 	"(column) pmradec[3]    {class=propermotion;}"
 	"(column) star_name[40] {type=char;}"
+	"(column) hidden	{type=int;}"
 	);
 
 	// store these column definitions as defaults

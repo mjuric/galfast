@@ -89,7 +89,6 @@ skyConfig<T>::skyConfig()
 	cpu_hist = NULL;
 	cpu_maxCount = NULL;
 	cpu_state = NULL;
-	skymap = NULL;
 	rng = NULL;
 
 	this->pixels = 0;
@@ -107,7 +106,6 @@ skyConfig<T>::~skyConfig()
 	delete [] cpu_hist;
 	delete [] cpu_maxCount;
 	delete [] cpu_state;
-	delete skymap;
 	delete rng;
 
 	this->lock.free();
@@ -302,11 +300,13 @@ bool skyConfig<T>::init(
 			const peyton::system::Config &cfg,
 			const peyton::system::Config &foot_cfg,
 			const peyton::system::Config &model_cfg,
-			otable &t)
+			otable &t,
+			opipeline &pipe)
 {
 	// Galactic center distance (in pc)
 	Rg = 8000.;
 
+#if 0
 	// Footprint polygon computation
 	cfg.get(this->dx,	"dx", 	1.f);
 	this->dx = rad(this->dx);
@@ -314,7 +314,7 @@ bool skyConfig<T>::init(
 
 	peyton::math::lambert proj;
 	gpc_polygon sky = make_footprint(foot_cfg, proj);
-	skymap = make_skymap(this->dx, sky);
+	partitioned_skymap *skymap = make_skymap(this->dx, sky);
 
 	this->npixels = skymap->skymap.size();
 	cpu_pixels = new direction[this->npixels];
@@ -328,6 +328,31 @@ bool skyConfig<T>::init(
 		proj.inverse(x, y, l, b);
 		cpu_pixels[cnt++] = direction(l, b);
 	}
+#else
+	cfg.get(this->dx,	"dx", 	1.f);
+	this->dx = rad(this->dx);
+	this->dA = sqr(this->dx);
+
+	boost::shared_ptr<opipeline_stage> foot( opipeline_stage::create("clipper") );
+	Config fcfg(foot_cfg);
+	fcfg.insert(std::make_pair("dx", cfg.get("dx")));
+	if(!foot->init(fcfg, t, pipe))
+	{
+		return false;
+	}
+	pipe.add(foot);
+
+	std::vector<std::pair<double, double> > lb;	// pixels
+	double l0, b0;					// projection pole
+	this->npixels = ((os_clipper*)foot.get())->getPixelCenters(lb, l0, b0);
+	this->proj.init(l0, b0);
+	cpu_pixels = new direction[this->npixels];
+	int cnt = 0;
+	FOREACH(lb)
+	{
+		cpu_pixels[cnt++] = direction(i->first, i->second);
+	}
+#endif
 
 	// Density binning parameters
 	this->M0 = cfg.get_any_of("M0", "ri0");
@@ -427,7 +452,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->download(true);
 		in.set_size(this->stars_generated);
 
-		std::cout << "Generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).\n";
+		std::cout << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).\n";
 		std::cout << "Kernel runtime: " << this->swatch.getAverageTime() << "\n";
 
 		total += nextlink->process(in, 0, in.size(), cpurng);
@@ -455,7 +480,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		fclose(fp);
 #endif
 	} while(this->stars_generated >= this->stopstars);
-	std::cout << "Generated " << total << " stars (" << this->nstarsExpected << " expected).\n";
+	std::cout << "Generated " << total << " stars (" << this->nstarsExpected << " expected in _unclipped_ volume).\n";
 
 	#if _EMU_DEBUG
 	long long voxelsVisitedExpected = this->npixels;
@@ -468,7 +493,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 
 ////////////////////////////////////////////////////////////////////////////
 
-bool os_skygen::init(const Config &cfg, otable &t)
+bool os_skygen::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// Load density model configuration and instantiate
 	// the correct skyConfig kernel
@@ -491,15 +516,85 @@ bool os_skygen::init(const Config &cfg, otable &t)
 	if(cfg.count("pdf"))
 	{
 		Config cfgPDF(cfg["pdf"]);
-		return skygen->init(cfgPDF, cfgFoot, cfgModel, t);
+		return skygen->init(cfgPDF, cfgFoot, cfgModel, t, pipe);
 	}
 	else
 	{
-		return skygen->init(cfg, cfgFoot, cfgModel, t);
+		return skygen->init(cfg, cfgFoot, cfgModel, t, pipe);
 	}
 }
 
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
 	return skygen->run(in, nextlink, rng);
+}
+
+////////////////////////////////////////////////////////////////////////////
+
+bool os_clipper::init(const Config &cfg, otable &t, opipeline &pipe)
+{
+	cfg.get(this->dx,	"dx", 	1.f);
+	this->dx = rad(this->dx);
+	this->dA = sqr(this->dx);
+
+	gpc_polygon sky = make_footprint(cfg, proj);
+	skymap = make_skymap(this->dx, sky);
+
+	return true;
+}
+
+int os_clipper::getPixelCenters(std::vector<std::pair<double, double> > &lb, double &l0, double &b0)
+{
+	l0 = proj.l0;
+	b0 = proj.phi1;
+
+	lb.clear();
+	lb.reserve(skymap->skymap.size());
+	FOREACH(skymap->skymap)
+	{
+		Radians x, y, l, b;
+		x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
+		y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
+		proj.inverse(x, y, l, b);
+		lb.push_back(std::make_pair(l, b));
+	}
+	return lb.size();
+}
+
+size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	// fetch prerequisites
+	using namespace column_types;
+	cdouble::host_t lb     = in.col<double>("lb");
+	cint::host_t	hidden = in.col<int>("hidden");
+
+	for(size_t row=begin; row < end; row++)
+	{
+		// clip everything outside the footprint polygon
+		Radians l = rad(lb(row, 0));
+		Radians b = rad(lb(row, 1));
+		Radians x, y;
+		proj.convert(l, b, x, y);
+		std::pair<int, int> XY;
+		XY.first = (int)((x - skymap->x0) / skymap->dx);
+		XY.second = (int)((y - skymap->y0) / skymap->dx);
+
+		typeof(skymap->skymap.begin()) it = skymap->skymap.find(XY);
+		if(it == skymap->skymap.end()) { continue; }
+// 		ASSERT(skymap->skymap.count(XY))
+// 		{
+// 			std::cerr << "Skymap (x0,x1,y0,y1): " << skymap->x0 << " " << skymap->x1 << " " << skymap->y0 << " " << skymap->y1;
+// 			std::cerr << "(x,y) = " << x << " " << y << "\n";
+// 			std::cerr << "(X,Y) = " << XY.first << " " << XY.second << "\n";
+// 		}
+
+		// check that the star is inside survey footprint, reject if it's not
+		gpc_polygon &poly = it->second.poly;
+		gpc_vertex vtmp = { x, y };
+
+		bool infoot = in_polygon(vtmp, poly);
+		hidden[row] = !infoot;
+	}
+
+	return nextlink->process(in, begin, end, rng);
 }

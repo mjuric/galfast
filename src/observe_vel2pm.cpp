@@ -84,7 +84,7 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_vel2pm::init(const Config &cfg, otable &t)
+bool os_vel2pm::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;

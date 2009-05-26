@@ -109,13 +109,15 @@ struct os_kinTMIII_data
 namespace peyton { namespace system { class Config; }};
 class otable;
 class osink;
+class opipeline;
 
 struct skyConfigInterface
 {
 	virtual bool init(const peyton::system::Config &cfg,
 		const peyton::system::Config &foot_cfg,
 		const peyton::system::Config &model_cfg,
-		otable &t) = 0;
+		otable &t,
+		opipeline &pipe) = 0;
 	virtual size_t run(otable &in, osink *nextlink, rng_t &rng) = 0;
 	virtual ~skyConfigInterface() {};
 };

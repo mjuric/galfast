@@ -122,7 +122,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 }
 #endif
 
-bool os_FeH::init(const Config &cfg, otable &t)
+bool os_FeH::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(A[0],     "A0",     0.63f);
 	cfg.get(sigma[0], "sigma0", 0.20f);
@@ -168,7 +168,7 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_fixedFeH::init(const Config &cfg, otable &t)
+bool os_fixedFeH::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(fixedFeH, "FeH", 0.f);

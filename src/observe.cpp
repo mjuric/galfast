@@ -595,7 +595,7 @@ class os_photometry : public osink
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
+		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
 		os_photometry() : osink() /*, offset_absmag(-1), offset_mag(-1)*/
@@ -621,7 +621,7 @@ struct colsplines
 	spline &operator [](const size_t i) { return s[i]; }
 };
 
-bool os_photometry::init(const Config &cfg, otable &t)
+bool os_photometry::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// load bandset name
 	std::string tmp, bname;
@@ -1090,7 +1090,7 @@ public:
 
 public:
 	size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t);
+	virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
 	os_gal2other() : osink(), coordsys(GAL)
@@ -1115,7 +1115,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_gal2other::init(const Config &cfg, otable &t)
+bool os_gal2other::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
@@ -1230,7 +1230,7 @@ class os_textout : public osink
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
+		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
 		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
 		virtual const std::string &name() const { static std::string s("textout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
@@ -1238,6 +1238,14 @@ class os_textout : public osink
 		os_textout() : osink(), headerWritten(false), tick(-1)
 		{
 		}
+};
+
+
+struct mask_output : otable::mask_functor
+{
+	column_types::cint::host_t hidden;
+	mask_output(column_types::cint::host_t &h) : hidden(h) {}
+	virtual bool shouldOutput(int row) const { return !hidden[row]; }
 };
 
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
@@ -1254,8 +1262,9 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 /*	size_t cnt = 0;
 	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }*/
+	column_types::cint::host_t   hidden = t.col<int>("hidden");
 	swatch.start();
-	t.serialize_body(out.out(), from, to);
+	size_t nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden));
 	swatch.stop();
 	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
@@ -1264,10 +1273,10 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 // 	delete [] data;
 // 	data = NULL;
 
-	return to - from;
+	return nserialized;
 }
 
-bool os_textout::init(const Config &cfg, otable &t)
+bool os_textout::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 //	out.open(cfg["filename"].c_str());
@@ -1293,7 +1302,7 @@ class os_textin : public osource
 		flex_input in;
 
 	public:
-		virtual bool init(const Config &cfg, otable &t);
+		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
 		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, otable &t);
 		virtual size_t run(otable &t, rng_t &rng);
 		virtual const std::string &name() const { static std::string s("textin"); return s; }
@@ -1310,7 +1319,7 @@ bool os_textin::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
 	osource::prerun(pipeline, t);
 }
 
-bool os_textin::init(const Config &cfg, otable &t)
+bool os_textin::init(const Config &cfg, otable &t, opipeline &pipe)
 {
 	const char *fn = cfg["filename"].c_str();
 	in.open(fn);
@@ -1347,6 +1356,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "photometry") { s.reset(new os_photometry); }
+	else if(name == "clipper") { s.reset(new os_clipper); }
 #if 0
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
 #endif
@@ -1360,16 +1370,6 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 
 	return s;
 }
-
-class opipeline
-{
-	public:
-		std::list<boost::shared_ptr<opipeline_stage> > stages;
-
-	public:
-		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
-		virtual size_t run(otable &t, rng_t &rng);
-};
 
 // construct the pipeline based on requirements and provisions
 size_t opipeline::run(otable &t, rng_t &rng)
@@ -1538,7 +1538,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		if(stage->type() == "input")  { hasinput = true;  modcfg.insert(make_pair("filename", input)); }
 		if(stage->type() == "output") { hasoutput = true; modcfg.insert(make_pair("filename", output)); }
 
-		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 
 		pipe.add(stage);
@@ -1551,7 +1551,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", input));
-		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}
@@ -1561,7 +1561,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", output));
-		if(!stage->init(modcfg, t)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}

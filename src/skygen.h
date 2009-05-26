@@ -361,7 +361,7 @@ struct ALIGN(16) skyConfigGPU
 	__device__ bool advance(int &ilb, int &i, int &j, direction &dir, const int x, const int y) const;
 };
 
-class partitioned_skymap;
+class opipeline;
 template<typename Model>
 struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 {
@@ -371,7 +371,6 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 	unsigned seed;
 	direction *cpu_pixels;
 	lambert proj;
-	partitioned_skymap *skymap;
 
 	// return
 	float nstarsExpected;
@@ -401,7 +400,8 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 	virtual bool init(const peyton::system::Config &cfg,
 			const peyton::system::Config &foot_cfg,
 			const peyton::system::Config &model_cfg,
-			otable &t);
+			otable &t,
+			opipeline &pipe);
 	virtual size_t run(otable &in, osink *nextlink, rng_t &rng);
 };
 

@@ -480,10 +480,15 @@ protected:
 			{
 				std::cerr << "Attempting to access a " << type()->typeName << " column as " << column_type_traits::get<T>()->typeName << "\n";
 			}
-			//xptr<T> ptr(sizeof(T), length, width, pitch, (T*)data);
-			//return column<T>(ptr);
 			return (column<T> &)ptr;
-			//return column<T>(data, pitch);
+		}
+		template<typename T> const column<T> &dataptr() const
+		{
+			ASSERT(column_type_traits::get<T>() == type())
+			{
+				std::cerr << "Attempting to access a " << type()->typeName << " column as " << column_type_traits::get<T>()->typeName << "\n";
+			}
+			return (const column<T> &)ptr;
 		}
 	public:
 		~columndef();
@@ -532,16 +537,14 @@ protected:
 	kv *parse(const std::string &defs, parse_callback *cback = NULL);
 
 	columndef &getColumn(const std::string &name);
+	const columndef &getColumn(const std::string &name) const;
 	void getColumnsForOutput(std::vector<const columndef*> &cols) const;	// aux helper
 	void getColumnsForInput(std::vector<columndef*> &cols);			// aux helper
 
 public:
 	// column lookup by name
-	template<typename T>
-	column<T> &col(const std::string &name)
-	{
-		return getColumn(name).dataptr<T>();
-	}
+	template<typename T> column<T>       &col(const std::string &name)       { return getColumn(name).dataptr<T>(); }
+	template<typename T> const column<T> &col(const std::string &name) const { return getColumn(name).dataptr<T>(); }
 
 	columndef &use_column(const std::string &coldef, bool setOutput = true);
 	size_t get_used_columns(std::set<std::string> &cols) const;		// returns the list of columns in use
@@ -557,16 +560,22 @@ public:
 		init();
 	}
 
+	struct mask_functor
+	{
+		virtual bool shouldOutput(int row) const { return true; }
+	};
+
 	// serialization/unserialization routines
 	std::ostream& serialize_header(std::ostream &out) const;
 	std::istream& unserialize_header(std::istream &in, std::set<std::string> *columns = NULL);
-	std::ostream& serialize_body(std::ostream& out, size_t from = 0, size_t to = -1) const;
+	size_t serialize_body(std::ostream& out, size_t from = 0, size_t to = -1, const mask_functor &mask = mask_functor()) const;
 	std::istream& unserialize_body(std::istream& in);
 	size_t set_output(const std::string &colname, bool output);
 	size_t set_output_all(bool output = true);
 };
 
 class osink;
+class opipeline;
 class opipeline_stage
 {
 	protected:
@@ -588,7 +597,7 @@ class opipeline_stage
 		virtual const std::string &type() const { static std::string s("stage"); return s; }
 
 	public:
-		virtual bool init(const peyton::system::Config &cfg, otable &t) = 0;
+		virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe) = 0;
 		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, otable &t);
 		const std::set<std::string> &requires() const { return req; }
 
@@ -601,13 +610,13 @@ class opipeline_stage
 		virtual int priority() { return PRIORITY_STAR; }
 
 	public:
-		bool inits(const std::string &cfgstring, otable &t) { return inits(cfgstring.c_str(), t); }
-		bool inits(const char *cfgstring, otable &t)
+		bool inits(const std::string &cfgstring, otable &t, opipeline &pipe) { return inits(cfgstring.c_str(), t, pipe); }
+		bool inits(const char *cfgstring, otable &t, opipeline &pipe)
 		{
 			std::istringstream ss(cfgstring);
 			peyton::system::Config cfg;
 			cfg.load(ss);
-			return init(cfg, t);
+			return init(cfg, t, pipe);
 		}
 
 		opipeline_stage() : nextlink(NULL)

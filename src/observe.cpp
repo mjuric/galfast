@@ -49,6 +49,7 @@
 #include <gsl/gsl_linalg.h>
 
 #include <astro/io/format.h>
+#include <astro/system/fs.h>
 #include <astro/math.h>
 #include <astro/util.h>
 #include <astro/system/log.h>
@@ -59,8 +60,19 @@ namespace ct = column_types;
 
 #include "observe.h"
 
-bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
+bool opipeline_stage::runtime_init(/*const std::list<opipeline_stage *> &pipeline, */otable &t)
 {
+	// test if otable has all the necessary prerequisites
+	FOREACH(req)
+	{
+		if(!t.have_column(*i))
+		{
+			DLOG(verb2) << "Failed on: " << *i;
+			std::cerr << "Failed on: " << *i << "\n";
+			return false;
+		}
+	}
+
 	// use tags which the stage will provide
 	FOREACH(prov)
 	{
@@ -71,6 +83,7 @@ bool opipeline_stage::prerun(const std::list<opipeline_stage *> &pipeline, otabl
 	return true;
 }
 
+#if 0
 bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 {
 	FOREACH(req)
@@ -84,7 +97,6 @@ bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 	return true;
 }
 
-#if 0
 bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::string &which)
 {
 	FOREACH(needs)
@@ -97,127 +109,175 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 
 
 
-#if 0
+#if 1
 // add photometric errors information
-class os_photometryErrors : public osink
+class os_photometricErrors : public osink
 {
 protected:
 	struct errdef
 	{
-		size_t	inoffs;		// sstruct offset where the true magnitude is
-		size_t	outoffs;	// sstruct offset where the observed magnitude will be stored
+		std::string trueBandset;
+		std::string obsBandset;
+		int bandIdx;
 		const spline *sgma;	// spline giving gaussian sigma of errors given true magnitude
 
-		errdef(size_t io, size_t oo, const spline &s) : inoffs(io), outoffs(oo), sgma(&s) {}
+		errdef(const std::string &obsBandset_, const std::string &trueBandset_, int bandIdx_, const spline &bandErrors)
+			: obsBandset(obsBandset_), trueBandset(trueBandset_), bandIdx(bandIdx_), sgma(&bandErrors) {}
 		float sigma(float mag) { return (*sgma)(mag); }
 	};
 
 protected:
 	std::map<std::string, std::map<std::string, spline> > availableErrors;
-	std::vector<errdef> usedErrors;
+	std::vector<errdef> columnsToTransform;
+
+	void addErrorCurve(const std::string &bandset, const std::string &band, const std::string &file);
 
 public:
-	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg, otable &t);
-	virtual bool prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory);
-	virtual const std::string &name() const { static std::string s("photometryErrors"); return s; }
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+	virtual bool runtime_init(otable &t);
+
+	virtual const std::string &name() const { static std::string s("photometricErrors"); return s; }
 	virtual int priority() { return PRIORITY_INSTRUMENT; }	// ensure this stage has the least priority
 
-	os_photometryErrors() : osink()
+	os_photometricErrors() : osink()
 	{
 	}
 };
 
-size_t os_photometryErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
+size_t os_photometricErrors::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	for(size_t i=0; i != count; i++)
+	// mix-in gaussian error, with sigma drawn from preloaded splines
+	FOREACH(columnsToTransform)
 	{
-		sstruct &s = in[i];
+		ct::cfloat::host_t magObs  = in.col<float>(i->obsBandset);
+		ct::cfloat::host_t magTrue = in.col<float>(i->trueBandset);
+		int bandIdx = i->bandIdx;
 
-		// mix-in gaussian error, with sigma drawn from preloaded splines
-		FOREACH(usedErrors)
+		for(size_t row=begin; row <= end; row++)
 		{
-			float &mag = s.get<float>(i->inoffs);
-			float &obs = s.get<float>(i->outoffs);
-			obs = mag + gsl_ran_gaussian(rng, i->sigma(mag));
+			float mag = magTrue(row, bandIdx);
+			magObs(row, bandIdx) = mag + rng.gaussian(i->sigma(mag));
 		}
 	}
 
-	return nextlink->push(in, count, rng);
+	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_photometryErrors::prerun(const std::list<opipeline_stage *> &pipeline, sstruct::factory_t &factory)
+bool os_photometricErrors::runtime_init(otable &t)
 {
 	// Search the configuration for all photometric tags that are defined.
 	// Note that the priority of this module ensures it's run after any module
 	// that may generate photometric information has already run.
-	std::vector<const sstruct::tagdef *> mags;
-	if(!factory.getUsedTagsByClassName(mags, "magnitude"))
+	std::set<std::string> bandset;
+	if(!t.get_used_columns_by_class(bandset, "magnitude"))
 	{
 		MLOG(verb1) << "Warning: Not mixing in photometric errors, as no photometric information is being generated.";
 		return true;
 	}
 
-	FOREACH(mags)
+	FOREACH(bandset)
 	{
-		const sstruct::tagdef *td = *i;
+		if(availableErrors.count(*i) == 0 ) { continue; }
+		std::map<std::string, spline> &errors = availableErrors[*i];
 
-		if(availableErrors.count(td->tagName) == 0 ) { continue; }
-
-		std::string name = td->tagName;
-		size_t size = td->size / td->count();
-		if(size == sizeof(float))
+		otable::columndef &cdef = t.getColumn(*i);
+		if(column_type_traits::get<float>() != cdef.type())
 		{
-			THROW(EAny, "Photometry errors module expects all photometric information to be stored as single-precision floats, and " + td->tagName + " is not.");
+			THROW(EAny, "Photometry errors module expects all photometric information to be stored as single-precision floats, and " + *i + " is not.");
 		}
 
-		FOREACH(availableErrors[td->tagName])
+		const std::string &trueBandset = *i;	// e.g. obsSDSSugriz
+		std::string obsBandset  = "obs" + *i;	// e.g. obsSDSSugriz
+
+		std::set<std::string> bands;
+		cdef.getFieldNames(bands);
+		FOREACH(bands)
 		{
-			size_t idx = atoi(i->first.c_str());
-			if(idx >= td->count()) { continue; }
+			if(!errors.count(*i)) { continue; }			// don't have errors for this band
+			spline &bandErrors = errors[*i];
 
-			std::string restag = "obs" + name + "_" + str(idx);	// e.g. obsSDSSr
-			size_t resoffs = sstruct::factory.useTag(restag, true);
-			prov.insert(restag);
+			if(!t.have_column(obsBandset))
+			{
+				t.use_column_by_cloning(obsBandset, trueBandset);
+			}
 
-			usedErrors.push_back(errdef(resoffs, td->offset + idx*size, i->second));
+			int bandIdx = cdef.getFieldIndex(*i);
+			columnsToTransform.push_back(errdef(obsBandset, trueBandset, bandIdx, bandErrors));
+
+			MLOG(verb1) << "Adding photometric errors to " << trueBandset << "." << *i << " (output in " << obsBandset << "." << *i << ")";
 		}
 	}
+	return true;
 }
 
-bool os_photometryErrors::init(const Config &cfg, otable &t)
+void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::string &band, const std::string &file)
+{
+	text_input_or_die(in, file);
+	std::vector<double> mag, sigma;
+	load(in, mag, 0, sigma, 1);
+
+	availableErrors[bandset][band].construct(mag, sigma);
+	MLOG(verb1) << "Loaded photometric errors for " << bandset << ", " << band << " band";
+}
+
+bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// Expected configuration format:
 	// 	<photosys>.<bandidx>.file = banderrs.txt
 	// If instead of a filename the keyword 'internal' is specified, built-in files will be used.
-	// Built-in filenames are of the form $datadir/<photosys>.<bandidx>.photoerr.txt
+	// Built-in filenames are of the form $datadir/<photosys>.<bandname>.photoerr.txt
 	//
 	// Example:
-	// SDSSugriz[5].0.file = SDSSugriz[5].u.photoerr.txt
+	//   SDSSugriz.SDSSu.file = SDSSugriz.SDSSu.photoerr.txt
+	//
+	// For convenience, this is also allowed:
+	//
+	//   SDSSugriz.file = internal
+	//
+	// where all files of the form SDSSugriz.*.photoerr.txt will be looked up and loaded.
 	//
 	// Expected banderrs.txt format:
 	//   <mag>   <sigma(mag)>
-	// Band should correspond to photosys name, e.g., for SDSSugriz[5], the u band is SDSSugriz[0]
-	std::set<std::string> keys;
-	cfg.get_matching_keys(keys, "[a-zA-Z0-9_\\[\\]]+\\.[0-9]+\\.file");
+	
+	// convenience -- 'SDSSugriz.file = internal' slurps up anything with
+	// SDSSugriz.*.photoerr.txt from data directory
+	std::set<std::string> skeys;
+	cfg.get_matching_keys(skeys, "[a-zA-Z0-9_]+\\.file");
+	FOREACH(skeys)
+	{
+		size_t p1 = i->find('.');
+		std::string bandset = i->substr(0, p1);
 
+		std::string path = datadir() + "/" + bandset + ".";
+		size_t pos = path.size();
+		path += "*.photoerr.txt";
+		peyton::io::dir dir(path);
+
+		FOREACH(dir)
+		{
+			std::string band = i->substr(pos, i->find('.', pos)-pos);
+			addErrorCurve(bandset, band, *i);
+		}
+	}
+
+	// parse per-band keys
+	std::set<std::string> keys;
+	cfg.get_matching_keys(keys, "[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+\\.file");
 	FOREACH(keys)
 	{
 		size_t p1 = i->find('.');
-		std::string photosys = i->substr(0, p1);
+		std::string bandset = i->substr(0, p1);
 		p1++;
-		std::string idx = i->substr(p1, i->find('.', p1));
+		std::string band = i->substr(p1, i->find('.', p1)-p1);
 
 		std::string file = cfg[*i];
 		if(file == "internal")
 		{
-			file = datadir() + "/" + photosys + "." + idx + ".photoerr.txt";
+			file = datadir() + "/" + bandset + "." + band + ".photoerr.txt";
 		}
-		text_input_or_die(in, file);
-		std::vector<double> mag, sigma;
-		load(in, mag, 0, sigma, 1);
 
-		availableErrors[photosys][idx].construct(mag, sigma);
+		addErrorCurve(bandset, band, file);
 	}
 
 	return true;
@@ -595,7 +655,7 @@ class os_photometry : public osink
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
+		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
 		os_photometry() : osink() /*, offset_absmag(-1), offset_mag(-1)*/
@@ -621,7 +681,7 @@ struct colsplines
 	spline &operator [](const size_t i) { return s[i]; }
 };
 
-bool os_photometry::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// load bandset name
 	std::string tmp, bname;
@@ -1094,7 +1154,7 @@ public:
 
 public:
 	size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
 	os_gal2other() : osink(), coordsys(GAL)
@@ -1119,7 +1179,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_gal2other::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_gal2other::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
@@ -1219,22 +1279,21 @@ bool os_photoErrors::init(const Config &cfg, otable &t)
 class os_textout : public osink
 {
 	protected:
-//		std::ofstream out;
-//		peyton::io::gzstream::ofstream out;
 		flex_output out;
 
 		bool headerWritten;
 		ticker tick;
 
+#if 0 // not implemented yet
 	protected:
 		// map of field name -> formatter string, for output
 		std::map<std::string, std::string> outputs;
 		// map of field index -> formatter string (optimization)
 		std::map<size_t, std::string> outputsI;
-
+#endif
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
+		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
 		virtual const std::string &name() const { static std::string s("textout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
@@ -1249,7 +1308,11 @@ struct mask_output : otable::mask_functor
 {
 	column_types::cint::host_t hidden;
 	mask_output(column_types::cint::host_t &h) : hidden(h) {}
-	virtual bool shouldOutput(int row) const { return !hidden[row]; }
+
+	virtual bool shouldOutput(int row) const
+	{
+		return !hidden[row];
+	}
 };
 
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
@@ -1266,9 +1329,19 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 /*	size_t cnt = 0;
 	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }*/
-	column_types::cint::host_t   hidden = t.col<int>("hidden");
 	swatch.start();
-	size_t nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden));
+
+	size_t nserialized;
+	if(t.have_column("hidden"))
+	{
+		column_types::cint::host_t   hidden = t.col<int>("hidden");
+		nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden));
+	}
+	else
+	{
+		nserialized = t.serialize_body(out.out(), from, to);
+	}
+
 	swatch.stop();
 	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
@@ -1280,12 +1353,12 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	return nserialized;
 }
 
-bool os_textout::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-//	out.open(cfg["filename"].c_str());
 	out.open(cfg["filename"].c_str());
 
+#if 0 // not implemented
 	// slurp up any output/formatting information
 	// the formats are written in the configuration file as:
 	//	format.<fieldname> = <formatter_fmt_string>
@@ -1296,7 +1369,7 @@ bool os_textout::init(const Config &cfg, otable &t, opipeline &pipe)
 		std::string name = i->substr(7);
 		outputs[name] = cfg[*i];
 	}
-
+#endif
 	return out.out();
 }
 
@@ -1306,8 +1379,8 @@ class os_textin : public osource
 		flex_input in;
 
 	public:
-		virtual bool init(const Config &cfg, otable &t, opipeline &pipe);
-		virtual bool prerun(const std::list<opipeline_stage *> &pipeline, otable &t);
+		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+		virtual bool runtime_init(otable &t);
 		virtual size_t run(otable &t, rng_t &rng);
 		virtual const std::string &name() const { static std::string s("textin"); return s; }
 		virtual const std::string &type() const { static std::string s("input"); return s; }
@@ -1315,15 +1388,15 @@ class os_textin : public osource
 		os_textin() {};
 };
 
-bool os_textin::prerun(const std::list<opipeline_stage *> &pipeline, otable &t)
+bool os_textin::runtime_init(otable &t)
 {
 	// this unserializes the header and fills the prov vector with columns this module will provide
 	t.unserialize_header(in.in(), &prov);
 
-	osource::prerun(pipeline, t);
+	osource::runtime_init(t);
 }
 
-bool os_textin::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_textin::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	const char *fn = cfg["filename"].c_str();
 	in.open(fn);
@@ -1360,6 +1433,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "photometry") { s.reset(new os_photometry); }
+	else if(name == "photometricErrors") { s.reset(new os_photometricErrors); }
 	else if(name == "clipper") { s.reset(new os_clipper); }
 #if 0
 	else if(name == "ugriz") { s.reset(new os_ugriz); }
@@ -1391,6 +1465,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	std::string which;
 	while(!stages.empty())
 	{
+#if 0
 		// get all currently available (used) tags
 		std::set<std::string> haves;
 		t.get_used_columns(haves);
@@ -1399,13 +1474,16 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		std::ostringstream ss;
 		FOREACH(haves) { ss << *i << " "; };
 		DLOG(verb2) << "haves: " << ss.str();
+#endif
 
 		// find next pipeline stage that is satisfied with the available tags
 		bool foundOne = false;
 		FOREACH(stages)
 		{
 			opipeline_stage &s = *i->second;
+#if 0
 			if(!s.satisfied_with(haves)) { continue; }
+#endif
 
 #if 0
 			// check for collisions
@@ -1416,7 +1494,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 #endif
 			// initialize this pipeline stage (this typically adds and uses the columns
 			// this stage will add)
-			s.prerun(pipeline, t);
+			if(!s.runtime_init(t)) { continue; }
 
 			// append to pipeline
 			pipeline.push_back(&s);
@@ -1466,6 +1544,15 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	return ret;
 }
 
+bool opipeline::has_module_of_type(const std::string &type) const
+{
+	FOREACH(stages)
+	{
+		if((*i)->type() == type) { return true; }
+	}
+	return false;
+}
+
 void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules)
 {
 	Config cfg; cfg.load(conffn);
@@ -1511,7 +1598,6 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	// merge-in modules with options given in the config file
 	opipeline pipe;
 
-	bool hasinput = false, hasoutput = false;
 	FOREACH(modules)
 	{
 		const std::string &cffn = *i;
@@ -1539,33 +1625,33 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 
 		stage->setUniqueId(modcfg["module"]);
 
-		if(stage->type() == "input")  { hasinput = true;  modcfg.insert(make_pair("filename", input)); }
-		if(stage->type() == "output") { hasoutput = true; modcfg.insert(make_pair("filename", output)); }
+		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
+		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
 
-		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 
 		pipe.add(stage);
 	}
 
 	// set default I/O, if not overriden by othe modules
-	if(!hasinput)
+	if(!pipe.has_module_of_type("input"))
 	{
 		name = "textin";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", input));
-		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}
-	if(!hasoutput)
+	if(!pipe.has_module_of_type("output"))
 	{
 		name = "textout";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", output));
-		if(!stage->init(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}

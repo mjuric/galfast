@@ -221,6 +221,7 @@ otable::columndef::columndef(otable &parent_)
 	// defaults
 	columnClass = parent.cclasses["default"].get();
 	typeProxy = NULL;	// default to class type
+	m_hidden = false;		// default to outputing the column
 }
 
 void otable::columndef::alloc(const size_t nrows)
@@ -334,6 +335,12 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 		return;
 	}
 
+	if(key == "hidden")
+	{
+		m_hidden = value == "true" || atoi(value.c_str()) != 0;
+		return;
+	}
+
 	if(key == "fieldNames")
 	{
 		// value = "idx:fieldname,idx:fieldname,..."
@@ -356,6 +363,7 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 			fieldNames.str2idx[name] = idx;
 			fieldNames.idx2str[idx] = name;
 		} while(len != std::string::npos);
+		return;
 	}
 }
 
@@ -384,6 +392,14 @@ void otable::columndef::unserialize(std::istream &in, const size_t row)
 	}
 }
 
+size_t otable::columndef::getFieldNames(std::set<std::string> &names) const
+{
+	FOREACH(fieldNames.str2idx)
+	{
+		names.insert(i->first);
+	}
+}
+
 void otable::columndef::serialize_def(std::ostream &out) const
 {
 	out << columnName;
@@ -401,7 +417,22 @@ void otable::columndef::serialize_def(std::ostream &out) const
 	if(typeProxy                           && !DFLT(typeProxy))    { ss << "type=" << typeProxy->typeName << ";"; }
 	if(columnClass->className != "default" && !DFLT(columnClass))  { ss << "class=" << columnClass->className << ";"; }
 	if(!formatString.empty()               && !DFLT(formatString)) { ss << "fmt=" << formatString << ";"; }
+	if(dflt                                && !DFLT(m_hidden))     { ss << "hidden=" << m_hidden << ";"; }
 	#undef DFLT
+
+	// fieldNames
+	if(fieldNames.idx2str.size())
+	{
+		ss << "fieldNames=";
+		bool first = true;
+		FOREACH(fieldNames.idx2str)
+		{
+			if(!first) { ss << ","; }
+			ss << i->first << ":" << i->second;
+			first = false;
+		}
+		ss << ";";
+	}
 
 	// aliases
 	FOREACH(parent.columns)
@@ -423,7 +454,10 @@ void otable::getColumnsForOutput(std::vector<const columndef*> &outColumns) cons
 {
 	FOREACH(colOutput)
 	{
-		if(columns.count(*i)) { outColumns.push_back(columns.at(*i).get()); }
+		if(!columns.count(*i)) continue;		// don't display columns that have not been created
+		if(columns.at(*i)->hidden()) continue;		// don't display hidden columns
+
+		outColumns.push_back(columns.at(*i).get());
 	}
 }
 
@@ -582,6 +616,20 @@ otable::columndef &otable::use_column(const std::string &coldef, bool setOutput)
 	return *col;
 }
 
+otable::columndef &otable::use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, bool setOutput)
+{
+	ASSERT(columns.count(newColumnName) == 0);
+
+	columndef &exCol = getColumn(existingColumnName);
+	boost::shared_ptr<columndef> col = columns[newColumnName] = exCol.clone(newColumnName);
+
+	col->alloc(length); // Ensure the column is allocated
+
+	if(setOutput) { set_output(col->columnName, true); }
+
+	return *col;
+}
+
 void otable::init()
 {
 	// definition of built-in classes and column defaults
@@ -605,7 +653,7 @@ void otable::init()
 	"(column) pmlb[3]       {class=propermotion;}"
 	"(column) pmradec[3]    {class=propermotion;}"
 	"(column) star_name[40] {type=char;}"
-	"(column) hidden	{type=int;}"
+	"(column) hidden	{type=int;hidden=true;}"
 	);
 
 	// store these column definitions as defaults
@@ -625,6 +673,18 @@ size_t otable::get_used_columns(std::set<std::string> &cols) const
 	FOREACH(columns)
 	{
 		if(i->second->capacity() == 0) { continue; }
+		cols.insert(i->first);
+	}
+	return cols.size();
+}
+
+size_t otable::get_used_columns_by_class(std::set<std::string> &cols, const std::string &className) const
+{
+	cols.clear();
+	FOREACH(columns)
+	{
+		if(i->second->capacity() == 0) { continue; }
+		if(i->second->className() != className) { continue; }
 		cols.insert(i->first);
 	}
 	return cols.size();

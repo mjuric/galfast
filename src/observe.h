@@ -36,6 +36,8 @@ class opipeline
 	public:
 		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
 		virtual size_t run(otable &t, rng_t &rng);
+
+		bool has_module_of_type(const std::string &type) const;
 };
 
 class osource : public opipeline_stage
@@ -44,10 +46,7 @@ class osource : public opipeline_stage
 		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
 
 	public:
-		osource() : opipeline_stage()
-		{
-			prov.insert("_source");
-		}
+		osource() : opipeline_stage() {}
 };
 
 // Clips out stars not within the requested observation area
@@ -62,7 +61,7 @@ protected:
 
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
 	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this is placed near the end of the pipeline
@@ -83,7 +82,7 @@ protected:
 	skyConfigInterface *skygen;
 
 public:
-	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual size_t run(otable &t, rng_t &rng);
 	virtual const std::string &name() const { static std::string s("skygen"); return s; }
 	virtual const std::string &type() const { static std::string s("input"); return s; }
@@ -97,7 +96,7 @@ class os_FeH : public osink, os_FeH_data
 {
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("FeH"); return s; }
 
 	os_FeH() : osink()
@@ -116,7 +115,7 @@ class os_fixedFeH : public osink
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
 		os_fixedFeH() : osink(), fixedFeH(0)
@@ -130,7 +129,7 @@ class os_vel2pm : public osink , public os_vel2pm_data
 {	
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
 
 	os_vel2pm() : osink()
@@ -149,7 +148,7 @@ class os_kinTMIII : public osink, os_kinTMIII_data
 	float DeltavPhi;
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
 
 		os_kinTMIII() : osink()

@@ -336,7 +336,7 @@ bool skyConfig<T>::init(
 	boost::shared_ptr<opipeline_stage> foot( opipeline_stage::create("clipper") );
 	Config fcfg(foot_cfg);
 	fcfg.insert(std::make_pair("dx", cfg.get("dx")));
-	if(!foot->init(fcfg, t, pipe))
+	if(!foot->construct(fcfg, t, pipe))
 	{
 		return false;
 	}
@@ -493,7 +493,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 
 ////////////////////////////////////////////////////////////////////////////
 
-bool os_skygen::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// Load density model configuration and instantiate
 	// the correct skyConfig kernel
@@ -531,7 +531,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 
 ////////////////////////////////////////////////////////////////////////////
 
-bool os_clipper::init(const Config &cfg, otable &t, opipeline &pipe)
+bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(this->dx,	"dx", 	1.f);
 	this->dx = rad(this->dx);

@@ -474,14 +474,20 @@ bool cuda_init()
 	// use the device
 	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"") << dev << deviceProp.name;
 
-	// Memory info
-	unsigned free, total;
-	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
-	MLOG(verb1) << "Device memory (free, total): " << free << ", " << total;
 #else
 	MLOG(verb1) << "Using CUDA Device Emulation";
 #endif
 	cuxErrCheck( cudaSetDevice(dev) );
+
+#if !CUDA_DEVEMU
+	// Memory info
+	unsigned free = 0, total = 0;
+	void *tmp;
+	cuxErrCheck( cudaMalloc(&tmp, 1024) );	// ensure CUDA context is created, for the cuMemGetInfo call
+	cuxErrCheck( cudaFree(tmp) );
+	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
+	MLOG(verb1) << "Device memory (free, total): " << free / (1<<20) << "M, " << total / (1<<20) << "M";
+#endif
 
 	cuda_initialized = 1;
 	cuda_enabled = 1;

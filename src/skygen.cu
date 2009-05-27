@@ -409,15 +409,17 @@ __device__ void skyConfigGPU<T>::kernel() const
 					proj.convert(dir, x, y);
 					x += dx*(rng.uniform() - 0.5f);
 					y += dx*(rng.uniform() - 0.5f);
+
 					double l, b;
 					proj.inverse(x, y, l, b);
+					direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
+
 					l *= dbl_r2d;
 					if(l < 0) l += 360.;
 					b *= dbl_r2d;
 					stars.lb(idx, 0) = l;
 					stars.lb(idx, 1) = b;
 
-					direction dir2(l, b);
 					float3 pos = position(dir2, D);
 					stars.XYZ(idx, 0) = pos.x;
 					stars.XYZ(idx, 1) = pos.y;

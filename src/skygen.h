@@ -160,7 +160,7 @@ public:
 	static const int HALO  = 2;
 	__device__ int component(float x, float y, float z, float M, gpuRng &rng) const
 	{
-		float r = sqrt(x*x + y*y);
+		float r = sqrtf(x*x + y*y);
 
 		float thin = rho_thin(r, z);
 		float thick = rho_thick(r, z);

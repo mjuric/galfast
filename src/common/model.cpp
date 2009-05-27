@@ -648,7 +648,7 @@ void otable::init()
 	"(column) radec[2]      {class=astrometry;}"
 	"(column) lb[2]         {class=astrometry;}"
 	"(column) XYZ [3]       {class=position;}"
-	"(column) FeH           {fmt=% 5.2f;}"
+	"(column) FeH           {fmt=% 6.3f;}"
 	"(column) vcyl[3]       {class=velocity;}"
 	"(column) pmlb[3]       {class=propermotion;}"
 	"(column) pmradec[3]    {class=propermotion;}"

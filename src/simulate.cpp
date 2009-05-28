@@ -378,25 +378,41 @@ void makeRectMap(const std::string &output, peyton::system::Config &cfg, bool sm
 
 gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
 {
-//	Radians dx = rad(.1); /* polygon sampling resolution in radians */
-	Radians dx = (rhole > 0 ? std::min(r, rhole) : r) / 100.;
-	dx = std::min(dx, rad(.1));
 
 	double x, y;
 	MLOG(verb1) << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole);
 
 	std::vector<double> lx, ly, hx, hy;
-	Radians dphi = dx / r;
 	lambert bproj(l, b);
-	Radians rprev(r);
+
+	// Convert spherical (angular) radii to lambert projection radii
 	lambert pproj(rad(0), rad(90));
-	pproj.convert(ctn::pi, ctn::pi/2. - r, x, y); r = y;
-	DLOG(verb1) << rprev << " " << r << " " << x << " " << y;
-	if(rhole) {
-		cerr << rhole << " -> ";
-		pproj.convert(ctn::pi, ctn::pi/2. - rhole, x, y); rhole = y;
-		cerr << rhole << " " << x << " " << y << "\n";
+	if(fabs(r/ctn::pi - 1) < 1e-5) // Full sky ?
+	{
+		MLOG(verb1) << "DANGER: Detected attempt to compute full sky. There may be a small region around the south pole with no stars present. Aborting preventively.";
+		abort();
+		r = 1.99999999;
 	}
+	else if(r > ctn::pi)
+	{
+		MLOG(verb1) << "ERROR: Beam radius (r = " << deg(r) << ") bigger than 180deg (full sky). Aborting.";
+		abort();
+	}
+	else
+	{
+		pproj.convert(ctn::pi, ctn::pi/2. - r, x, r);
+	}
+	if(rhole)
+	{
+		pproj.convert(ctn::pi, ctn::pi/2. - rhole, x, rhole);
+	}
+
+	/* determine polygon sampling resolution */
+	Radians rmax = rhole > 0 ? std::max(r, rhole) : r;
+	Radians dx = ctn::twopi * rmax / 1000.;
+	dx = std::min(dx, rad(.1)); // keep minimum .1 deg resolution along the circumference
+	Radians dphi = dx / rmax;
+
 	for(double phi = 0; phi < 2. * ctn::pi; phi += dphi)
 	{
 		Radians lp, bp;
@@ -424,6 +440,18 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 		gpc_polygon poly, hole = make_polygon(hx, hy);
 		gpc_polygon_clip(GPC_DIFF, &sky, &hole, &poly);
 		sky = poly;
+	}
+
+	// Sanity check -- the areas must be what we expect.
+	double area_expected = ctn::pi * (sqr(r) - sqr(rhole));
+	double area_poly = polygon_area(sky);
+	double err = fabs(area_poly/area_expected - 1);
+	double aerr = area_poly - area_expected;
+	if(err > 1e-5)
+	{
+		MLOG(verb1) << "Polygonized footprint area differs from the expected by more than prescribed tolerance. Aborting preventively.";
+		MLOG(verb1) << "Details: expected=" << area_expected*sqr(deg(1)) << " polygonized=" << area_poly*sqr(deg(1)) << " relerr=" << err << " abserr=" << aerr*sqr(deg(1));
+		abort();
 	}
 
 	return sky;

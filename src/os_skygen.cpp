@@ -33,6 +33,14 @@
 
 /***********************************************************************/
 
+lfParams lfTextureManager::loadConstant(float val)
+{
+	const int nlf = 2;
+	float lfp[nlf] = { val, val };
+	float lfM0 = -100, lfM1 = 100, lfdM = (lfM1 - lfM0) / (nlf-1);
+	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
+}
+
 lfParams lfTextureManager::load(const char *fn)
 {
 	// load the luminosity function and normalize to m.rho0.
@@ -73,6 +81,10 @@ void expModel::load(const peyton::system::Config &cfg)
 	if(cfg.count("lumfunc"))
 	{
 		lf = texLFMgr.load(cfg["lumfunc"].c_str());
+	}
+	else
+	{
+		lf = texLFMgr.loadConstant(1.f);
 	}
 
 	// cutoff radius (default: 1Mpc)
@@ -413,21 +425,25 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	upload(false);
 	compute(false);
 	download(false);
-	std::cout << "Histogram:     log(rho) |";
+	
+	std::ostringstream ss;
+	ss << "Histogram:     log(rho) |";
 	for(int i=0; i != this->nhistbins; i++)
 	{
-		std::cout << std::setw(8) << this->lrho0+i*this->dlrho << "|";
+		ss << std::setw(8) << this->lrho0+i*this->dlrho << "|";
 	}
-	std::cout << "\n";
-	std::cout << "Histogram: rho=" << pow10f(this->lrho0 - this->dlrho*0.5) << "-->|";
+	MLOG(verb1) << ss.str();
+	ss.str("");
+	ss << "Histogram: rho=" << pow10f(this->lrho0 - this->dlrho*0.5) << "-->|";
 	for(int i=0; i != this->nhistbins; i++)
 	{
-		std::cout << std::setw(8) << this->cpu_hist[i] << "|";
+		ss << std::setw(8) << this->cpu_hist[i] << "|";
 	}
-	std::cout << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho) << "\n";
+	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
+	MLOG(verb1) << ss.str();
 
-	std::cout << "Total expected star count: " << std::setprecision(9) << this->nstarsExpected << "\n";
-	std::cout << "Kernel runtime: " << this->swatch.getAverageTime() << "\n";
+	MLOG(verb1) << "Total expected star count: " << std::setprecision(9) << this->nstarsExpected;
+	MLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
 
 	//
 	// Second pass: draw stars
@@ -452,8 +468,8 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->download(true);
 		in.set_size(this->stars_generated);
 
-		std::cout << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).\n";
-		std::cout << "Kernel runtime: " << this->swatch.getAverageTime() << "\n";
+		MLOG(verb1) << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).";
+		MLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
 
 		total += nextlink->process(in, 0, in.size(), cpurng);
 #if 0
@@ -480,12 +496,12 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		fclose(fp);
 #endif
 	} while(this->stars_generated >= this->stopstars);
-	std::cout << "Generated " << total << " stars (" << this->nstarsExpected << " expected in _unclipped_ volume).\n";
+	MLOG(verb1) << "Generated " << total << " stars (" << this->nstarsExpected << " expected in _unclipped_ volume).";
 
 	#if _EMU_DEBUG
 	long long voxelsVisitedExpected = this->npixels;
 	voxelsVisitedExpected *= this->nm*this->nM;
-	std::cout << "voxels visited = " << voxelsVisited << " (expected: " << voxelsVisitedExpected << ")\n";
+	std::cout << "voxels visited = " << voxelsVisited << " (expected: " << voxelsVisitedExpected << ").";
 	#endif
 
 	return total;

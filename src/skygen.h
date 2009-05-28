@@ -38,27 +38,31 @@ __device__ __constant__ float Rg_gpu;
 __device__ inline float Rg() { return Rg_gpu; }
 #endif
 
-struct lfParams
+struct ALIGN(16) lfParams
 {
 	float M0, M1, inv_dM;
-	float padding;		// to get this properly aligned both for CUDA and GCC (there has to be a smarter way to do this!)
+	int isLoaded;
 
 	template<typename T>
 	__device__ float sample(T &texref, float M) const
 	{
 		float val, iMr;
-/*		for(M=M0; M <= M1; M += 1./(inv_dM*5.))
-		{*/
-			iMr  = (M  -  M0) * inv_dM + 0.5;
+/*		if(!isLoaded)
+		{
+			val = 1.f;
+		}
+		else
+		{
+*/			iMr  = (M  -  M0) * inv_dM + 0.5;
 			val = tex1D(texref, iMr);
-/*			printf("%f %f %f\n", M, iMr, val);
-		}*/
+//		}
 		return val;
 	}
 };
 inline lfParams make_lfParams(float M0, float M1, float dM)
 {
-	lfParams lfp = { M0, M1, 1.f/dM };
+	int isLoaded = 0; //M0 < M1;
+	lfParams lfp = { M0, M1, 1.f/dM, isLoaded };
 	return lfp;
 }
 
@@ -73,6 +77,7 @@ struct lfTextureManager
 
 	lfParams set(float *cpu_lf, int lfLen, float M0, float M1, float dM);
 	lfParams load(const char *fn);
+	lfParams loadConstant(float val);
 	void free();
 };
 
@@ -211,22 +216,52 @@ public:
 		p.sl = sin(l0); p.sb = sin(b0);
 	}
 
+#if 1
+	__device__ void convert(const direction &d, float &x, float &y) const
+	{
+		double cll0 = d.cl*p.cl + d.sl*p.sl; // cos(l - l0);
+		double sll0 = p.cl*d.sl - d.cl*p.sl; // sin(l - l0);
+		double kp = 1.414213562373095 * sqrt(1./(1.+p.sb*d.sb+p.cb*d.cb*cll0));
+		x = kp*d.cb*sll0;
+		y = kp*(p.cb*d.sb-p.sb*d.cb*cll0);
+	}
+#endif
+#if 1
+	__device__ void inverse(const float x, const float y, double &l, double &b) const
+	{
+		double r2 = x*x + y*y;
+		if(r2 == 0.)
+		{
+			b = b0;
+			l = 0.;
+			return;
+		}
+		double ir = 1./sqrt(r2);			// ir == 1/r
+		double sc = 1./ir * sqrt(1. - 0.25*r2);		// sin(c) == r*Sqrt(1 - Power(r,2)/4.)		where c = 2*asin(0.5*r)
+		double cc = 1. - 0.5*r2;			// cos(c) == 1 - Power(r,2)/2			where c = 2*asin(0.5*r)
+
+		b = asin(cc*p.sb + y*sc*p.cb*ir);
+		l = l0 + atan2(x*sc, p.cb*cc/ir - y*p.sb*sc);
+	}
+#endif
+#if 0
 	__device__ void convert(const direction &d, float &x, float &y) const
 	{
 		float cll0 = d.cl*p.cl + d.sl*p.sl; // cos(l - l0);
 		float sll0 = p.cl*d.sl - d.cl*p.sl; // sin(l - l0);
-		float kp = 1.414213562373095f * sqrtf(1./(1+p.sb*d.sb+p.cb*d.cb*cll0));
+		float kp = 1.414213562373095f * sqrtf(1.f/(1.f+p.sb*d.sb+p.cb*d.cb*cll0));
 		x = kp*d.cb*sll0;
 		y = kp*(p.cb*d.sb-p.sb*d.cb*cll0);
 	}
-
+#endif
+#if 0
 	__device__ void inverse(const float x, const float y, double &l, double &b) const
 	{
 		float r2 = x*x + y*y;
 		if(r2 == 0.f)
 		{
 			b = b0;
-			l = 0.;
+			l = 0.f;
 			return;
 		}
 		float ir = 1.f/sqrtf(r2);			// ir == 1/r
@@ -236,6 +271,7 @@ public:
 		b = asin(cc*p.sb + y*sc*p.cb*ir);
 		l = l0 + atan2(x*sc, p.cb*cc/ir - y*p.sb*sc);
 	}
+#endif
 };
 
 __device__ float3 position(const direction &p, const float d)

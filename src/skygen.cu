@@ -287,8 +287,6 @@ template<typename T>
 template<int draw>
 __device__ void skyConfigGPU<T>::kernel() const
 {
-	int tid = threadID();
-
 	int ilb, im, iM;
 	float3 pos;
 	direction dir;
@@ -305,6 +303,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 #endif
 
 	// Initialize (or load previously stored) execution state
+	int tid = threadID();
 	ilb = 0;
 	k = block*(tid-nthreads);
 	if(draw)
@@ -323,7 +322,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 		bool moved;
 		if(bc == 0)
 		{
-			bc = block;
+		 	bc = block;
 			k += block*nthreads;
 			diagIndexToIJ(ilb, im, iM, k, nm, nM);
 			if(ilb >= npixels) { break; }

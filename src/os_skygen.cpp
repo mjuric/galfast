@@ -182,8 +182,6 @@ void skyConfig<T>::upload_generic(bool draw)
 
 		this->stopstars = Kbatch - bufferSafetyMargin();
 		assert(this->stopstars > 0);
-
-		this->ks.alloc(this->nthreads);
 	}
 
 	cuxUploadConst("Rg_gpu", this->Rg);
@@ -450,20 +448,19 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	//
 	this->Kbatch = in.capacity();
 
-	// setup output destination
-	this->stars.lb    = in.col<double>("lb");
-	this->stars.XYZ   = in.col<float>("XYZ");
-	this->stars.comp  = in.col<int>("comp");
-	this->stars.M     = in.col<float>("absmag");
-	this->stars.m     = in.col<float>("mag");
-	//this->stars.color = in.col<float>("color"); -- not implemented yet
-	this->upload(true);
-
+	this->ks.alloc(this->nthreads);
 	uint64_t total = 0;
 	do
 	{
-		int zero = 0;
-		this->nstars.upload(&zero, 1);
+		// setup output destination
+		this->stars.lb    = in.col<double>("lb");
+		this->stars.XYZ   = in.col<float>("XYZ");
+		this->stars.comp  = in.col<int>("comp");
+		this->stars.M     = in.col<float>("absmag");
+		this->stars.m     = in.col<float>("mag");
+		//this->stars.color = in.col<float>("color"); -- not implemented yet
+
+		this->upload(true);
 		this->compute(true);
 		this->download(true);
 		in.set_size(this->stars_generated);
@@ -471,7 +468,10 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		MLOG(verb1) << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).";
 		MLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
 
-		total += nextlink->process(in, 0, in.size(), cpurng);
+		if(in.size())
+		{
+			total += nextlink->process(in, 0, in.size(), cpurng);
+		}
 #if 0
 		// write out where each thread stopped
 		for(int i=0; i != this->nthreads; i++)
@@ -482,16 +482,22 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 
 #if 0
 		// write out the results
-		FILE *fp = fopen("result.txt", total ? "a" : "w");
-		if(total == 0)
+		static bool first = true;
+		FILE *fp = fopen("result.txt", first ? "w" : "a");
+		if(first)
 		{
+			first = false;
 			fprintf(fp, "# lb[2] absSDSSr{alias=absmag;alias=color;} SDSSr{alias=mag;} XYZ[3] comp\n");
 		}
-		for(int i=0; i != this->stars_generated; i++)
+		column_types::cdouble::host_t lb = in.col<double>("lb");
+		column_types::cfloat::host_t XYZ = in.col<float>("XYZ");
+		column_types::cint::host_t comp  = in.col<int>("comp");
+		column_types::cfloat::host_t M   = in.col<float>("absmag");
+		column_types::cfloat::host_t m   = in.col<float>("mag");
+		for(int row=0; row != in.size(); row++)
 		{
-			star &s = this->cpu_stars[i];
 			fprintf(fp, "%13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
-				deg(s.l), deg(s.b), s.M, s.m, s.pos.x, s.pos.y, s.pos.z, s.comp);
+				lb(row, 0), lb(row, 1), M[row], m[row], XYZ(row, 0), XYZ(row, 1), XYZ(row, 2), comp[row]);
 		}
 		fclose(fp);
 #endif

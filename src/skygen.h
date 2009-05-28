@@ -441,7 +441,7 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 	virtual size_t run(otable &in, osink *nextlink, rng_t &rng);
 };
 
-#if _DEBUG
+#if _EMU_DEBUG
 extern long long voxelsVisited;
 #endif
 

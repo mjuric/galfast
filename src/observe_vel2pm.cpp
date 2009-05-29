@@ -80,7 +80,7 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	ct::cfloat  &vcyl = in.col<float>("vcyl");
 	ct::cfloat  &pmlb = in.col<float>("pmlb");
 
-	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end, 128), *this, rng, lb0, XYZ, vcyl,pmlb);
+	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl,pmlb);
 	return nextlink->process(in, begin, end, rng);
 }
 

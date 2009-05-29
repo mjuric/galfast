@@ -542,7 +542,12 @@ public:
 	void set_size(size_t newsize)
 	{
 		nrows = newsize;
-		if(nrows > capacity()) { THROW(peyton::exceptions::EAny, "Attempted to set more rows than capacity allows."); }
+		if(nrows > capacity())
+		{
+			std::ostringstream ss;
+			ss << "Attempted to set more rows than capacity allows. capacity=" << capacity() << ", nrows=" << nrows;
+			THROW(peyton::exceptions::EAny, ss.str());
+		}
 	}
 
 	size_t capacity() const { return length; }

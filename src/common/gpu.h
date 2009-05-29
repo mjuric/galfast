@@ -233,8 +233,8 @@ struct kernel_state
 	uint32_t m_begin, m_step, m_end;
 	uint32_t sharedBytesPerThread;
 
-	kernel_state(uint32_t b, uint32_t e, uint32_t s, uint32_t shbytes = 0)
-		: m_begin(b), m_end(e), m_step(s), sharedBytesPerThread(shbytes)
+	kernel_state(uint32_t b, uint32_t e, uint32_t s = 0xFFFFFFFF, uint32_t shbytes = 0)
+		: m_begin(b), m_end(e), m_step(s == 0xFFFFFFFF ? 256 : s), sharedBytesPerThread(shbytes)
 	{
 	}
 

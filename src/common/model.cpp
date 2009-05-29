@@ -654,6 +654,7 @@ void otable::init()
 	"(column) pmradec[3]    {class=propermotion;}"
 	"(column) star_name[40] {type=char;}"
 	"(column) hidden	{type=int;hidden=true;}"
+	"(column) projIdx       {type=int;hidden=true;}"
 	);
 
 	// store these column definitions as defaults

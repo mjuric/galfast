@@ -145,7 +145,7 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 #endif
 	os_kinTMIII_par = *this;
 
-	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end, 128), rng, comp, XYZ, vcyl);
+	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end), rng, comp, XYZ, vcyl);
 	return nextlink->process(in, begin, end, rng);
 }
 

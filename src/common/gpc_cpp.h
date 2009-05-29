@@ -44,7 +44,9 @@ BISTREAM2(gpc_polygon& p);
 
 void poly_bounding_box(double &x0, double &x1, double &y0, double &y1, const gpc_polygon &p);
 gpc_polygon poly_rect(double x0, double x1, double y0, double y1);
+double contour_area(const gpc_vertex_list &c);
 double polygon_area(const gpc_polygon &p);
+bool in_contour(const gpc_vertex &t, const gpc_vertex_list &vl);
 bool in_polygon(const gpc_vertex &t, const gpc_polygon &p);
 
 // polygon split into little rectangular pieces

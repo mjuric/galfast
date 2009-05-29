@@ -56,8 +56,17 @@ class os_clipper : public osink
 {
 protected:
 	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
-	peyton::math::lambert proj;
-	partitioned_skymap *skymap;
+	peyton::math::lambert proj[2];
+	partitioned_skymap *sky[2];
+
+public:
+	struct pixel
+	{
+		double l, b; // in Radians
+		int projIdx;
+		
+		pixel(double l_, double b_, int projIdx_) : l(l_), b(b_), projIdx(projIdx_) {}
+	};
 
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -66,7 +75,8 @@ public:
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
 	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this is placed near the end of the pipeline
 
-	int getPixelCenters(std::vector<std::pair<double, double> > &lb, double &l0, double &b0);
+	int getPixelCenters(std::vector<os_clipper::pixel> &pix);		// returns the centers of all pixels
+	int getProjections(std::vector<std::pair<double, double> > &ppoles);	// returns the poles of all used projections
 
 	os_clipper() : osink()
 	{

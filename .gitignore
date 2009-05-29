@@ -12,3 +12,13 @@ galaxy.kdevelop.pcs
 galaxy.kdevses
 DEADJOE
 config.log
+*.o
+*.a
+*.ptx
+Makefile
+.deps
+config.h
+config.status
+libtool
+stamp-h1
+*.linkinfo

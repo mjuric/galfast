@@ -86,6 +86,7 @@ template<typename T>
 	void cuxUploadConst(const char *symbol, const T &source)
 	{
 		unsigned size = sizeof(source);
+		fprintf(stderr, "cuxUploadConst: Uploading %u bytes to symbol %s.\n", size, symbol);
 		cuxErrCheck( cudaMemcpyToSymbol(symbol, &source, size) );
 	}
 

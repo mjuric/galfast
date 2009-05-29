@@ -76,7 +76,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat &XYZ   = in.col<float>("XYZ");
 	cfloat &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end, 128), *this, rng, comp, XYZ, FeH);
+	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 #else
@@ -164,7 +164,7 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	using namespace column_types;
 	cfloat &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end, 128), fixedFeH, FeH);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 

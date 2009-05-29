@@ -140,7 +140,7 @@ int skyConfig<T>::bufferSafetyMargin()
 	int bufsize = (int)ceil(maxCount + 7.*sqrt(maxCount))	// for maxCount > 100, P(k > k+7sqrt(k)) ~ nthreads*7e-11
 			 + 3*this->nthreads;			// and this part is to cover the selection effect that we only break if k>1
 
-#if 0
+#if 1
 	// some diagnostic info
 	sort(cpu_maxCount, cpu_maxCount + this->nthreads, std::greater<float>());
 	for(int i = 0; i != 3 && i != this->nthreads; i++)
@@ -199,6 +199,7 @@ template<>
 void skyConfig<expModel>::upload(bool draw)
 {
 	this->upload_generic(draw);
+	texLFMgr.bind();
 	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
 }
 
@@ -271,7 +272,7 @@ gpc_polygon make_footprint(const Config &cfg, peyton::math::lambert &proj)
 
 // Calculate the 'skymap', for fast point-in-polygon lookups of the observed
 // sky footprint.
-partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
+partitioned_skymap *make_skymap_slow(Radians dx, gpc_polygon sky)
 {
 	using boost::shared_ptr;
 	using std::cout;
@@ -280,6 +281,8 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 	skymap->dx = dx;
 
  	poly_bounding_box(skymap->x0, skymap->x1, skymap->y0, skymap->y1, sky);
+	std::cerr << "Creating fast skymap lookup (this may take a while) ... ";
+	//std::cerr << skymap->x0 << " " <<  skymap->x1 << " " <<  skymap->y0 << " " <<  skymap->y1 << "\n";
 
 	int X = 0;
 	for(double x = skymap->x0; x < skymap->x1; x += skymap->dx, X++) // loop over all x values in the bounding rectangle
@@ -288,6 +291,7 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 		double xa = x, xb = x+skymap->dx;
 		for(double y = skymap->y0; y < skymap->y1; y += skymap->dx, Y++) // loop over all y values for a given x
 		{
+//			std::cerr << "Doing " << X << " " << Y << "\n";
 			double ya = y, yb = y+skymap->dx;
 			gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
@@ -301,8 +305,85 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 			pix.area = polygon_area(poly);
 		}
 	}
+
+	std::cerr << " done.\n";
 	return skymap;
 }
+
+void make_skymap_piece(gpc_polygon sky, partitioned_skymap *skymap, int X0, int X1, int Y0, int Y1)
+{
+	// test for intersection
+	double xa = skymap->x0 + X0*skymap->dx;
+	double xb = skymap->x0 + X1*skymap->dx;
+	double ya = skymap->y0 + Y0*skymap->dx;
+	double yb = skymap->y0 + Y1*skymap->dx;
+	gpc_polygon r = poly_rect(xa, xb, ya, yb);
+
+//	std::cerr << "Testing (" << X0 << "," << X1 << "," << Y0 << "," << Y1 << ") == ("
+//		  << xa << "," << xb << "," << ya << "," << yb << " answer=";
+	gpc_polygon poly;
+	gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
+	if(poly.num_contours == 0)
+	{
+//		std::cerr << "no.\n";
+		return; // if there are no observations in this region
+	}
+
+//	std::cerr << "yes.";
+	int DX = X1-X0, DY = Y1-Y0;
+	if(DX == 1 && DY == 1) // leaf
+	{
+//		std::cerr << " Leaf node.\n";
+		partitioned_skymap::pixel_t &pix = skymap->skymap[std::make_pair(X0, Y0)];
+		pix.poly = poly;
+		pix.area = polygon_area(poly);
+		return;
+	}
+
+	// subdivide further
+//	std::cerr << " Subdividing furthed.\n";
+	make_skymap_piece(poly, skymap, X0 +    0, X0 + DX/2, Y0 +    0, Y0 + DY/2);
+	make_skymap_piece(poly, skymap, X0 + DX/2, X0 + DX,   Y0 +    0, Y0 + DY/2);
+	make_skymap_piece(poly, skymap, X0 + DX/2, X0 + DX,   Y0 + DY/2, Y0 +   DY);
+	make_skymap_piece(poly, skymap, X0 +    0, X0 + DX/2, Y0 + DY/2, Y0 +   DY);
+	gpc_free_polygon(&poly);
+}
+
+// Calculate the 'skymap', for fast point-in-polygon lookups of the observed
+// sky footprint.
+partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
+{
+	using boost::shared_ptr;
+	using std::cout;
+
+	partitioned_skymap *skymap = new partitioned_skymap;
+	skymap->dx = dx;
+
+ 	poly_bounding_box(skymap->x0, skymap->x1, skymap->y0, skymap->y1, sky);
+//	std::cerr << "Creating fast skymap lookup. ";
+	//std::cerr << skymap->x0 << " " <<  skymap->x1 << " " <<  skymap->y0 << " " <<  skymap->y1 << "\n";
+
+	int NX = (int)ceil((skymap->x1 - skymap->x0) / skymap->dx);
+	int NY = (int)ceil((skymap->y1 - skymap->y0) / skymap->dx);
+	// round up to nearest power-of-two
+	NX = 1 << (int)ceil(log2(NX));
+	NY = 1 << (int)ceil(log2(NY));
+	if(NX == 1) NX++;
+	if(NY == 1) NY++;
+	NX = NY = std::max(NX, NY);	// make things really simple...
+//	std::cerr << "NX,NY = " << NX << " " << NY << "\n";
+	assert(skymap->x0 + NX*skymap->dx >= skymap->x1);
+	assert(skymap->y0 + NY*skymap->dx >= skymap->y1);
+
+	// hierarchically subdivide
+	make_skymap_piece(sky, skymap,    0, NX/2,    0, NY/2);
+	make_skymap_piece(sky, skymap, NX/2, NX,      0, NY/2);
+	make_skymap_piece(sky, skymap, NX/2, NX,   NY/2,   NY);
+	make_skymap_piece(sky, skymap,    0, NX/2, NY/2,   NY);
+
+	return skymap;
+}
+
 
 
 template<typename T>
@@ -316,29 +397,6 @@ bool skyConfig<T>::init(
 	// Galactic center distance (in pc)
 	Rg = 8000.;
 
-#if 0
-	// Footprint polygon computation
-	cfg.get(this->dx,	"dx", 	1.f);
-	this->dx = rad(this->dx);
-	this->dA = sqr(this->dx);
-
-	peyton::math::lambert proj;
-	gpc_polygon sky = make_footprint(foot_cfg, proj);
-	partitioned_skymap *skymap = make_skymap(this->dx, sky);
-
-	this->npixels = skymap->skymap.size();
-	cpu_pixels = new direction[this->npixels];
-	this->proj.init(proj.l0, proj.phi1);
-	int cnt = 0;
-	FOREACH(skymap->skymap)
-	{
-		Radians x, y, l, b;
-		x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
-		y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
-		proj.inverse(x, y, l, b);
-		cpu_pixels[cnt++] = direction(l, b);
-	}
-#else
 	cfg.get(this->dx,	"dx", 	1.f);
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
@@ -352,17 +410,24 @@ bool skyConfig<T>::init(
 	}
 	pipe.add(foot);
 
-	std::vector<std::pair<double, double> > lb;	// pixels
-	double l0, b0;					// projection pole
-	this->npixels = ((os_clipper*)foot.get())->getPixelCenters(lb, l0, b0);
-	this->proj.init(l0, b0);
-	cpu_pixels = new direction[this->npixels];
+	// pixels to process
+	std::vector<os_clipper::pixel> pix;		// pixels
+	this->npixels = ((os_clipper*)foot.get())->getPixelCenters(pix);
+	cpu_pixels = new skypixel[this->npixels];
 	int cnt = 0;
-	FOREACH(lb)
+	FOREACH(pix)
 	{
-		cpu_pixels[cnt++] = direction(i->first, i->second);
+		cpu_pixels[cnt++] = skypixel(i->l, i->b, i->projIdx);
 	}
-#endif
+
+	// projections the pixels are bound to
+	std::vector<std::pair<double, double> > lb0;	// projection poles
+	int nproj = ((os_clipper*)foot.get())->getProjections(lb0);
+	assert(nproj == 2);
+	for(int i=0; i != lb0.size(); i++)
+	{
+		this->proj[i].init(lb0[i].first, lb0[i].second);
+	}
 
 	// Density binning parameters
 	this->M0 = cfg.get_any_of("M0", "ri0");
@@ -380,6 +445,7 @@ bool skyConfig<T>::init(
 
 	// catalog generation results
 	t.use_column("lb");
+	t.use_column("projIdx");
 	t.use_column("XYZ");
 	t.use_column("comp");
 
@@ -453,11 +519,12 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	do
 	{
 		// setup output destination
-		this->stars.lb    = in.col<double>("lb");
-		this->stars.XYZ   = in.col<float>("XYZ");
-		this->stars.comp  = in.col<int>("comp");
-		this->stars.M     = in.col<float>("absmag");
-		this->stars.m     = in.col<float>("mag");
+		this->stars.lb      = in.col<double>("lb");
+		this->stars.projIdx = in.col<int>("projIdx");
+		this->stars.XYZ     = in.col<float>("XYZ");
+		this->stars.comp    = in.col<int>("comp");
+		this->stars.M       = in.col<float>("absmag");
+		this->stars.m       = in.col<float>("mag");
 		//this->stars.color = in.col<float>("color"); -- not implemented yet
 
 		this->upload(true);
@@ -553,50 +620,87 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 
 ////////////////////////////////////////////////////////////////////////////
 
+void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians margin);
+
 bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(this->dx,	"dx", 	1.f);
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
 
-	gpc_polygon sky = make_footprint(cfg, proj);
-	skymap = make_skymap(this->dx, sky);
+	gpc_polygon allsky, nsky, ssky;
+	allsky = make_footprint(cfg, proj[0]);
+	makeHemisphereMaps(nsky, ssky, proj[1], proj[0], allsky, 1.*this->dx);
+	gpc_free_polygon(&allsky);
+
+	this->sky[0] = make_skymap(this->dx, nsky);
+	this->sky[1] = make_skymap(this->dx, ssky);
+
+	MLOG(verb1) << "Sky pixels, north = " << this->sky[0]->skymap.size();
+	MLOG(verb1) << "Sky pixels, south = " << this->sky[1]->skymap.size();
 
 	return true;
 }
 
-int os_clipper::getPixelCenters(std::vector<std::pair<double, double> > &lb, double &l0, double &b0)
+int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles)	// returns the poles of all used projections
 {
-	l0 = proj.l0;
-	b0 = proj.phi1;
-
-	lb.clear();
-	lb.reserve(skymap->skymap.size());
-	FOREACH(skymap->skymap)
+	ppoles.clear();
+	for(int i = 0; i != 2; i++)
 	{
-		Radians x, y, l, b;
-		x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
-		y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
-		proj.inverse(x, y, l, b);
-		lb.push_back(std::make_pair(l, b));
+		ppoles.push_back(std::make_pair(proj[i].l0, proj[i].phi1));
 	}
-	return lb.size();
+	return ppoles.size();
+}
+
+int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix)		// returns the centers of all pixels
+{
+	pix.clear();
+
+	FORj(projIdx, 0, 2)
+	{
+		partitioned_skymap *skymap = sky[projIdx];
+		FOREACH(skymap->skymap)
+		{
+			Radians x, y, l, b;
+			x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
+			y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
+			proj[projIdx].inverse(x, y, l, b);
+			pix.push_back(pixel(l, b, projIdx));
+		}
+	}
+
+	return pix.size();
 }
 
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// fetch prerequisites
 	using namespace column_types;
-	cdouble::host_t lb     = in.col<double>("lb");
-	cint::host_t	hidden = in.col<int>("hidden");
+	cdouble::host_t lb      = in.col<double>("lb");
+	cint::host_t pIdx       = in.col<int>("projIdx");
+	cint::host_t	hidden  = in.col<int>("hidden");
 
+	// debugging statistics
+	int nstars[2] = { 0, 0 };
 	for(size_t row=begin; row < end; row++)
 	{
 		// clip everything outside the footprint polygon
 		Radians l = rad(lb(row, 0));
 		Radians b = rad(lb(row, 1));
+		int projIdx = pIdx[row];
+		nstars[projIdx]++;
+
 		Radians x, y;
-		proj.convert(l, b, x, y);
+		proj[projIdx].convert(l, b, x, y);
+		
+		// immediately reject if in the southern hemisphere (for this projection)
+		if(sqr(x) + sqr(y) > 2.)
+		{
+			hidden[row] = 1;
+			continue;
+		}
+
+		partitioned_skymap *skymap = sky[projIdx];
 		std::pair<int, int> XY;
 		XY.first = (int)((x - skymap->x0) / skymap->dx);
 		XY.second = (int)((y - skymap->y0) / skymap->dx);
@@ -617,6 +721,9 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		bool infoot = in_polygon(vtmp, poly);
 		hidden[row] = !infoot;
 	}
+
+	MLOG(verb1) << "nstars north: " << nstars[0];
+	MLOG(verb1) << "nstars south: " << nstars[1];
 
 	return nextlink->process(in, begin, end, rng);
 }

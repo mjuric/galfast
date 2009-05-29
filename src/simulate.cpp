@@ -277,6 +277,121 @@ void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const la
 
 }
 
+void poly_print_info(const gpc_polygon &poly, const char *name = "poly")
+{
+	std::cerr << name << ": ncontours=" << poly.num_contours << "\n";
+	for(int i = 0; i != poly.num_contours; i++)
+	{
+		gpc_vertex_list &contour = poly.contour[i];
+		std::cerr << name << ": contour " << i << ": nvertices=" << contour.num_vertices 
+			<< " area= " << contour_area(poly.contour[i])*sqr(deg(1.))
+			<< (poly.hole[i] ? " (hole)" : "") << "\n";
+	}
+}
+
+// Splits an all-sky map into two nort/south hemisphere maps, possibly including an overlapping margin
+void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, const lambert &nproj, gpc_polygon allsky, Radians margin = rad(0.))
+{
+	const Radians south_pole_epsilon2 = sqr(rad(0.03));
+
+	gpc_polygon northBoundary = make_circle(0, 0, sqrt(2.) + margin, rad(.1));
+	gpc_polygon southBoundary = make_circle(0, 0, sqrt(2.) - margin, rad(.1));
+
+	// North sky (easy)
+	gpc_polygon_clip(GPC_INT, &allsky, &northBoundary, &nsky);
+
+	// South sky (hard)
+	// Algorithm:
+	//  1) Clip with equator
+	//  2) Transform all vertices to south projection
+	//  3) Reconstruct the polygon
+	//  4) Try to detect & fix pileup of vertices near the south pole
+	gpc_polygon_clip(GPC_DIFF, &allsky, &southBoundary, &ssky);
+
+	sproj = lambert(modulo(nproj.l0 + ctn::pi, ctn::twopi), -nproj.phi1);
+	DLOG(verb1) << "South projection pole: " << deg(sproj.l0) << " " << deg(sproj.phi1) << "\n";
+	gpc_vertex pole = {0., 0.};
+	int at = 0;
+	for(int i = 0; i != ssky.num_contours; i++)
+	{
+		gpc_vertex_list &contour = ssky.contour[i];
+		bool south_pole = true;
+//		int atv = 0; gpc_vertex prev = pole;
+		for(int k = 0; k != contour.num_vertices; k++)
+		{
+			Radians l, b;
+			double &x = contour.vertex[k].x;
+			double &y = contour.vertex[k].y;
+
+			nproj.inverse(x, y, l, b);
+			sproj.convert(l, b, x, y);
+
+#if 0
+			// merge adjacent points
+			Radians d2 = sqr(x - prev.x) + sqr(y - prev.y);
+			const Radians epsilon2 = sqr(rad(0.005));
+			if(d2 > epsilon2)
+			{
+				contour.vertex[atv] = contour.vertex[k];
+				atv++;
+				prev = contour.vertex[k];
+			}
+			else
+			{
+				std::cerr << "atv=" << atv << " k=" << k << " merging " << prev.x << "," << prev.y << " w. " << x << "," << y << " d=" << sqrt(d2) << "\n";
+			}
+#endif
+			south_pole &= sqr(x) + sqr(y) < south_pole_epsilon2;
+		}
+//		contour.num_vertices = atv;
+
+		// if the contour contains the projection pole,
+		// invert it's hole significance
+		if(in_contour(pole, contour))
+		{
+			ssky.hole[i] = !ssky.hole[i];
+			south_pole &= ssky.hole[i];
+		}
+		else
+		{
+			south_pole = false;
+		}
+
+		if(south_pole)
+		{
+			DLOG(verb1) << "South pole detected, removing contour " << i << "\n";
+			free(ssky.contour[i].vertex);
+		}
+		else
+		{
+			ssky.hole[at]    = ssky.hole[i];
+			ssky.contour[at] = ssky.contour[i];
+			at++;
+		}
+	}
+	ssky.num_contours = at;
+
+	double  area = polygon_area(allsky) * sqr(deg(1.));
+	double narea = polygon_area(nsky) * sqr(deg(1.));
+	double sarea = polygon_area(ssky) * sqr(deg(1.));
+	double tarea = narea + sarea;
+	double relerr   = fabs(tarea / area - 1.);
+	double abserr   = fabs(tarea - area);
+
+	#define failed  (relerr > 1e-4 && abserr > sqr(0.01))
+	if(1 || margin == 0 && failed)
+	{
+		poly_print_info(nsky, "north");
+		poly_print_info(ssky, "south");
+		std::cerr << "(area, narea+sarea, relerr, abserr, narea, sarea) = "
+			<< area << " " << tarea << " " << relerr << " " << abserr
+			<< "     " << narea << " " << sarea << "\n";
+		assert(margin != 0 || !failed);
+	}
+	#undef failed
+}
+
+gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj);
 gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 {
 	// coordinate system (default: galactic)
@@ -299,7 +414,7 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 	std::istringstream ss(rect);
 	ss >> l0 >> l1 >> b0 >> b1;
 	double dx;
-	cfg.get(dx, "dx", .1);
+	cfg.get(dx, "polydx", .1);
 
 	// Rationalize l
 	l0 = peyton::math::modulo(l0, 360);
@@ -307,16 +422,22 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 	// The complicated if is there to ensure that the common case
 	// of l0=l1=0 (all sky) gets printed out as l0=0, l1=360
 	if(l0 >= l1) { if(l0 == 0) { l1 = 360; } else { l0 -= 360; } }
+	if(fabs((l1 - l0) - 360) < 1e-5)
+	{
+		MLOG(verb1) << "Generating a ring -- delegating to beam footprint generation routine.";
+		Radians r = rad(90. - b0), rhole = rad(90. - b1);
+		return makeBeamMap(lp, bp, r, rhole, proj);
+	}
 
 	MLOG(verb1) << "Projection pole (l, b)               = " << deg(lp) << " " << deg(bp);
 	MLOG(verb1) << "Observed rectangle (l0, l1, b0, b1)  = " << l0 << " " << l1 << " " << b0 << " " << b1;
 	MLOG(verb1) << "Sampling resolution (dx)             = " << dx;
 
 	// South pole causes a divergence in lambert routines
-	if(b0 <= -89.99999999)
+	if(b0 <= -89.99)
 	{
-		b0 = -89.9999;
-		MLOG(verb1) << "Footprint includes the south pole. Setting b0=" << b0 << " to avoid numerical issues.";
+		b0 = -89.99;
+		MLOG(verb1) << "Footprint includes or approaches the south pole. Setting b0=" << b0 << " to avoid numerical issues.";
 	}
 
 	// Upper/lower edge
@@ -372,6 +493,8 @@ void makeRectMap(const std::string &output, peyton::system::Config &cfg, bool sm
 	lambert proj;
 	gpc_polygon sky = makeRectMap(cfg, proj);
 
+//	gpc_polygon nsky, ssky; makeHemisphereMaps(nsky, ssky, proj, sky); exit();
+
 	writeGPCPolygon(output, sky, proj, smOutput);
 	gpc_free_polygon(&sky);
 }
@@ -389,8 +512,8 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 	lambert pproj(rad(0), rad(90));
 	if(fabs(r/ctn::pi - 1) < 1e-5) // Full sky ?
 	{
-		MLOG(verb1) << "DANGER: Detected attempt to compute full sky. There may be a small region around the south pole with no stars present. Aborting preventively.";
-		abort();
+		//MLOG(verb1) << "DANGER: Detected attempt to compute full sky. There may be a small region around the south pole with no stars present. Aborting preventively.";
+		//abort();
 		r = 1.99999999;
 	}
 	else if(r > ctn::pi)
@@ -453,6 +576,8 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 		MLOG(verb1) << "Details: expected=" << area_expected*sqr(deg(1)) << " polygonized=" << area_poly*sqr(deg(1)) << " relerr=" << err << " abserr=" << aerr*sqr(deg(1));
 		abort();
 	}
+
+//	gpc_polygon nsky, ssky; makeHemisphereMaps(nsky, ssky, proj, sky); exit();
 
 	return sky;
 }

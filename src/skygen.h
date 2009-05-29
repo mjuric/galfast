@@ -78,6 +78,7 @@ struct lfTextureManager
 	lfParams set(float *cpu_lf, int lfLen, float M0, float M1, float dM);
 	lfParams load(const char *fn);
 	lfParams loadConstant(float val);
+	void bind();
 	void free();
 };
 
@@ -202,6 +203,16 @@ struct direction
 	{ }
 };
 
+struct ALIGN(16) skypixel : public direction
+{
+	int projIdx;
+
+	skypixel() {}
+	skypixel(Radians l_, Radians b_, int projIdx_)
+	: direction(l_, b_), projIdx(projIdx_)
+	{ }
+};
+
 class lambert
 {
 public:
@@ -289,6 +300,7 @@ __device__ float3 position(const direction &p, const float d)
 struct ALIGN(16) ocolumns
 {
 	column_types::cdouble::gpu_t	lb;
+	column_types::cint::gpu_t	projIdx;
 	column_types::cfloat::gpu_t	m, M, XYZ;
 	column_types::cint::gpu_t	comp;
 };
@@ -301,13 +313,13 @@ struct ALIGN(16) runtime_state
 	cux_ptr<int> cont, ilb, im, iM, k, bc;
 	cux_ptr<float3> pos;
 	cux_ptr<float> D;
-	cux_ptr<direction> dir;
+	cux_ptr<skypixel> pix;
 	cux_ptr<ms_t> ms;
 
 	void alloc(int nthreads)
 	{
 		cont.alloc(nthreads); ilb.alloc(nthreads); im.alloc(nthreads); iM.alloc(nthreads); k.alloc(nthreads); bc.alloc(nthreads);
-		pos.alloc(nthreads); D.alloc(nthreads); dir.alloc(nthreads);
+		pos.alloc(nthreads); D.alloc(nthreads); pix.alloc(nthreads);
 		ms.alloc(nthreads);
 
 		cudaMemset(cont.ptr, 0, nthreads*4); // not continuing a previous run
@@ -315,13 +327,13 @@ struct ALIGN(16) runtime_state
 	void free()
 	{
 		cont.free(); ilb.free(); im.free(); iM.free(); k.free(); bc.free();
-		pos.free(); D.free(); dir.free();
+		pos.free(); D.free(); pix.free();
 		ms.free();
 	}
 	void constructor()	// as CUDA doesn't allow real constructors
 	{
 		cont = ilb = im = iM = k = bc = 0;
-		pos = 0; D = 0; dir = 0;
+		pos = 0; D = 0; pix = 0;
 		ms = 0;
 	}
 	void destructor()
@@ -333,7 +345,7 @@ struct ALIGN(16) runtime_state
 		free();
 	}
 
-	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, direction &dir, typename Model::state &ms) const
+	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, typename Model::state &ms) const
 	{
 		ilb = this->ilb[tid];
 		im  = this->im[tid];
@@ -341,12 +353,12 @@ struct ALIGN(16) runtime_state
 		k   = this->k[tid];
 		bc  = this->bc[tid];
 		pos = this->pos[tid];
-		dir = this->dir[tid];
+		pix = this->pix[tid];
 		D   = this->D[tid];
 		ms  = this->ms[tid];
 	}
 
-	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, direction dir, typename Model::state ms) const
+	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, typename Model::state ms) const
 	{
 		this->ilb[tid] = ilb;
 		this->im[tid]  = im;
@@ -354,7 +366,7 @@ struct ALIGN(16) runtime_state
 		this->k[tid]   = k;
 		this->bc[tid]  = bc;
 		this->pos[tid] = pos;
-		this->dir[tid] = dir;
+		this->pix[tid] = pix;
 		this->D[tid]   = D;
 		this->ms[tid]  = ms;
 
@@ -371,7 +383,7 @@ struct ALIGN(16) skyConfigGPU
 
 	Model_t model;
 
-	cux_ptr<direction> pixels;	// pixels on the sky to process
+	cux_ptr<skypixel> pixels;	// pixels on the sky to process
 	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
 	float m0, m1, dm;		// apparent magnitude range
 	float M0, M1, dM;		// absolute magnitude range
@@ -394,7 +406,7 @@ struct ALIGN(16) skyConfigGPU
 
 	template<int draw> __device__ void kernel() const;
 	__device__ float3 compute_pos(float &D, float M, const int im, const direction &dir) const;
-	__device__ bool advance(int &ilb, int &i, int &j, direction &dir, const int x, const int y) const;
+	__device__ bool advance(int &ilb, int &i, int &j, skypixel &pix, const int x, const int y) const;
 };
 
 class opipeline;
@@ -405,8 +417,8 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 
 	gpuRng *rng;
 	unsigned seed;
-	direction *cpu_pixels;
-	lambert proj;
+	skypixel *cpu_pixels;
+	lambert proj[2];	// north/south sky lambert projections
 
 	// return
 	float nstarsExpected;

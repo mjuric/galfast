@@ -947,7 +947,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, 128, sizeof(float)*ncolors), lt, flags, bmag, Mr, mags, FeH);
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, bmag, Mr, mags, FeH);
 
 	return nextlink->process(in, begin, end, rng);
 }
@@ -1173,7 +1173,7 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	if(coordsys == EQU)
 	{
 		cdouble &out = in.col<double>("radec");
-		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end, 128), coordsys, lb, out);
+		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
 	}
 
 	return nextlink->process(in, begin, end, rng);
@@ -1327,11 +1327,10 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 		headerWritten = true;
 	}
 
-/*	size_t cnt = 0;
-	while(cnt < count && (out.out() << data[cnt] << "\n")) { cnt++; tick.tick(); }*/
 	swatch.start();
 
-	size_t nserialized;
+	size_t nserialized = 0;
+#if 1
 	if(t.have_column("hidden"))
 	{
 		column_types::cint::host_t   hidden = t.col<int>("hidden");
@@ -1341,14 +1340,20 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	{
 		nserialized = t.serialize_body(out.out(), from, to);
 	}
-
+#endif
 	swatch.stop();
 	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
-// 	delete [] data;
-// 	data = NULL;
+	// quick hack to limit the number of stars that can be generated
+	static int ntotal = 0;
+	ntotal += nserialized;
+	const static int nmax = 100*1000*1000;
+	if(ntotal > nmax)
+	{
+		THROW(EAny, "Output currently limited to not (much) more than " + str(ntotal) + " stars.");
+	}
 
 	return nserialized;
 }

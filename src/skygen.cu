@@ -41,7 +41,7 @@
 
 __device__ __constant__ gpuRng rng;
 __device__ __constant__ skyConfigGPU<expModel> expModelSky;
-__device__ __constant__ lambert proj;
+__device__ __constant__ lambert proj[2];
 
 lfTextureManager texLFMgr(texLF);
 lfParams lfTextureManager::set(float *cpu_lf, int lfLen, float M0, float M1, float dM)
@@ -52,9 +52,16 @@ lfParams lfTextureManager::set(float *cpu_lf, int lfLen, float M0, float M1, flo
 	par = make_lfParams(M0, M1, dM);
 	cuxErrCheck( cudaMallocArray( &lfArray, &texref.channelDesc, lfLen, 1));
 	cuxErrCheck( cudaMemcpyToArray( lfArray, 0, 0, cpu_lf, lfLen*sizeof(float), cudaMemcpyHostToDevice));
-	cuxErrCheck( cudaBindTextureToArray(&texref, lfArray, &texref.channelDesc) );
+	bind();
 
 	return par;
+}
+
+void lfTextureManager::bind()
+{
+	fprintf(stderr, "Binding luminosity function texture.\n");
+	assert(lfArray);
+	cuxErrCheck( cudaBindTextureToArray(&texref, lfArray, &texref.channelDesc) );
 }
 
 void lfTextureManager::free()
@@ -227,7 +234,7 @@ __device__ bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, con
 }
 
 template<typename T>
-__device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, direction &dir, const int x, const int y) const
+__device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir, const int x, const int y) const
 {
 	i++; j--;
 
@@ -289,7 +296,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 {
 	int ilb, im, iM;
 	float3 pos;
-	direction dir;
+	skypixel pix;
 	int k;
 
 	double count = 0.f;
@@ -310,7 +317,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	{
 		if(ks.continuing(tid))
 		{
-			ks.load(tid,   ilb, im, iM, k, bc, pos, D, dir, ms);
+			ks.load(tid,   ilb, im, iM, k, bc, pos, D, pix, ms);
 		}
 		if(ilb >= npixels) { return; } // this thread has already finished
 		rng.load(tid);
@@ -327,12 +334,12 @@ __device__ void skyConfigGPU<T>::kernel() const
 			diagIndexToIJ(ilb, im, iM, k, nm, nM);
 			if(ilb >= npixels) { break; }
 
-			dir = pixels[ilb];
+			pix = pixels[ilb];
 			moved = true;
 		}
 		else
 		{
-			moved = advance(ilb, im, iM, dir, nm, nM);
+			moved = advance(ilb, im, iM, pix, nm, nM);
 		}
 
 #if _EMU_DEBUG
@@ -362,7 +369,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 			{
 				float D2;
 				float M = M1 - iM*dM;
-				float3 pos2 = compute_pos(D2, M, im, dir);
+				float3 pos2 = compute_pos(D2, M, im, pix);
 				if(fabsf(D/D2-1) > 1e-5)
 				{
 					printf("ERROR: Unexpected distance while not moving! Old D = %f, new D = %f\n", D, D2);
@@ -380,7 +387,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 			if(ilb >= npixels) { break; }
 
 			// we moved to a new distance bin. Recompute and reset.
-			pos = compute_pos(D, M, im, dir);
+			pos = compute_pos(D, M, im, pix);
 			model.setpos(ms, pos.x, pos.y, pos.z);
 		}
 
@@ -405,16 +412,18 @@ __device__ void skyConfigGPU<T>::kernel() const
 					float D = powf(10, 0.2f*(mtmp - Mtmp) + 1.f);
 
 					float x, y;
-					proj.convert(dir, x, y);
+					stars.projIdx[idx] = pix.projIdx;
+					proj[pix.projIdx].convert(pix, x, y);
 					x += dx*(rng.uniform() - 0.5f);
 					y += dx*(rng.uniform() - 0.5f);
 
 					double l, b;
-					proj.inverse(x, y, l, b);
+					proj[pix.projIdx].inverse(x, y, l, b);
 					direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
 
 					l *= dbl_r2d;
 					if(l < 0.) l += 360.;
+					if(l > 360.) l -= 360.;
 					b *= dbl_r2d;
 					stars.lb(idx, 0) = l;
 					stars.lb(idx, 1) = b;
@@ -463,7 +472,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	else
 	{
 		// store execution state
-		ks.store(tid,   ilb, im, iM, k, bc, pos, D, dir, ms);
+		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, ms);
 		rng.store(tid);
 	}
 

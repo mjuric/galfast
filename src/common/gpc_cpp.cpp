@@ -80,6 +80,12 @@ BISTREAM2(gpc_polygon& p)
 void poly_bounding_box(double &x0, double &x1, double &y0, double &y1,
 	const gpc_polygon &p)
 {
+	if(p.num_contours == 0)
+	{
+		x0 = x1 = y0 = y1 = 0;
+		return;
+	}
+
 	// find minimum and maximum vertex
 	x0 = x1 = p.contour[0].vertex[0].x;
 	y0 = y1 = p.contour[0].vertex[0].y;
@@ -114,6 +120,19 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 }
 
 // calculate and return the area of a gpc_polygon
+#if 1
+double polygon_area(const gpc_polygon &p)
+{
+	double A = 0;
+	FOR(0, p.num_contours)
+	{
+		double cA = contour_area(p.contour[i]);
+		if(p.hole[i]) cA *= -1;
+		A += cA;
+	}
+	return fabs(A);
+}
+#else
 double polygon_area(const gpc_polygon &p)
 {
 	double A = 0;
@@ -134,6 +153,22 @@ double polygon_area(const gpc_polygon &p)
 	}
 	A *= 0.5;
 	return abs(A);
+}
+#endif
+
+// calculate and return the area of a gpc_vertex_list
+double contour_area(const gpc_vertex_list &c)
+{
+	gpc_vertex *v = c.vertex;
+	double cA = 0;
+	FORj(j, 0, c.num_vertices)
+	{
+		gpc_vertex &a = v[j];
+		gpc_vertex &b = (j + 1 == c.num_vertices) ? v[0] : v[j+1];
+
+		cA += a.x*b.y - b.x*a.y;
+	}
+	return 0.5*fabs(cA);
 }
 
 

@@ -78,7 +78,7 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	ct::cdouble &lb0 = in.col<double>("lb");
 	ct::cfloat  &XYZ  = in.col<float>("XYZ");
 	ct::cfloat  &vcyl = in.col<float>("vcyl");
-	ct::cfloat  &pmlb = in.col<float>("pmlb");
+	ct::cfloat  &pmlb = in.col<float>(output_col_name);
 
 	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl,pmlb);
 	return nextlink->process(in, begin, end, rng);
@@ -89,9 +89,10 @@ bool os_vel2pm::construct(const Config &cfg, otable &t, opipeline &pipe)
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
 	cfg.get(cs, "coordsys", "gal");
-	     if(cs == "gal") { coordsys = GAL; prov.insert("pmlb[3]"); }
-	else if(cs == "equ") { coordsys = EQU; prov.insert("pmradec[3]"); }
+	     if(cs == "gal") { coordsys = GAL; output_col_name = "pmlb"; }
+	else if(cs == "equ") { coordsys = EQU; output_col_name = "pmradec"; }
 	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
+	prov.insert(output_col_name);
 
 	// LSR and peculiar Solar motion
 	cfg.get(vLSR, "vLSR", -220.0f);

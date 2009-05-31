@@ -136,7 +136,9 @@ class os_fixedFeH : public osink
 
 // convert velocities to proper motions
 class os_vel2pm : public osink , public os_vel2pm_data
-{	
+{
+protected:
+	std::string output_col_name;
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);

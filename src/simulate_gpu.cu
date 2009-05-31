@@ -163,6 +163,74 @@ __device__ inline void vel_cyl2xyz(float &vx, float &vy, float &vz, const float 
 	vz = vz0;
 }
 
+typedef double Radians;
+using namespace peyton;
+
+namespace galequ_constants
+{
+	static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
+	//static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+	static const double l0 = ctn::d2r * 32.932;	// galactic longitude of ascending node of galactic coordinate system (where b=0, dec=0)
+	static const double ce = 0.88998740217659689; // cos(dngp)
+	static const double se = 0.45598511375586859; // sin(dngp)
+};
+
+namespace float_galequ_constants
+{
+	static const float ce = (float)galequ_constants::ce;
+	static const float se = (float)galequ_constants::se;
+	static const float l0 = (float)galequ_constants::l0;
+};
+
+float __device__ sqrf(float x) { return x*x; }	
+
+static const float flt_d2r = (float)ctn::d2r;
+static const float flt_r2d = (float)(1./ctn::d2r);
+inline __device__ float deg(float radians)
+{
+	return flt_r2d * radians;
+}
+
+/*
+	Convert proper motions in one coordinate system to de. The coordinate
+	system orientations are given by specifying the pole of the source coordinate
+	system in destination coordinates, and the longitude of ascending node
+	of the source coordinate system, in source coordinates.
+
+	Uses single-precision floating point arithmetic.
+
+	Input:		l,b in radians; vl,vb (units not important)
+	Output:		vlout, vbout in destination coordinate system
+*/
+__device__ inline void transform_pm(float &vlout, float &vbout, float l, float b, float vl, float vb,
+	const float ce, const float se, const float l0)
+{
+	float cb = cosf(b);
+	float sb = sinf(b);
+	float cl = cosf(l - l0);
+	float sl = sinf(l - l0);
+
+	float tmp1 = cb * se - ce * sb * sl; // ??
+	float tmp2 = ce * sb - cb * se * sl; // \propto cos(alpha)
+	float tmp3 = sb * se + cb * ce * sl; // sin(delta)
+
+	vlout = (-ce * cl * vb + cb * tmp1 * vl) / ( sqrf(cb * cl) + sqrf(tmp2) );
+	vbout = (tmp1 * vb  + cb * ce * cl * vl) / sqrtf(1 - sqr(tmp3));
+}
+
+/*
+	Convert proper motions in galactic coordinate system to proper motions in equatorial
+	coordinate system. Uses single-precision floating point arithmetic.
+
+	Input:		l,b in radians; vl,vb (units not important)
+	Output:		vra,vdec (in units of vl,vb)
+*/
+__device__ inline void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb)
+{
+	using namespace float_galequ_constants;
+	transform_pm(vra, vdec, l, b, vl, vb, ce, se, l0);
+}
+
 KERNEL(
 	ks, 0, 
 	os_vel2pm_kernel(
@@ -170,9 +238,9 @@ KERNEL(
 		ct::cdouble::gpu_t lb0, 
 		ct::cfloat::gpu_t XYZ,
 		ct::cfloat::gpu_t vcyl,  
-		ct::cfloat::gpu_t pmlb),
+		ct::cfloat::gpu_t pmout),
 	os_vel2pm_kernel,
-	(ks, par, rng, lb0, XYZ, vcyl,pmlb)
+	(ks, par, rng, lb0, XYZ, vcyl, pmout)
 )
 {
 
@@ -219,9 +287,14 @@ KERNEL(
 		case GAL:
 			break;
 		case EQU:
-			//THROW(EAny, "Output in equatorial system not implemented yet.");
-			//array_copy(s.pmradec(), pm, 3);
-			pm[0] = pm[1] = pm[2] = -9.99;
+/*#if __DEVICE_EMULATION__
+			fprintf(stderr, "before = %f %f %f %f\n", deg(l), deg(b), pm[0], pm[1]);
+#endif*/
+			pm_galequ(pm[0], pm[1], l, b, pm[0], pm[1]);
+/*#if __DEVICE_EMULATION__
+			fprintf(stderr, "after = %f %f\n", pm[0], pm[1]);
+			abort();
+#endif*/
 			break;
 		default:
 			//THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
@@ -229,9 +302,9 @@ KERNEL(
 			break;
 		}
 
-		pmlb(row, 0) = pm[0];
-		pmlb(row, 1) = pm[1];
-		pmlb(row, 2) = pm[2];
+		pmout(row, 0) = pm[0];
+		pmout(row, 1) = pm[1];
+		pmout(row, 2) = pm[2];
 	}
 }
 
@@ -241,7 +314,6 @@ KERNEL(
 //    kinTMIII
 //======================================================================
 //======================================================================
-float __device__ sqrf(float x) { return x*x;}	
 
 #if 1
 
@@ -425,15 +497,11 @@ KERNEL(
 
 // equgal - Equatorial to Galactic coordinates
 using namespace peyton;
-typedef double Radians;
-static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
-//static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
-static const double l0 = ctn::d2r * 32.932;
-static const double ce = 0.88998740217659689; // cos(dngp)
-static const double se = 0.45598511375586859; // sin(dngp)
 
 inline __device__ double2 galequ(const double2 lb)
 {
+	using namespace galequ_constants;
+
 	const double cb = cos(lb.y);
 	const double sb = sin(lb.y);
 	const double cl = cos(lb.x-l0);

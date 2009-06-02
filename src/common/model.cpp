@@ -392,6 +392,26 @@ void otable::columndef::unserialize(std::istream &in, const size_t row)
 	}
 }
 
+size_t otable::columndef::setFieldNames(const std::map<int, std::string> &names)
+{
+	fieldNames.str2idx.clear();
+	fieldNames.idx2str.clear();
+
+	FOREACH(names)
+	{
+		assert(!fieldNames.idx2str.count(i->first));
+		assert(!fieldNames.str2idx.count(i->second));
+
+		fieldNames.idx2str[i->first] = i->second;
+		fieldNames.str2idx[i->second] = i->first;
+	}
+}
+
+size_t otable::columndef::getFieldNames(std::map<int, std::string> &names) const
+{
+	names = fieldNames.idx2str;
+}
+
 size_t otable::columndef::getFieldNames(std::set<std::string> &names) const
 {
 	FOREACH(fieldNames.str2idx)
@@ -616,12 +636,12 @@ otable::columndef &otable::use_column(const std::string &coldef, bool setOutput)
 	return *col;
 }
 
-otable::columndef &otable::use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, bool setOutput)
+otable::columndef &otable::use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, std::map<int, std::string> *newFieldNames, bool setOutput)
 {
 	ASSERT(columns.count(newColumnName) == 0);
 
 	columndef &exCol = getColumn(existingColumnName);
-	boost::shared_ptr<columndef> col = columns[newColumnName] = exCol.clone(newColumnName);
+	boost::shared_ptr<columndef> col = columns[newColumnName] = exCol.clone(newColumnName, newFieldNames);
 
 	col->alloc(length); // Ensure the column is allocated
 

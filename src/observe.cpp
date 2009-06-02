@@ -199,7 +199,15 @@ bool os_photometricErrors::runtime_init(otable &t)
 
 			if(!t.have_column(obsBandset))
 			{
-				t.use_column_by_cloning(obsBandset, trueBandset);
+				std::map<int, std::string> fieldNames;
+				t.getColumn(trueBandset).getFieldNames(fieldNames);
+				FOREACH(fieldNames)
+				{
+					fieldNames[i->first] = "obs" + i->second;
+					//std::cerr << fieldNames[i->first];
+				}
+				//abort();
+				t.use_column_by_cloning(obsBandset, trueBandset, &fieldNames);
 			}
 
 			int bandIdx = cdef.getFieldIndex(*i);
@@ -656,6 +664,7 @@ class os_photometry : public osink
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+		virtual bool runtime_init(otable &t);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
 		os_photometry() : osink() /*, offset_absmag(-1), offset_mag(-1)*/
@@ -663,6 +672,23 @@ class os_photometry : public osink
 			req.insert("FeH");
 		}
 };
+
+bool os_photometry::runtime_init(otable &t)
+{
+#if 0
+	// hide the bootstrap band from output, if it's in list of bands
+	// that we're going to output
+	FOREACH(bnames)
+	{
+		if(*i == bband)
+		{
+			t.getColumn(bband).set_hidden(true);
+			std::cerr << bband << ".hidden = " << t.getColumn(bband).hidden() << "\n";
+		}
+	}
+#endif
+	return osink::runtime_init(t);
+}
 
 struct Mr2col
 {
@@ -1470,33 +1496,12 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	std::string which;
 	while(!stages.empty())
 	{
-#if 0
-		// get all currently available (used) tags
-		std::set<std::string> haves;
-		t.get_used_columns(haves);
-
-		// debugging output
-		std::ostringstream ss;
-		FOREACH(haves) { ss << *i << " "; };
-		DLOG(verb2) << "haves: " << ss.str();
-#endif
-
 		// find next pipeline stage that is satisfied with the available tags
 		bool foundOne = false;
 		FOREACH(stages)
 		{
 			opipeline_stage &s = *i->second;
-#if 0
-			if(!s.satisfied_with(haves)) { continue; }
-#endif
 
-#if 0
-			// check for collisions
-			if(s.provides_any_of(haves, which))
-			{
-				THROW(EAny, "Another module already provides " + which + ", that " + s.name() + " is trying to provide");
-			}
-#endif
 			// initialize this pipeline stage (this typically adds and uses the columns
 			// this stage will add)
 			if(!s.runtime_init(t)) { continue; }
@@ -1536,6 +1541,18 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		ss << " -> " << last->name();
 	}
 	MLOG(verb1) << "Postprocessing module chain: " << ss.str();
+
+#if 0
+	//
+	bool dryRun = true;
+	if(dryRun)
+	{
+		std::cout << "###GENERATED_COLUMNS: ";
+		t.serialize_header(std::cout);
+		std::cout << "\n";
+		return 0;
+	}
+#endif
 
 	int ret = source->run(t, rng);
 

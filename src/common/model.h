@@ -430,7 +430,7 @@ public:
 		otable &parent;					// parent table of this column
 
 	protected:
-		boost::shared_ptr<columndef> clone(const std::string &newColumnName) const
+		boost::shared_ptr<columndef> clone(const std::string &newColumnName, const std::map<int, std::string> *newFieldNames = NULL) const
 		{
 			boost::shared_ptr<columndef> c(new columndef(parent));
 			c->columnName = newColumnName;
@@ -442,8 +442,10 @@ public:
 			c->typeProxy = typeProxy;
 
 			c->m_hidden = m_hidden;
-			c->fieldNames.str2idx = fieldNames.str2idx;
-			c->fieldNames.idx2str = fieldNames.idx2str;
+
+			c->setFieldNames(newFieldNames ? *newFieldNames : fieldNames.idx2str);
+// 			c->fieldNames.str2idx = fieldNames.str2idx;
+// 			c->fieldNames.idx2str = fieldNames.idx2str;
 
 			return c;
 		}
@@ -458,6 +460,10 @@ public:
 		bool hidden() const
 		{
 			return this->m_hidden;
+		}
+		void set_hidden(bool h)
+		{
+			this->m_hidden = h;
 		}
 
 		const column_type_traits *type() const
@@ -517,7 +523,9 @@ public:
 		virtual void serialize_def(std::ostream &out) const;	// write out the definition of this column
 		size_t capacity() const { return ptr.nrows(); }
 		const std::string &className() const { static std::string empty; return columnClass ? columnClass->className : empty; }
+		size_t setFieldNames(const std::map<int, std::string> &names);
 		size_t getFieldNames(std::set<std::string> &names) const;
+		size_t getFieldNames(std::map<int, std::string> &names) const;
 		int getFieldIndex(const std::string &name) const
 		{
 			if(!fieldNames.str2idx.count(name)) { return -1; }
@@ -579,7 +587,7 @@ public:
 	bool have_column(const std::string &name) const { return columns.count(name); }
 
 	columndef &use_column(const std::string &coldef, bool setOutput = true);
-	columndef &use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, bool setOutput = true);
+	columndef &use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, std::map<int, std::string> *newFieldNames = NULL, bool setOutput = true);
 	size_t get_used_columns(std::set<std::string> &cols) const;		// returns the list of columns in use
 	size_t get_used_columns_by_class(std::set<std::string> &cols, const std::string &className) const;
 	void alias_column(const std::string &column, const std::string &alias)

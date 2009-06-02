@@ -664,7 +664,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 	xptrng::tptr<float4> texc;
 	xptrng::tptr<uint4>  texf;
 	int texid = 0;
-	for(int i=0; i != loc->size(); i += 4)
+	for(int i=0; i < loc->size(); i += 4)
 	{
 		// Get the pre-built arrays cached across kernel calls
 		char idx[50];
@@ -724,6 +724,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		cflagsTextures[texid]->filterMode = cudaFilterModePoint;
 		cflagsTextures[texid]->normalized = false;    // access with normalized texture coordinates
 		cuxErrCheck( cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc) );
+
+		texid++;
 	}
 #endif
 }

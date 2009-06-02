@@ -261,6 +261,8 @@ bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pi
 		size_t pos = path.size();
 		path += "*.photoerr.txt";
 		peyton::io::dir dir(path);
+		
+		MLOG(verb1) << "Looking for error definition files for " << bandset << " (" << path << ")";
 
 		FOREACH(dir)
 		{
@@ -1589,7 +1591,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 500000;
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
-	static const size_t Kbatch = 5000000;
+	static const size_t Kbatch = 500000;
 	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects\n";
 	otable t(Kbatch);
 

@@ -286,6 +286,9 @@ void otable::columnclass::set_property(const std::string &key, const std::string
 		ASSERT(typeProxy);
 		return;
 	}
+
+	// default: store the property in m_properties map
+	m_properties[key] = value;
 }
 
 void otable::columndef::set_property(const std::string &key, const std::string &value)
@@ -365,6 +368,9 @@ void otable::columndef::set_property(const std::string &key, const std::string &
 		} while(len != std::string::npos);
 		return;
 	}
+
+	// default: store the property in m_properties map
+	m_properties[key] = value;
 }
 
 void otable::columndef::serialize(fmtout &line, const size_t row) const
@@ -460,6 +466,17 @@ void otable::columndef::serialize_def(std::ostream &out) const
 		if(i->second.get() != this) { continue; }
 		if(i->first == columnName) { continue; }
 		ss << "alias=" << i->first << ";";
+	}
+
+	// properties
+	FOREACH(m_properties)
+	{
+		const std::string &key = i->first, &val = i->second;
+
+		// ignore if this property is there by default
+		if(dflt && dflt->get_property(key) == val) { continue; }
+
+		ss << i->first << "=" << i->second << ";";
 	}
 
 	// output details only if they differ from defaults

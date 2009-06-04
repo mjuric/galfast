@@ -30,6 +30,7 @@
 
 #include "column.h"
 #include "gpu.h"
+#include "skygen.h"
 
 #include "simulate_base.h"
 
@@ -129,8 +130,8 @@ KERNEL(
 //======================================================================
 //======================================================================
 
-template<typename T>
-__device__ inline __device__ T sqr(const T x) { return x*x; }
+// template<typename T>
+// __device__ inline __device__ T sqr(const T x) { return x*x; }
 
 __device__ inline double rad(double deg) { return 0.017453292519943295769  * deg; } // convert deg to rad
 __device__ inline float  radf(float deg) { return 0.017453292519943295769f * deg; } // convert deg to rad
@@ -184,7 +185,7 @@ namespace float_galequ_constants
 
 float __device__ sqrf(float x) { return x*x; }	
 
-static const float flt_d2r = (float)ctn::d2r;
+//static const float flt_d2r = (float)ctn::d2r;
 static const float flt_r2d = (float)(1./ctn::d2r);
 inline __device__ float deg(float radians)
 {
@@ -215,7 +216,7 @@ __device__ inline void transform_pm(float &vlout, float &vbout, float l, float b
 	float tmp3 = sb * se + cb * ce * sl; // sin(delta)
 
 	vlout = (-ce * cl * vb + cb * tmp1 * vl) / ( sqrf(cb * cl) + sqrf(tmp2) );
-	vbout = (tmp1 * vb  + cb * ce * cl * vl) / sqrtf(1 - sqr(tmp3));
+	vbout = (tmp1 * vb  + cb * ce * cl * vl) / sqrtf(1 - sqrf(tmp3));
 }
 
 /*
@@ -277,7 +278,7 @@ KERNEL(
 		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
 
 		// convert to proper motions
-		float D = sqrtf(sqr(8000.f-X) + sqr(Y) + sqr(Z));
+		float D = sqrtf(sqrf(8000.f-X) + sqrf(Y) + sqrf(Z));
 		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
 		pm[1] /= 4.74 * D*1e-3;
 
@@ -567,6 +568,51 @@ KERNEL(
 	}
 }
 
+DEFINE_TEXTURE(secProb);
+DEFINE_TEXTURE(cumLF);
+DEFINE_TEXTURE(invCumLF);
+
+__device__ bool draw_companion(float &M2, float M, gpu_rng_t &rng)
+{
+	// draw the probability that this star has a secondary
+	float psec, u;
+	psec = secProb.sample(M);
+	u = rng.uniform();
+	if(u > psec) { return false; }
+
+	// draw the absolute magnitude of the secondary
+	// subject to the requirement that it is fainter than the primary
+	float pprim = cumLF.sample(M);
+	u = rng.uniform();
+	u = pprim + u / (1. - pprim);
+	M2 = invCumLF.sample(u);
+
+	return true;
+}
+
+KERNEL(
+	ks, 0,
+	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M),
+	os_unresolvedMultiples_kernel,
+	(ks, rng, nabsmag, M)
+)
+{
+	rng.load(threadID());
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
+	{
+		float M1 = M(row, 0);
+		for(int i = 1; i < nabsmag; i++)
+		{
+			float M2;
+			if(draw_companion(M2, M1, rng))
+			{
+				M(row, i) = M2;
+			}
+		}
+	}
+	rng.store(threadID());
+}
+
 #include <vector>
 
 #if BUILD_FOR_CPU && HAVE_CUDA
@@ -740,9 +786,9 @@ typedef ct::cint::gpu_t gcint;
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH),
+	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH),
 	os_photometry_kernel,
-	(ks, lt, flags, bmag, Mr, mags, FeH)
+	(ks, lt, flags, DM, Mr, nabsmag, mags, FeH)
 )
 {
 	float *c = ks.sharedMemory<float>();
@@ -750,19 +796,40 @@ KERNEL(
 	{
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH[row];
-		float fMr = Mr[row];
 		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
-		float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
-		flags[row] = sampleColors(c, iFeH, iMr, lt.ncolors);
 
-		// convert colors to apparent magnitudes
-		float mag0 = bmag[row];
+		// generate system components, compute system luminosity
+		for(int syscomp = 0; syscomp < nabsmag; syscomp++)
+		{
+			float fMr = Mr(row, syscomp);
+			if(fMr >= ABSMAG_NOT_PRESENT) { break; }
+
+			float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
+			int flag = sampleColors(c, iFeH, iMr, lt.ncolors);
+			if(syscomp) { flag &= flags[row]; }
+			flags[row] = flag;
+
+			// compute absolute magnitudes in different bands, and store
+			// as luminosity
+			for(int b = 0; b <= lt.ncolors; b++)
+			{
+				float M = fMr;
+				if(b < lt.bidx) { for(int i=b;       i != lt.bidx; i++) { M += c[i]; } }
+				if(b > lt.bidx) { for(int i=lt.bidx; i != b;    i++)    { M -= c[i]; } }
+
+				float L = exp10f(-0.4f*M);
+				if(syscomp) { L += mags(row, b); }
+				mags(row, b) = L;
+			}
+		}
+
+		// convert luminosity to apparent magnitude of the system
+		float dm = DM[row];
 		for(int b = 0; b <= lt.ncolors; b++)
 		{
-			float mag = mag0;
-			if(b < lt.bidx) { for(int i=b;       i != lt.bidx; i++) { mag += c[i]; } }
-			if(b > lt.bidx) { for(int i=lt.bidx; i != b;    i++) { mag -= c[i]; } }
-			mags(row, b) = mag;
+			float Mtot = -2.5f * log10f(mags(row, b));
+			float mtot = dm + Mtot;
+			mags(row, b) = mtot;
 		}
 
 /*		if(row == 30)

@@ -23,6 +23,8 @@
 
 #include "gpu.h"
 
+static const float ABSMAG_NOT_PRESENT = 999.999f;
+
 struct os_FeH_data
 {
 	float A[2], sigma[3], offs[3];

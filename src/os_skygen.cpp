@@ -448,16 +448,19 @@ bool skyConfig<T>::init(
 	t.use_column("projIdx");
 	t.use_column("XYZ");
 	t.use_column("comp");
+	static const int nabsmag = 2;
 
-	std::string 	colorName, absmagName, magName;
+	std::string 	colorName, absmagName, bandName;
 	colorName = model_cfg.get("color");
-	magName = model_cfg.get("band");
-	absmagName = "abs" + magName;
+	bandName = model_cfg.get("band");
+	absmagName = "abs" + bandName;
 	assert(colorName == absmagName);
+	std::string absmagNameV = absmagName + "[" + str(nabsmag) + "]"; // make absmag a vector to support unresolved multiple systems
 
-	t.use_column(colorName);  t.alias_column(colorName, "color");
-	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
-	t.use_column(magName);	  t.alias_column(magName, "mag");
+	t.use_column(colorName);   t.alias_column(colorName, "color");
+	t.use_column(absmagNameV); t.alias_column(absmagName, "absmag"); t.set_column_property("absmag", "band", bandName);
+//	t.use_column(magName);	   t.alias_column(magName, "mag");
+	t.use_column("DM");
 
 	this->model.load(model_cfg);
 
@@ -524,7 +527,8 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->stars.XYZ     = in.col<float>("XYZ");
 		this->stars.comp    = in.col<int>("comp");
 		this->stars.M       = in.col<float>("absmag");
-		this->stars.m       = in.col<float>("mag");
+		this->stars.DM      = in.col<float>("DM");
+		this->nabsmag       = in.col<float>("absmag").width();
 		//this->stars.color = in.col<float>("color"); -- not implemented yet
 
 		this->upload(true);

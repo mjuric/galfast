@@ -366,10 +366,14 @@ protected:
 	{
 	public:
 		std::string what;
+
+		std::map<std::string, std::string> m_properties;	// arbitrary (key,value) pairs that the user/modules can set and inspect
 	protected:
 		friend class otable;
 
 		virtual void set_property(const std::string &key, const std::string &value) = 0;
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const = 0;
+
 		virtual void serialize_def(std::ostream &out) const = 0;
 
 		kv(const std::string &what_) : what(what_) {}
@@ -404,7 +408,23 @@ protected:
 			// keywords
 			if(!formatString.empty()) { out << "fmt=" << formatString << ";"; }
 
+			// properties
+			FOREACH(m_properties) { out << i->first << "=" << i->second << ";"; }
+
 			out << "}";
+		}
+
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const
+		{
+			std::map<std::string, std::string>::const_iterator it = m_properties.find(key);
+			if(it == m_properties.end())
+			{
+				if(exists != NULL) { *exists = false; }
+				static const std::string empty;
+				return empty;
+			}
+			if(exists != NULL) { *exists = true; }
+			return it->second;
 		}
 	};
 
@@ -444,13 +464,25 @@ public:
 			c->m_hidden = m_hidden;
 
 			c->setFieldNames(newFieldNames ? *newFieldNames : fieldNames.idx2str);
-// 			c->fieldNames.str2idx = fieldNames.str2idx;
-// 			c->fieldNames.idx2str = fieldNames.idx2str;
+
+			c->m_properties = m_properties;
 
 			return c;
 		}
 
 	public:
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const
+		{
+			// return the requested property, if exists, delegate to class otherwise
+			std::map<std::string, std::string>::const_iterator it = m_properties.find(key);
+			if(it == m_properties.end())
+			{
+				return columnClass->get_property(key, exists);
+			}
+			if(exists != NULL) { *exists = true; }
+			return it->second;
+		}
+
 		const std::string &getFormatString() const
 		{
 			if(!formatString.empty()) { return formatString; }
@@ -581,6 +613,10 @@ public:
 	// column lookup by name
 	columndef &getColumn(const std::string &name);
 	const columndef &getColumn(const std::string &name) const;
+	void set_column_property(const std::string &name, const std::string &key, const std::string &value)
+	{
+		getColumn(name).set_property(key, value);
+	}
 
 	template<typename T> column<T>       &col(const std::string &name)       { return getColumn(name).dataptr<T>(); }
 	template<typename T> const column<T> &col(const std::string &name) const { return getColumn(name).dataptr<T>(); }
@@ -647,9 +683,10 @@ class opipeline_stage
 
 		static const int PRIORITY_INPUT      = -10000;
 		static const int PRIORITY_STAR       =      0;
+		static const int PRIORITY_SPACE      =    100;
 		static const int PRIORITY_INSTRUMENT =   1000;
 		static const int PRIORITY_OUTPUT     =  10000;
-		virtual int priority() { return PRIORITY_STAR; }
+		virtual int priority() { return PRIORITY_SPACE; }
 
 	public:
 // 		bool inits(const std::string &cfgstring, otable &t, opipeline &pipe) { return inits(cfgstring.c_str(), t, pipe); }

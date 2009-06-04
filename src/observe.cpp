@@ -65,7 +65,7 @@ bool opipeline_stage::runtime_init(/*const std::list<opipeline_stage *> &pipelin
 	// test if otable has all the necessary prerequisites
 	FOREACH(req)
 	{
-		if(!t.have_column(*i))
+		if(!t.using_column(*i))
 		{
 			DLOG(verb2) << "Failed on: " << *i;
 			std::cerr << "Failed on: " << *i << "\n";
@@ -197,7 +197,7 @@ bool os_photometricErrors::runtime_init(otable &t)
 			if(!errors.count(*i)) { continue; }			// don't have errors for this band
 			spline &bandErrors = errors[*i];
 
-			if(!t.have_column(obsBandset))
+			if(!t.using_column(obsBandset))
 			{
 				std::map<int, std::string> fieldNames;
 				t.getColumn(trueBandset).getFieldNames(fieldNames);
@@ -1349,7 +1349,7 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 	size_t nserialized = 0;
 #if 1
-	if(t.have_column("hidden"))
+	if(t.using_column("hidden"))
 	{
 		column_types::cint::host_t   hidden = t.col<int>("hidden");
 		nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden));

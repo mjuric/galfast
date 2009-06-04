@@ -688,6 +688,12 @@ void otable::init()
 	}
 }
 
+bool otable::using_column(const std::string &name) const
+{
+	if(!columns.count(name)) return false;
+	return columns.at(name)->capacity() != 0;
+}
+
 size_t otable::get_used_columns(std::set<std::string> &cols) const
 {
 	cols.clear();

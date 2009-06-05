@@ -156,7 +156,7 @@ __device__ void lbr2xyz(float &x, float &y, float &z, Radians l, Radians b, floa
 }
 
 // convert cartesian _Galactic_ (not galactocentric!!) velocities to vl,vr,vb wrt. the observer (velocity units are unimportant)
-__device__ inline void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
+__device__ void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
 {
 	float cl, sl, cb, sb;
 	cl = cosf(l);

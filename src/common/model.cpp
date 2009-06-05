@@ -426,6 +426,20 @@ size_t otable::columndef::getFieldNames(std::set<std::string> &names) const
 	}
 }
 
+size_t otable::columndef::getAliases(std::set<std::string> &result) const
+{
+	// aliases
+	result.clear();
+	FOREACH(parent.columns)
+	{
+		if(i->second.get() != this) { continue; }
+		if(i->first == columnName) { continue; }
+		result.insert(i->first);
+	}
+
+	return result.size();
+}
+
 void otable::columndef::serialize_def(std::ostream &out) const
 {
 	out << columnName;
@@ -489,6 +503,7 @@ void otable::columndef::serialize_def(std::ostream &out) const
 
 void otable::getColumnsForOutput(std::vector<const columndef*> &outColumns) const
 {
+	outColumns.clear();
 	FOREACH(colOutput)
 	{
 		if(!columns.count(*i)) continue;		// don't display columns that have not been created
@@ -498,10 +513,62 @@ void otable::getColumnsForOutput(std::vector<const columndef*> &outColumns) cons
 	}
 }
 
-std::ostream& otable::serialize_header(std::ostream &out) const
+
+struct pred_col_less
 {
-	std::vector<const columndef*> outColumns;
+	std::map<std::string, int> &field;
+
+	pred_col_less(std::map<std::string, int> &f) : field(f) { }
+
+	int get_rank(const otable::columndef *a) const
+	{
+		// find alias with the smallest rank
+		std::map<std::string, int>::iterator it = field.find(a->getPrimaryName());
+		int rank = it != field.end() ? it->second : 1000;
+
+		std::set<std::string> aliases;
+		a->getAliases(aliases);
+		FOREACH(aliases)
+		{
+			it = field.find(*i);
+			if(it == field.end()) { continue; }
+			rank = std::min(rank, it->second);
+		}
+		return rank;
+	}
+
+	bool operator()(const otable::columndef *a, const otable::columndef *b) const
+	{
+		int ranka = get_rank(a), rankb = get_rank(b);
+		if(ranka == rankb) { return a->getPrimaryName() < b->getPrimaryName(); }
+		return ranka < rankb;
+	}
+};
+
+std::ostream& otable::serialize_header(std::ostream &out)
+{
 	getColumnsForOutput(outColumns);
+
+	// sort the output columns into a sane
+	std::map<std::string, int> field;
+	int ord = 1;
+	field["lb"] = ord++;
+	field["radec"] = ord++;
+	field["XYZ"] = ord++;
+	field["DM"] = ord++;
+	field["absmag"] = ord++;
+	field["comp"] = ord++;
+	field["FeH"] = ord++;
+	field["vcyl"] = ord++;
+	field["pmlb"] = ord++;
+	field["pmradec"] = ord++;
+	std::sort(outColumns.begin(), outColumns.end(), pred_col_less(field));
+	
+	FOREACH(outColumns)
+	{
+		std::cerr << (*i)->getPrimaryName() << " ";
+	}
+	std::cerr << "\n";
 
 	FOREACH(outColumns)
 	{
@@ -516,9 +583,6 @@ size_t otable::serialize_body(std::ostream& out, size_t from, size_t to, const m
 {
 	ASSERT(from >= 0);
 	if(to > size()) { to = size(); }
-
-	std::vector<const columndef*> outColumns;
-	getColumnsForOutput(outColumns);
 
 	size_t cnt = 0;
 	FORj(row, from, to)
@@ -676,7 +740,7 @@ void otable::init()
 	"(class) color        {fmt=% 6.3f;}"			// -12.345
 	"(class) astrometry   {fmt=% 13.8f; type=double;}"	// -123.12345678
 	"(class) position     {fmt=% 10.2f;}"			// -123456.78
-	"(class) propermotion {fmt=% 7.1f;}"			// -1234.1
+	"(class) propermotion {fmt=% 8.2f;}"			// -1234.12
 	"(class) velocity     {fmt=% 7.1f;}"			// -1234.1
 	"(class) flags        {fmt=% 4d; type=int;}"		// 1234
 
@@ -685,6 +749,7 @@ void otable::init()
 	"(column) radec[2]      {class=astrometry;}"
 	"(column) lb[2]         {class=astrometry;}"
 	"(column) XYZ [3]       {class=position;}"
+	"(column) DM            {class=magnitude;}"
 	"(column) FeH           {fmt=% 6.3f;}"
 	"(column) vcyl[3]       {class=velocity;}"
 	"(column) pmlb[3]       {class=propermotion;}"

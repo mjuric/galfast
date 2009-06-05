@@ -814,13 +814,220 @@ void test_mwc_rng()
 	exit(-1);
 }
 
+#if 0
+void test_pm_conversions2()
+{
+//	return;
+
+	float  x = 100, y = 200, z = 300;
+	float vx = 30, vy = 20, vz = 10;
+/*	float  x = 0, y = 100, z = 0;
+	float vx = 0, vy = 30, vz = 0;*/
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = x, y, z, |r|\n", x, y, z, sqrt(x*x + y*y + z*z));
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = vx, vy, vz, |v|\n", vx, vy, vz, sqrt(vx*vx + vy*vy + vz*vz));
+
+	// convert to l,b,pm_lb
+	Radians l, b; float r, vl, vb, vr;
+	    xyz2lbr(l, b, r, x, y, z);
+	vel_xyz2lbr(vl, vb, vr, vx, vy, vz, l, b);
+	printf("(% 12.7f, % 12.7f, % 12.7f) = l, b, r\n", l, b, r);
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = vl, vb, vr, mu\n", vl, vb, vr, sqrt(vl*vl + vb*vb));
+
+	if(0) {
+		// test if cartesian<->celestial conversions work
+		float ex, ey, ez, evx, evy, evz;
+		    lbr2xyz(ex, ey, ez, l, b, r);
+		vel_lbr2xyz(evx, evy, evz, vl, vb, vr, l, b);
+		printf("(% 12.7f, % 12.7f, % 12.7f) = ex, ey, ez\n", ex, ey, ez);
+		printf("(% 12.7f, % 12.7f, % 12.7f) = evx, evy, evz\n", evx, evy, evz);
+		exit(0);
+	}
+
+	// convert to ra,dec,pm_ra,pm_dec
+	Radians ra, dec; float vra, vdec;
+	peyton::coordinates::galequ(l, b, ra, dec);
+	pm_galequ(vra, vdec, l, b, vl, vb);
+	printf("(% 12.7f, % 12.7f, % 12.7f) = ra, dec, r\n", ra, dec, r);
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = vra, vdec, vr, mu\n", vra, vdec, vr, sqrt(vra*vra + vdec*vdec));
+
+	// convert to equatorial cartesian
+	float ex, ey, ez, evx, evy, evz;
+	    lbr2xyz(ex, ey, ez, ra, dec, r);
+	vel_lbr2xyz(evx, evy, evz, vra, vdec, vr, ra, dec);
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = ex, ey, ez, |er|\n", ex, ey, ez, sqrt(ex*ex + ey*ey + ez*ez));
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = evx, evy, evz, |ev|\n", evx, evy, evz, sqrt(evx*evx + evy*evy + evz*evz));
+
+	// advance the trajectory in equatorial cartesian space
+	float dt = 1.;
+	ex += dt*evx;
+	ey += dt*evy;
+	ez += dt*evz;
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = moved ex, ey, ez, |er|\n", ex, ey, ez, sqrt(ex*ex + ey*ey + ez*ez));
+
+	// advance the trajectory in galactic cartesian space
+	x += dt*vx;
+	y += dt*vy;
+	z += dt*vz;
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = moved x, y, z, |r|\n", x, y, z, sqrt(x*x + y*y + z*z));
+
+	// convert back to equatorial coordinates
+	Radians ra2, dec2, l2, b2; float r2, x2, y2, z2;
+	xyz2lbr(ra2, dec2, r2, ex, ey, ez);
+	printf("(% 12.7f, % 12.7f, % 12.7f) = ra2, dec2, r2\n", ra2, dec2, r2);
+	// convert back to galactic coordinates
+	peyton::coordinates::equgal(ra2, dec2, l2, b2);
+	printf("(% 12.7f, % 12.7f) = l2, b2, r2\n", l2, b2, r2);
+	// convert to galactic cartesian
+	lbr2xyz(x2, y2, z2, l2, b2, r2);
+	printf("\n");
+	printf("(% 12.7f, % 12.7f, % 12.7f) = x, y, z  from equatorial\n", x2, y2, z2);
+
+	// pray that they're the same
+	printf("(% 12.7f, % 12.7f, % 12.7f) = x, y, z  from galactic\n", x, y, z);
+
+#if 0
+	double x, y;
+	peyton::coordinates::equgal(0., rad(90), x, y);
+	printf("pole       = %.16lf %.16lf\n", deg(x), deg(y));
+
+/*	double l = rad(139.09170669), b = rad(-89.95);
+	float vl = 108.6, vb = -75.1;*/
+	double l = rad(139.09170669), b = rad(-61.75582115);
+	float vl = 61.095611, vb = -46.828220;
+
+	double ra, dec;
+	peyton::coordinates::galequ(l, b, ra, dec);
+	printf("     radec = %.16lf %.16lf\n", deg(ra), deg(dec));
+
+	printf("   vlb, mu = %.16f %.16f %.16f\n", vl, vb, sqrt(sqr(vl*cos(b)) + sqr(vb)));
+	float vra, vdec;
+	pm_galequ(vra, vdec, l, b, vl, vb);
+	printf("vradec, mu = %.16f %.16f %.16f\n", vra, vdec, sqrt(sqr(vra*cos(dec)) + sqr(vdec)));
+	pm_equgal(vl, vb, ra, dec, vra, vdec);
+	printf("       vlb = %.16f %.16f\n", vl, vb);	
+#endif
+	exit(0);
+}
+#endif
+
+#include "simulate_base.h"
+void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb);
+void pm_equgal(float &vl, float &vb, float ra, float dec, float vra, float vdec);
+void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b);
+void vel_lbr2xyz(float &vx, float &vy, float &vz, const float vl, const float vb, const float vr, const float l, const float b);
+void xyz2lbr(Radians &l, Radians &b, float &r, float x, float y, float z);
+void lbr2xyz(float &x, float &y, float &z, Radians l, Radians b, float r);
+
+static const double AU = 149597870691.; /* 1AU in meters; JPL DE405 value; http://en.wikipedia.org/wiki/Astronomical_unit */
+static const Radians as = ctn::twopi/(360*3600);
+static const double pc = AU / as;
+static const double yr = 31557600; /* 1 Julian year in seconds; see http://en.wikipedia.org/wiki/Julian_year_(astronomy) */
+static const float kms_per_masyrpc = as/yr * pc / 1000.; /* ~4.74 km/s @ 1kpc is 1mas/yr */
+static const double kms_to_pcyr = 1000.*yr/pc;
+
+/* convert cartesian velocities (in km/s) to proper motions (in mas/yr) + radial velocity (km/s) */
+void vel_xyz2pmr(float &pml, float &pmb, float &vr, const float vx, const float vy, const float vz, const float l, const float b, const float r)
+{
+	vel_xyz2lbr(pml, pmb, vr, vx, vy, vz, l, b);
+
+	// proper motion in mas/yr
+	pml /= kms_per_masyrpc * r*1e-3;
+	pmb /= kms_per_masyrpc * r*1e-3;
+}
+
+/* convert proper motions (in mas/yr) + radial velocity (km/s) to cartesian velocities (in km/s) */
+void vel_pmr2xyz(float &vx, float &vy, float &vz, float pml, float pmb, const float vr, const float l, const float b, const float r)
+{
+	pml *= kms_per_masyrpc * r*1e-3;
+	pmb *= kms_per_masyrpc * r*1e-3;
+
+	vel_lbr2xyz(vx, vy, vz, pml, pmb, vr, l, b);
+}
+
+/* convert velocities in km/s to pc/yr */
+void kms2pcyr(float &vx2, float &vy2, float &vz2, float vx, float vy, float vz)
+{
+	vx2 = vx * kms_to_pcyr;
+	vy2 = vy * kms_to_pcyr;
+	vz2 = vz * kms_to_pcyr;
+}
+
+// advance the trajectory a given number of years
+void advance_trajectory(Radians &l, Radians &b, float &r, float &vl, float &vb, float &vr, float dt)
+{
+	// convert to cartesian
+	float x, y, z, vx, vy, vz, vxpc, vypc, vzpc;
+	    lbr2xyz( x,  y,  z,  l,  b,  r);		// convert position
+	vel_pmr2xyz(vx, vy, vz, vl, vb, vr, l, b, r);	// convert velocities
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = x, y, z, |r|\n", x, y, z, sqrt(x*x + y*y + z*z));
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = vx, vy, vz, |v| (km/s)\n", vx, vy, vz, sqrt(vx*vx + vy*vy + vz*vz));
+
+	// advance the trajectory
+	kms2pcyr(vxpc, vypc, vzpc, vx, vy, vz);	// convert velocities to parsecs/yr
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = vx, vy, vz, |v| (pc/Myr)\n", 1e6*vxpc, 1e6*vypc, 1e6*vzpc, 1e6*sqrt(vxpc*vxpc + vypc*vypc + vzpc*vzpc));
+	x += dt*vxpc;
+	y += dt*vypc;
+	z += dt*vzpc;
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f) = new x, y, z, |r|\n", x, y, z, sqrt(x*x + y*y + z*z));
+
+	// convert back to celestial
+	    xyz2lbr(l, b, r, x, y, z);
+	vel_xyz2pmr(vl, vb, vr, vx, vy, vz, l, b, r);
+	printf("(% 12.7f, % 12.7f, % 12.7f) (% 12.7f, % 12.7f, % 12.7f) = new (astrom, r) (pm, vr) (|pm|)\n",   deg(l), deg(b), r, vl, vb, vr, sqrt(vl*vl + vb*vb));
+	printf("\n");
+}
+
+void test_pm_conversions()
+{
+	return;
+
+	Radians l, b, ra, dec, l2, b2;
+	float r, vl, vb, vr, vra, vdec, vl2, vb2, re, vre;
+	float dt;
+
+	/*************** Setup **************/
+/*	l = rad(11); b = rad(77); r = 100.;     vl = 20.; vb = 20.; vr = 30.;	dt = 1e6;*/
+/*	l = rad(139.09170669); b = rad(-61.75582115); r = 100.;     vl = 61.095611; vb = -46.828220; vr = 25.557892;	dt = 1e6;*/
+/*	l = rad(0); b = rad(0); r = 100.;     vl = 0; vb = 10.; vr = 0.;	dt = 1e6;*/
+	l = rad(50.92620493); b = rad(89.84075570); r = 654.;     vl = -5.8; vb = 4.2; vr = -20.6;	dt = 1e6;
+	l = rad(55.26824585); b = rad(89.43553778); r = 654.;     vl = -4.05; vb = 5.00; vr = -51.54;	dt = 1e6;
+
+	peyton::coordinates::galequ(l, b, ra, dec);	// convert coordinates to equatorial
+	pm_galequ(vra, vdec, l, b, vl, vb);		// convert proper motion to equatorial
+	re = r; vre = vr;
+
+	printf("Input values:\n");
+	printf("Gal (pos, pm&vr, |pm|): (% 12.7f, % 12.7f, % 12.7f) (% 12.7f, % 12.7f, % 12.7f) (% 12.7f)\n",  deg(l),   deg(b),  r,  vl,   vb,  vr, sqrt( vl*vl  +   vb*vb));
+	printf("Equ (pos, pm&vr, |pm|): (% 12.7f, % 12.7f, % 12.7f) (% 12.7f, % 12.7f, % 12.7f) (% 12.7f)\n", deg(ra), deg(dec), re, vra, vdec, vre, sqrt(vra*vra + vdec*vdec));
+	printf("\n");
+
+	/*********** Work in galactic coordinate system *************/
+	printf("Moving the star for %.0fMyr, using Gal. position and pm:\n", dt/1e6);
+	advance_trajectory(l, b, r, vl, vb, vr, dt);
+
+	/*********** Work in equatorial coordinate system *************/
+	printf("Moving the star for %.0fMyr, using Equ. position and pm:\n", dt/1e6);
+	advance_trajectory(ra, dec, re, vra, vdec, vre, dt);
+
+	/*********** Compare the results *************/
+	printf("Final coordinates and pm:\n");
+	peyton::coordinates::equgal(ra, dec, l2, b2);
+	pm_equgal(vl2, vb2, ra, dec, vra, vdec);
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f, % 12.7f, % 12.7f) =  l, b, r, vl, vb, vr  (advanced in galactic)\n",   deg(l), deg(b), r, vl, vb, vr);
+	printf("(% 12.7f, % 12.7f, % 12.7f, % 12.7f, % 12.7f, % 12.7f) =  l, b, r, vl, vb, vr  (advanced in equatorial)\n", deg(l2), deg(b2), re, vl2, vb2, vre);
+
+	exit(0);
+}
+
 void test_kin();
 void test_tags();
 void test_otable();
+void test_pm_conversions();
 int main(int argc, char **argv)
 {
 try
 {
+	test_pm_conversions();
 //	test_kin();
 	test_otable();
 	test_mwc_rng();

@@ -171,7 +171,7 @@ struct star_output_function
 	//virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs) = 0;
 	//virtual void output(Radians l, Radians b, double ri, double r, sstruct &t) = 0;
 	virtual void output(const otable &t) = 0;
-	virtual void output_header(const otable &t) {};
+	virtual void output_header(otable &t) {};
 	virtual ~star_output_function() {}
 };
 
@@ -184,7 +184,7 @@ public:
 
 	//virtual void output(Radians ra, Radians dec, double Ar, std::vector<std::pair<observation, obsv_id> > &obsvs);
 	virtual void output(const otable &t);
-	virtual void output_header(const otable &t);
+	virtual void output_header(otable &t);
 };
 
 void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output);

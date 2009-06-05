@@ -168,7 +168,7 @@ public:
 	float sample(float x) const;
 
 	void load(const char *fn, int nsamples);
-	void construct(double *x, double *y, int nsamples);
+	void construct(double *x, double *y, int ndata, int nsamples);
 	void bind();
 
 	void free();

@@ -140,7 +140,7 @@ class os_unresolvedMultiples : public osink
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-		virtual const std::string &name() const { static std::string s("unresolvedMultiple"); return s; }
+		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
 		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
 
 		os_unresolvedMultiples() : osink()

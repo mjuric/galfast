@@ -938,7 +938,7 @@ void model_pdf::draw_magnitudes(std::vector<model_pdf::star> &stars, rng_t &rng)
 	}
 }
 
-void star_output_to_textstream::output_header(const otable &t)
+void star_output_to_textstream::output_header(otable &t)
 {
 	// simple ascii-text dump
 	out << "# ";

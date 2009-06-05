@@ -615,23 +615,25 @@ void cuxTextureManager::load(const char *fn, int nsamples)
 	std::vector<double> x, y;
 	::load(datain, x, 0, y, 1);
 
-	construct(&x[0], &y[0], x.size());
+	construct(&x[0], &y[0], x.size(), nsamples);
 }
 
-void cuxTextureManager::construct(double *x, double *y, int nsamples)
+void cuxTextureManager::construct(double *x, double *y, int ndata, int nsamples)
 {
+	assert(ndata > 1);
 	assert(nsamples > 1);
 	free();
 
 	// construct CPU spline
-	cputex = new spline(x, y, nsamples);
+	cputex = new spline(x, y, ndata);
 
 	// resample to texture
 	std::vector<float> lfp(nsamples);
-	float x0 = x[0], x1 = x[nsamples-1], dx = (x1 - x0) / (nsamples-1);
+	float x0 = x[0], x1 = x[ndata-1], dx = (x1 - x0) / (nsamples-1);
 	for(int i=0; i != nsamples; i++)
 	{
-		lfp[i] = (*cputex)(x0 + i*dx);
+		float val = (*cputex)(x0 + i*dx);
+		lfp[i] = val;
 	}
 
 	set(&lfp[0], nsamples, x0, dx);

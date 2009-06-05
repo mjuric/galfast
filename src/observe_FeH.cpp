@@ -198,15 +198,26 @@ DECLARE_TEXTURE(invCumLF);
 
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	std::string LFfile 		= cfg.get("lumfunc");
+	std::string LFfile;
+	cfg.get(LFfile, "lumfunc", "");
 	std::string binaryFractionFile	= cfg.get("binary_fraction_file");
 
 	secProbManager.load(binaryFractionFile.c_str(), 64);
 
 	// Load luminosity function
-	text_input_or_die(datain, LFfile);
 	std::vector<double> x, y, ycum;
-	::load(datain, x, 0, y, 1);
+	if(LFfile.empty())
+	{
+		text_input_or_die(datain, LFfile);
+		::load(datain, x, 0, y, 1);
+	}
+	else
+	{
+		// generate uniform LF extending over a plausible range of
+		// absolute magnitudes
+		x.push_back(-100); y.push_back(1.);
+		x.push_back(+100); y.push_back(1.);
+	}
 
 	// Construct cumulative distribution (the normalized integral of
 	// piecewise linearly interpolated luminosify function)
@@ -224,7 +235,7 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 	FOR(1, ycum.size()) { ycum[i] /= norm; }
 	FOR(0, ycum.size()) { std::cerr << x[i] << " " << ycum[i] << "\n"; }
 
-	// NOTE: because of resampling, invCumLF(cumLF(x)) != x,
+	// NOTE: WARNING: because of resampling, invCumLF(cumLF(x)) != x,
 	// so DONT EVER DEPEND ON IT!
 	   cumLFManager.construct(&x[0], &ycum[0], x.size(), 256);
 	invCumLFManager.construct(&ycum[0], &x[0], x.size(), 256);

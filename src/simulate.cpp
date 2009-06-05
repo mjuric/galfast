@@ -991,6 +991,7 @@ void test_pm_conversions()
 /*	l = rad(0); b = rad(0); r = 100.;     vl = 0; vb = 10.; vr = 0.;	dt = 1e6;*/
 	l = rad(50.92620493); b = rad(89.84075570); r = 654.;     vl = -5.8; vb = 4.2; vr = -20.6;	dt = 1e6;
 	l = rad(55.26824585); b = rad(89.43553778); r = 654.;     vl = -4.05; vb = 5.00; vr = -51.54;	dt = 1e6;
+	l = rad(139.09170669);  b=rad(-61.75582115); r = 222.;    vl = 167.18; vb = 96.21; vr = -0.28;  dt=1e6;
 
 	peyton::coordinates::galequ(l, b, ra, dec);	// convert coordinates to equatorial
 	pm_galequ(vra, vdec, l, b, vl, vb);		// convert proper motion to equatorial

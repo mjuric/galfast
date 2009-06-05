@@ -30,6 +30,7 @@
 
 #include "column.h"
 #include "gpu.h"
+#include "skygen.h"
 
 #include "simulate_base.h"
 
@@ -129,13 +130,32 @@ KERNEL(
 //======================================================================
 //======================================================================
 
-template<typename T>
-__device__ inline __device__ T sqr(const T x) { return x*x; }
+// template<typename T>
+// __device__ inline __device__ T sqr(const T x) { return x*x; }
+
+using namespace peyton;
 
 __device__ inline double rad(double deg) { return 0.017453292519943295769  * deg; } // convert deg to rad
 __device__ inline float  radf(float deg) { return 0.017453292519943295769f * deg; } // convert deg to rad
 
-// convert cartesian galactocentric velocities to vl,vr,vb wrt. the observer
+/* convert cartesian to celestial coordinates */
+__device__ void xyz2lbr(Radians &l, Radians &b, float &r, float x, float y, float z)
+{
+	r = sqrt(x*x + y*y + z*z);
+	b = asin(z / r);
+	l = atan2(y, x);
+	if(l < 0) l += ctn::twopi;
+}
+
+/* convert celestial to cartesian coordinates */
+__device__ void lbr2xyz(float &x, float &y, float &z, Radians l, Radians b, float r)
+{
+	x = r*cos(l)*cos(b);
+	y = r*sin(l)*cos(b);
+	z = r*sin(b);
+}
+
+// convert cartesian _Galactic_ (not galactocentric!!) velocities to vl,vr,vb wrt. the observer (velocity units are unimportant)
 __device__ inline void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
 {
 	float cl, sl, cb, sb;
@@ -145,15 +165,30 @@ __device__ inline void vel_xyz2lbr(float &vl, float &vb, float &vr, const float 
 	sb = sinf(b);
 
 	float tmp;
-	vl  =  vx*sl  - vy*cl;
+	vl  = -vx*sl  + vy*cl;
 	tmp =  vx*cl  + vy*sl;
-	vr  = -cb*tmp + vz*sb;
-	vb  =  sb*tmp + vz*cb;
+	vr  =  cb*tmp + vz*sb;
+	vb  = -sb*tmp + vz*cb;
 }
 
+// convert vl,vr,vb velocities wrt. the observer to cartesian _Galactic_ (not galactocentric!!) velocities (velocity units are unimportant)
+__device__ void vel_lbr2xyz(float &vx, float &vy, float &vz, const float vl, const float vb, const float vr, const float l, const float b)
+{
+	float cl, sl, cb, sb;
+	cl = cosf(l);
+	sl = sinf(l);
+	cb = cosf(b);
+	sb = sinf(b);
+
+	float tmp = sb*vb - cb*vr;
+	vx = -sl*vl - cl*tmp;
+	vy =  cl*vl - sl*tmp;
+	vz =  cb*vb + sb*vr;
+}
+
+// convert galactocentric cylindrical to galactocentric cartesian velocities
 __device__ inline void vel_cyl2xyz(float &vx, float &vy, float &vz, const float vr, const float vphi, const float vz0, const float X, const float Y)
 {
-	// convert galactocentric cylindrical to cartesian velocities
 	float rho = sqrtf(X*X + Y*Y);
 	float cphi = X / rho;
 	float sphi = Y / rho;
@@ -163,13 +198,10 @@ __device__ inline void vel_cyl2xyz(float &vx, float &vy, float &vz, const float 
 	vz = vz0;
 }
 
-typedef double Radians;
-using namespace peyton;
-
 namespace galequ_constants
 {
 	static const double angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
-	//static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+	static const double dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
 	static const double l0 = ctn::d2r * 32.932;	// galactic longitude of ascending node of galactic coordinate system (where b=0, dec=0)
 	static const double ce = 0.88998740217659689; // cos(dngp)
 	static const double se = 0.45598511375586859; // sin(dngp)
@@ -177,14 +209,16 @@ namespace galequ_constants
 
 namespace float_galequ_constants
 {
+	static const float angp = ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
+	static const float dngp = ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
 	static const float ce = (float)galequ_constants::ce;
 	static const float se = (float)galequ_constants::se;
 	static const float l0 = (float)galequ_constants::l0;
 };
 
-float __device__ sqrf(float x) { return x*x; }	
+float inline __device__ sqrf(float x) { return x*x; }	
 
-static const float flt_d2r = (float)ctn::d2r;
+//static const float flt_d2r = (float)ctn::d2r;
 static const float flt_r2d = (float)(1./ctn::d2r);
 inline __device__ float deg(float radians)
 {
@@ -197,12 +231,44 @@ inline __device__ float deg(float radians)
 	system in destination coordinates, and the longitude of ascending node
 	of the source coordinate system, in source coordinates.
 
-	Uses single-precision floating point arithmetic.
+	transform_pmf: uses single-precision floating point arithmetic.
 
 	Input:		l,b in radians; vl,vb (units not important)
 	Output:		vlout, vbout in destination coordinate system
 */
-__device__ inline void transform_pm(float &vlout, float &vbout, float l, float b, float vl, float vb,
+__device__ void transform_pm(float &vlout, float &vbout, float l, float b, float vl, float vb,
+	const double ce, const double se, const double l0)
+{
+	double cb = cos(b);
+	double sb = sin(b);
+	double cl = cos(l - l0);
+	double sl = sin(l - l0);
+
+	double tmp1 = cb * se - ce * sb * sl; // ??
+	double tmp2 = ce * sb - cb * se * sl; // \propto cos(alpha)
+	double tmp4 = cb * cl;                // \propto sin(alpha)
+	double tmp3 = sb * se + cb * ce * sl; // sin(delta)
+
+	if(fabs(tmp3) > 0.9999999)
+	{
+		// we're practically at the north/south pole.
+		// better signal that computation here will be incorrect,
+		// than give an incorrect result.
+		vlout = vbout = 999.99;
+	}
+	else
+	{
+		double denom1 = 1. / ( tmp4*tmp4 + tmp2*tmp2 );
+		double cd = sqrt(1. - tmp3*tmp3); // cos(delta);
+
+		vl /= cb;
+		vlout = (-ce * cl * vb + cb * tmp1 * vl) * denom1;
+		vbout = (tmp1 * vb  + cb * ce * cl * vl) / cd;
+		vlout *= cd;
+	}
+}
+
+__device__ void transform_pmf(float &vlout, float &vbout, float l, float b, float vl, float vb,
 	const float ce, const float se, const float l0)
 {
 	float cb = cosf(b);
@@ -213,9 +279,12 @@ __device__ inline void transform_pm(float &vlout, float &vbout, float l, float b
 	float tmp1 = cb * se - ce * sb * sl; // ??
 	float tmp2 = ce * sb - cb * se * sl; // \propto cos(alpha)
 	float tmp3 = sb * se + cb * ce * sl; // sin(delta)
+	float cd = sqrtf(1 - sqrf(tmp3)); // cos(delta);
 
+	vl /= cb;
 	vlout = (-ce * cl * vb + cb * tmp1 * vl) / ( sqrf(cb * cl) + sqrf(tmp2) );
-	vbout = (tmp1 * vb  + cb * ce * cl * vl) / sqrtf(1 - sqr(tmp3));
+	vbout = (tmp1 * vb  + cb * ce * cl * vl) / cd;
+	vlout *= cd;
 }
 
 /*
@@ -225,12 +294,61 @@ __device__ inline void transform_pm(float &vlout, float &vbout, float l, float b
 	Input:		l,b in radians; vl,vb (units not important)
 	Output:		vra,vdec (in units of vl,vb)
 */
-__device__ inline void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb)
+__device__ void pm_galequf(float &vra, float &vdec, float l, float b, float vl, float vb)
 {
 	using namespace float_galequ_constants;
 	transform_pm(vra, vdec, l, b, vl, vb, ce, se, l0);
 }
 
+__device__ void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb)
+{
+	using namespace galequ_constants;
+	transform_pm(vra, vdec, l, b, vl, vb, ce, se, l0);
+}
+
+__device__ void pm_equgalf(float &vl, float &vb, float ra, float dec, float vra, float vdec)
+{
+	using namespace float_galequ_constants;
+	transform_pm(vl, vb, ra, dec, vra, vdec, ce, se, angp - 0.5*ctn::pi);
+}
+
+__device__ void pm_equgal(float &vl, float &vb, float ra, float dec, float vra, float vdec)
+{
+	using namespace galequ_constants;
+	transform_pm(vl, vb, ra, dec, vra, vdec, ce, se, angp - 0.5*ctn::pi);
+}
+
+__device__ float3 vcyl2pm(float l, float b, float vx, float vy, float vz, float X, float Y, float Z, os_vel2pm_data &par)
+{
+#if 0
+	// These must produce (mu_l, mu_b, v_radial) = (12.72 mas/yr, -14.75 mas/yr, -27.34 km/s)
+	X = 8100; Y = 100; Z = 3000;
+	vx = 10; vy = 50; vz = -30;
+	l = atan2(-Y, 8000-X);
+	b = asin(Z / sqrt(sqrf(8000-X) + sqrf(Y) + sqrf(Z)));
+	#if __DEVICE_EMULATION__
+	printf("%f %f\n", deg(l), deg(b));
+	#endif
+#endif
+	// convert the velocities from cylindrical to galactocentric cartesian system
+	float3 pm;	// pm.x == mu_l, pm.y == mu_b, pm.z == radial velocity (km/s)
+	vel_cyl2xyz(pm.x, pm.y, pm.z,   vx, vy, vz,   X, Y);
+
+	// switch to Solar coordinate frame
+	pm.x -= par.u0;
+	pm.y -= par.v0 + par.vLSR;
+	pm.z -= par.w0;
+
+	// convert to velocities wrt. the observer
+	vel_xyz2lbr(pm.x, pm.y, pm.z,   -pm.x, -pm.y, pm.z,  l, b);
+
+	// convert to proper motions
+	float D = sqrtf(sqrf(8000.f-X) + sqrf(Y) + sqrf(Z));
+	pm.x /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
+	pm.y /= 4.74 * D*1e-3;
+
+	return pm;
+}
 KERNEL(
 	ks, 0, 
 	os_vel2pm_kernel(
@@ -257,29 +375,7 @@ KERNEL(
 		float vy = vcyl(row, 1);
 		float vz = vcyl(row, 2);
 
-#if 0
-		// These must produce (mu_l, mu_b, v_radial) = (12.72 mas/yr, -14.75 mas/yr, -27.34 km/s)
-		X = 8100; Y = 100; Z = 3000;
-		vx = 10; vy = 50; vz = -30;
-		l = atan2(-Y, 8000-X);
-		b = asin(Z / sqrt(sqr(8000-X) + sqr(Y) + sqr(Z)));
-#endif
-		// convert the velocities from cylindrical to galactocentric cartesian system
-		float pm[3];
-		vel_cyl2xyz(pm[0], pm[1], pm[2],   vx, vy, vz,   X, Y);
-
-		// switch to Solar coordinate frame
-		pm[0] -= par.u0;
-		pm[1] -= par.v0 + par.vLSR;
-		pm[2] -= par.w0;
-
-		// convert to velocities wrt. the observer
-		vel_xyz2lbr(pm[0], pm[1], pm[2],   pm[0], pm[1], pm[2],  l, b);
-
-		// convert to proper motions
-		float D = sqrtf(sqr(8000.f-X) + sqr(Y) + sqr(Z));
-		pm[0] /= 4.74 * D*1e-3;	// proper motion in mas/yr (4.74 km/s @ 1kpc is 1mas/yr)
-		pm[1] /= 4.74 * D*1e-3;
+		float3 pm = vcyl2pm(l, b, vx, vy, vz, X, Y, Z, par);
 
 		// rotate to output coordinate system
 		switch(par.coordsys)
@@ -288,23 +384,23 @@ KERNEL(
 			break;
 		case EQU:
 /*#if __DEVICE_EMULATION__
-			fprintf(stderr, "before = %f %f %f %f\n", deg(l), deg(b), pm[0], pm[1]);
+			fprintf(stderr, "before = %f %f %f %f\n", deg(l), deg(b), pm.x, pm.y);
 #endif*/
-			pm_galequ(pm[0], pm[1], l, b, pm[0], pm[1]);
+			pm_galequ(pm.x, pm.y, l, b, pm.x, pm.y);
 /*#if __DEVICE_EMULATION__
-			fprintf(stderr, "after = %f %f\n", pm[0], pm[1]);
+			fprintf(stderr, "after = %f %f\n", pm.x, pm.y);
 			abort();
 #endif*/
 			break;
 		default:
 			//THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
-			pm[0] = pm[1] = pm[2] = -9.99;
+			pm.x = pm.y = pm.z = -9.99;
 			break;
 		}
 
-		pmout(row, 0) = pm[0];
-		pmout(row, 1) = pm[1];
-		pmout(row, 2) = pm[2];
+		pmout(row, 0) = pm.x;
+		pmout(row, 1) = pm.y;
+		pmout(row, 2) = pm.z;
 	}
 }
 
@@ -567,6 +663,76 @@ KERNEL(
 	}
 }
 
+DEFINE_TEXTURE(secProb);
+DEFINE_TEXTURE(cumLF);
+DEFINE_TEXTURE(invCumLF);
+
+__device__ bool draw_companion(float &M2, float M, gpu_rng_t &rng)
+{
+#if 0 //__DEVICE_EMULATION__
+	printf("%f %f\n", secProb.x0, secProb.inv_dx);
+	{
+		float tprob[] = {0., 2., 16.5, 18., 18.1};
+		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
+			printf("secProb(%f) = %f\n", tprob[i], (float)secProb.sample(tprob[i]));
+	}
+	{
+		float tprob[] = {2.99, 3., 10., 17., 17.01};
+		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
+			printf("cumLF(%f) = %f\n", tprob[i], (float)cumLF.sample(tprob[i]));
+	}
+	{
+		float tprob[] = {-0.01, 0., 0.364679, 1., 1.01};
+		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
+			printf("invCumLF(%f) = %f\n", tprob[i], (float)invCumLF.sample(tprob[i]));
+	}
+#endif
+	// draw the probability that this star has a secondary
+	float psec, u;
+
+	psec = secProb.sample(M);
+	u = rng.uniform();
+	if(u > psec) { return false; }
+
+	// draw the absolute magnitude of the secondary
+	// subject to the requirement that it is fainter than the primary
+	float pprim = cumLF.sample(M);
+	u = rng.uniform();
+	u = pprim + u * (1. - pprim);
+	M2 = invCumLF.sample(u);
+	if(M2 < M)
+	{
+		// This can happen due to resampling of cumLF and invCumLF
+		// (see the note in os_unresolvedMultiples::construct)
+		M2 = M;
+	}
+
+	return true;
+}
+
+KERNEL(
+	ks, 3*4,
+	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M),
+	os_unresolvedMultiples_kernel,
+	(ks, rng, nabsmag, M)
+)
+{
+	rng.load(threadID());
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
+	{
+		float M1 = M(row, 0);
+		for(int i = 1; i < nabsmag; i++)
+		{
+			float M2;
+			if(draw_companion(M2, M1, rng))
+			{
+				M(row, i) = M2;
+			}
+		}
+	}
+	rng.store(threadID());
+}
+
 #include <vector>
 
 #if BUILD_FOR_CPU && HAVE_CUDA
@@ -740,9 +906,9 @@ typedef ct::cint::gpu_t gcint;
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH),
+	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH),
 	os_photometry_kernel,
-	(ks, lt, flags, bmag, Mr, mags, FeH)
+	(ks, lt, flags, DM, Mr, nabsmag, mags, FeH)
 )
 {
 	float *c = ks.sharedMemory<float>();
@@ -750,19 +916,40 @@ KERNEL(
 	{
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH[row];
-		float fMr = Mr[row];
 		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
-		float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
-		flags[row] = sampleColors(c, iFeH, iMr, lt.ncolors);
 
-		// convert colors to apparent magnitudes
-		float mag0 = bmag[row];
+		// generate system components, compute system luminosity
+		for(int syscomp = 0; syscomp < nabsmag; syscomp++)
+		{
+			float fMr = Mr(row, syscomp);
+			if(fMr >= ABSMAG_NOT_PRESENT) { break; }
+
+			float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
+			int flag = sampleColors(c, iFeH, iMr, lt.ncolors);
+			if(syscomp) { flag &= flags[row]; }
+			flags[row] = flag;
+
+			// compute absolute magnitudes in different bands, and store
+			// as luminosity
+			for(int b = 0; b <= lt.ncolors; b++)
+			{
+				float M = fMr;
+				if(b < lt.bidx) { for(int i=b;       i != lt.bidx; i++) { M += c[i]; } }
+				if(b > lt.bidx) { for(int i=lt.bidx; i != b;    i++)    { M -= c[i]; } }
+
+				float L = exp10f(-0.4f*M);
+				if(syscomp) { L += mags(row, b); }
+				mags(row, b) = L;
+			}
+		}
+
+		// convert luminosity to apparent magnitude of the system
+		float dm = DM[row];
 		for(int b = 0; b <= lt.ncolors; b++)
 		{
-			float mag = mag0;
-			if(b < lt.bidx) { for(int i=b;       i != lt.bidx; i++) { mag += c[i]; } }
-			if(b > lt.bidx) { for(int i=lt.bidx; i != b;    i++) { mag -= c[i]; } }
-			mags(row, b) = mag;
+			float Mtot = -2.5f * log10f(mags(row, b));
+			float mtot = dm + Mtot;
+			mags(row, b) = mtot;
 		}
 
 /*		if(row == 30)

@@ -366,10 +366,14 @@ protected:
 	{
 	public:
 		std::string what;
+
+		std::map<std::string, std::string> m_properties;	// arbitrary (key,value) pairs that the user/modules can set and inspect
 	protected:
 		friend class otable;
 
 		virtual void set_property(const std::string &key, const std::string &value) = 0;
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const = 0;
+
 		virtual void serialize_def(std::ostream &out) const = 0;
 
 		kv(const std::string &what_) : what(what_) {}
@@ -404,7 +408,23 @@ protected:
 			// keywords
 			if(!formatString.empty()) { out << "fmt=" << formatString << ";"; }
 
+			// properties
+			FOREACH(m_properties) { out << i->first << "=" << i->second << ";"; }
+
 			out << "}";
+		}
+
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const
+		{
+			std::map<std::string, std::string>::const_iterator it = m_properties.find(key);
+			if(it == m_properties.end())
+			{
+				if(exists != NULL) { *exists = false; }
+				static const std::string empty;
+				return empty;
+			}
+			if(exists != NULL) { *exists = true; }
+			return it->second;
 		}
 	};
 
@@ -444,13 +464,27 @@ public:
 			c->m_hidden = m_hidden;
 
 			c->setFieldNames(newFieldNames ? *newFieldNames : fieldNames.idx2str);
-// 			c->fieldNames.str2idx = fieldNames.str2idx;
-// 			c->fieldNames.idx2str = fieldNames.idx2str;
+
+			c->m_properties = m_properties;
 
 			return c;
 		}
 
 	public:
+		virtual const std::string &get_property(const std::string &key, bool *exists = NULL) const
+		{
+			// return the requested property, if exists, delegate to class otherwise
+			std::map<std::string, std::string>::const_iterator it = m_properties.find(key);
+			if(it == m_properties.end())
+			{
+				return columnClass->get_property(key, exists);
+			}
+			if(exists != NULL) { *exists = true; }
+			return it->second;
+		}
+
+		const std::string &getPrimaryName() const { return columnName; }
+
 		const std::string &getFormatString() const
 		{
 			if(!formatString.empty()) { return formatString; }
@@ -518,6 +552,7 @@ public:
 		{
 			set_property("alias", name);
 		}
+		size_t getAliases(std::set<std::string> &result) const;	// get the list of all aliases of this column. Returns the number of aliases.
 		void serialize(fmtout &line, const size_t row) const;	// write out the element at row row
 		void unserialize(std::istream &in, const size_t row);	// read in an element into row row
 		virtual void serialize_def(std::ostream &out) const;	// write out the definition of this column
@@ -543,8 +578,10 @@ protected:
 	std::map<std::string, boost::shared_ptr<columndef> > columns;
 	size_t length;	// maximum number of rows in the table
 	size_t nrows;	// rows actually in the table
-	std::vector<std::string> colInput, colOutput;
-
+	std::vector<std::string> colInput,	// columns to unserialize from file on the next unserialize_body call
+				colOutput;	// columns to serialize to file, if they're in use
+	std::vector<const columndef*>
+				outColumns;	// columns to serialize (filled out by serialize_head, used by serialize_body)
 public:
 	size_t size() const { return nrows; }
 	void set_size(size_t newsize)
@@ -581,6 +618,10 @@ public:
 	// column lookup by name
 	columndef &getColumn(const std::string &name);
 	const columndef &getColumn(const std::string &name) const;
+	void set_column_property(const std::string &name, const std::string &key, const std::string &value)
+	{
+		getColumn(name).set_property(key, value);
+	}
 
 	template<typename T> column<T>       &col(const std::string &name)       { return getColumn(name).dataptr<T>(); }
 	template<typename T> const column<T> &col(const std::string &name) const { return getColumn(name).dataptr<T>(); }
@@ -607,7 +648,7 @@ public:
 	struct default_mask_functor : public mask_functor { virtual bool shouldOutput(int row) const { return true; } };
 
 	// serialization/unserialization routines
-	std::ostream& serialize_header(std::ostream &out) const;
+	std::ostream& serialize_header(std::ostream &out);
 	std::istream& unserialize_header(std::istream &in, std::set<std::string> *columns = NULL);
 	size_t serialize_body(std::ostream& out, size_t from = 0, size_t to = -1, const mask_functor &mask = default_mask_functor()) const;
 	std::istream& unserialize_body(std::istream& in);
@@ -648,9 +689,10 @@ class opipeline_stage
 
 		static const int PRIORITY_INPUT      = -10000;
 		static const int PRIORITY_STAR       =      0;
+		static const int PRIORITY_SPACE      =    100;
 		static const int PRIORITY_INSTRUMENT =   1000;
 		static const int PRIORITY_OUTPUT     =  10000;
-		virtual int priority() { return PRIORITY_STAR; }
+		virtual int priority() { return PRIORITY_SPACE; }
 
 	public:
 // 		bool inits(const std::string &cfgstring, otable &t, opipeline &pipe) { return inits(cfgstring.c_str(), t, pipe); }

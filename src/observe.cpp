@@ -629,7 +629,7 @@ class os_photometry : public osink
 {
 	protected:
 		std::string bandset2;			// name of this filter set
-		std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
+		//std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
 		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
 		std::string photoFlagsName;		// Name of the photometric flags field
 		int bidx;				// index of bootstrap band in bnames
@@ -677,18 +677,6 @@ class os_photometry : public osink
 
 bool os_photometry::runtime_init(otable &t)
 {
-#if 0
-	// hide the bootstrap band from output, if it's in list of bands
-	// that we're going to output
-	FOREACH(bnames)
-	{
-		if(*i == bband)
-		{
-			t.getColumn(bband).set_hidden(true);
-			std::cerr << bband << ".hidden = " << t.getColumn(bband).hidden() << "\n";
-		}
-	}
-#endif
 	return osink::runtime_init(t);
 }
 
@@ -744,9 +732,11 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	prov.insert(photoFlagsName + "{class=flags;}");
 
 	// bootstap band setup
+	std::string bband;
 	cfg.get(bband,   "bootstrap_band",   "LSSTr");
 	cfg.get(absbband,   "absband",   "abs"+bband);
-	req.insert(bband);
+	//req.insert(bband);
+	req.insert("DM");
 	req.insert(absbband);
 	typeof(bnames.begin()) b = std::find(bnames.begin(), bnames.end(), bband);
 	if(b == bnames.end())
@@ -781,8 +771,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 	MLOG(verb1) << "Generating " << bandset2 << " photometry.";
 	MLOG(verb1) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
+	MLOG(verb1) << bandset2 << ": Input absolute magnitude assumed to be in " << bband << " band.";
 	MLOG(verb1) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
-	MLOG(verb1) << bandset2 << ": Using " << bband << " to bootstrap appmags from colors.";
 	MLOG(verb1) << bandset2 << ": Resampling color table to fast lookup grid:";
 	MLOG(verb1) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
 	MLOG(verb1) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
@@ -961,13 +951,13 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 #else
 typedef ct::cfloat::gpu_t gcfloat;
 typedef ct::cint::gpu_t gcint;
-DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat bmag, gcfloat Mr, gcfloat mags, gcfloat FeH));
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH));
 void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	ct::cint  &flags  = in.col<int>(photoFlagsName);
-	ct::cfloat &bmag  = in.col<float>(bband);
+	ct::cfloat &DM    = in.col<float>("DM");
 	ct::cfloat &Mr    = in.col<float>(absbband);
 	ct::cfloat &mags  = in.col<float>(bandset2);
 	ct::cfloat &FeH   = in.col<float>("FeH");
@@ -975,7 +965,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, bmag, Mr, mags, FeH);
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, DM, Mr, Mr.width(), mags, FeH);
 
 	return nextlink->process(in, begin, end, rng);
 }
@@ -1463,6 +1453,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	if(name == "textin") { s.reset(new os_textin); }
 	else if(name == "skygen") { s.reset(new os_skygen); }
 	else if(name == "textout") { s.reset(new os_textout); }
+	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "photometry") { s.reset(new os_photometry); }

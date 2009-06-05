@@ -598,4 +598,76 @@ void test_cuda_caller()
 	callKernel3(nv::kernel("test_kernel", nthreads), var1, var2, var3);
 }
 
+void cuxTextureManager::bind()
+{
+	assert(texdata);
+	cuxErrCheck( cudaBindTextureToArray(&texref, texdata, &texref.channelDesc) );
+}
+
+////////////////////////////////////////////////
+//  Texturing support
+////////////////////////////////////////////////
+
+void cuxTextureManager::load(const char *fn, int nsamples)
+{
+	// load the data from a sorted two-column file
+	text_input_or_die(datain, fn);
+	std::vector<double> x, y;
+	::load(datain, x, 0, y, 1);
+
+	construct(&x[0], &y[0], x.size(), nsamples);
+}
+
+void cuxTextureManager::construct(double *x, double *y, int ndata, int nsamples)
+{
+	assert(ndata > 1);
+	assert(nsamples > 1);
+	free();
+
+	// construct CPU spline
+	cputex = new spline(x, y, ndata);
+
+	// resample to texture
+	std::vector<float> lfp(nsamples);
+	float x0 = x[0], x1 = x[ndata-1], dx = (x1 - x0) / (nsamples-1);
+	for(int i=0; i != nsamples; i++)
+	{
+		float val = (*cputex)(x0 + i*dx);
+		lfp[i] = val;
+	}
+
+	set(&lfp[0], nsamples, x0, dx);
+}
+
+float cuxTextureManager::sample(float x) const
+{
+	return (*cputex)(x);
+}
+
+void cuxTextureManager::free()
+{
+	if(texdata)
+	{
+		cudaUnbindTexture(&texref);
+		cudaFreeArray(texdata);
+		texdata = NULL;
+	}
+
+	if(cputex)
+	{
+		delete cputex;
+		cputex = NULL;
+	}
+}
+
+void cuxTextureManager::set(float *cpudata, int len, float x0, float dx)
+{
+	// Upload texture to GPU
+	par = make_textureParameters(x0, 1.f/dx);
+	cuxUploadConst(parSymbol, par);
+	cuxErrCheck( cudaMallocArray( &texdata, &texref.channelDesc, len, 1));
+	cuxErrCheck( cudaMemcpyToArray( texdata, 0, 0, cpudata, len*sizeof(float), cudaMemcpyHostToDevice));
+	bind();
+}
+
 #endif

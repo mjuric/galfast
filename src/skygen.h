@@ -32,10 +32,13 @@
 typedef prngs::gpu::mwc gpuRng;
 using peyton::Radians;
 
-__device__ __constant__ float Rg_gpu;
 #ifdef __CUDACC__
-// distance to the Galactic center
-__device__ inline float Rg() { return Rg_gpu; }
+	// distance to the Galactic center
+	__device__ __constant__ float Rg_gpu;
+	__device__ inline float Rg() { return Rg_gpu; }
+#else
+	//inline float Rg() { return Rg_cpu; }
+	#include "paralax.h"
 #endif
 
 struct ALIGN(16) lfParams
@@ -285,7 +288,7 @@ public:
 #endif
 };
 
-__device__ float3 position(const direction &p, const float d)
+__device__ inline float3 position(const direction &p, const float d)
 {
 	float3 ret;
 
@@ -301,7 +304,7 @@ struct ALIGN(16) ocolumns
 {
 	column_types::cdouble::gpu_t	lb;
 	column_types::cint::gpu_t	projIdx;
-	column_types::cfloat::gpu_t	m, M, XYZ;
+	column_types::cfloat::gpu_t	DM, M, XYZ;
 	column_types::cint::gpu_t	comp;
 };
 
@@ -390,6 +393,8 @@ struct ALIGN(16) skyConfigGPU
 	int npixels, nm, nM;
 	int nthreads;			// total number of threads processing the sky
 	int stopstars;			// stop after this many stars have been generated
+
+	int nabsmag;			// number of components possibly present in a multiple system
 
 	cux_ptr<int> lock;
 	cux_ptr<int> nstars;

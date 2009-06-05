@@ -39,6 +39,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <fstream>
 
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
@@ -172,6 +173,61 @@ bool os_fixedFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(fixedFeH, "FeH", 0.f);
+
+	return true;
+}
+
+
+DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M));
+size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+	//	- all stars are main sequence
+	using namespace column_types;
+	cfloat &M   = in.col<float>("absmag");
+
+	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, M.width(), M);
+	return nextlink->process(in, begin, end, rng);
+}
+
+DECLARE_TEXTURE(secProb);
+DECLARE_TEXTURE(cumLF);
+DECLARE_TEXTURE(invCumLF);
+
+bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
+{
+	std::string LFfile 		= cfg.get("lumfunc");
+	std::string binaryFractionFile	= cfg.get("binary_fraction_file");
+
+	secProbManager.load(binaryFractionFile.c_str(), 64);
+
+	// Load luminosity function
+	text_input_or_die(datain, LFfile);
+	std::vector<double> x, y, ycum;
+	::load(datain, x, 0, y, 1);
+
+	// Construct cumulative distribution (the normalized integral of
+	// piecewise linearly interpolated luminosify function)
+	ycum.resize(y.size());
+	ycum[0] = 0;
+	FOR(1, y.size())
+	{
+		double dx = x[i] - x[i-1];
+		double dy = y[i] - y[i-1];
+		double dA = (y[i-1] + 0.5*dy)*dx;	// increase in area from y[i-1] to y[i]
+		ycum[i] = ycum[i-1] + dA;
+		std::cerr << x[i] << " " << ycum[i] << "\n";
+	}
+	double norm = ycum.back();
+	FOR(1, ycum.size()) { ycum[i] /= norm; }
+	FOR(0, ycum.size()) { std::cerr << x[i] << " " << ycum[i] << "\n"; }
+
+	// NOTE: because of resampling, invCumLF(cumLF(x)) != x,
+	// so DONT EVER DEPEND ON IT!
+	   cumLFManager.construct(&x[0], &ycum[0], x.size(), 256);
+	invCumLFManager.construct(&ycum[0], &x[0], x.size(), 256);
 
 	return true;
 }

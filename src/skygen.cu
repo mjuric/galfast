@@ -406,10 +406,17 @@ __device__ void skyConfigGPU<T>::kernel() const
 
 				do
 				{
-					float Mtmp, mtmp;
+					float Mtmp, mtmp, DMtmp;
 					stars.M[idx] = Mtmp = M + dM*(rng.uniform() - 0.5f);
-					stars.m[idx] = mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
-					float D = powf(10, 0.2f*(mtmp - Mtmp) + 1.f);
+					for(int i=1; i < nabsmag; i++)
+					{
+						stars.M(idx, i) = ABSMAG_NOT_PRESENT;
+					}
+//					stars.m[idx] = mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
+					mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
+					DMtmp = mtmp - Mtmp;
+					stars.DM[idx] = DMtmp;
+					float D = powf(10, 0.2f*DMtmp + 1.f);
 
 					float x, y;
 					stars.projIdx[idx] = pix.projIdx;

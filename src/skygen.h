@@ -176,7 +176,7 @@ public:
 	static const int THIN  = 0;
 	static const int THICK = 1;
 	static const int HALO  = 2;
-	__device__ int component(float x, float y, float z, float M, gpuRng &rng) const
+	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
 	{
 		float r = sqrtf(x*x + y*y);
 

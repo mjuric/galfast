@@ -39,7 +39,7 @@
 
 #include <gsl/gsl_statistics_float.h>
 
-__device__ __constant__ gpuRng rng;
+__device__ __constant__ gpuRng::constant rng;
 __device__ __constant__ skyConfigGPU<expModel> expModelSky;
 __device__ __constant__ lambert proj[2];
 

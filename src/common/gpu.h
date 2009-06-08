@@ -427,13 +427,13 @@ typedef rng_t &gpu_rng_t;
 		};
 		static persistent_rng gpuRNG;
 
-#if !CUDA_RNG_NOCONSTRUCTORS
+//#if !CUDA_RNG_NOCONSTRUCTORS
 		gpu_rng_t(rng_t &seeder)
 		{
 			(gpu_prng_impl&)*this = gpuRNG.get(seeder);
 		}
 		gpu_rng_t() {}
-#endif
+//#endif
 	};
 #endif
 

@@ -405,9 +405,19 @@ typedef rng_t &gpu_rng_t;
 
 #if HAVE_CUDA || !ALIAS_GPU_RNG
 	#include "cuda_rng.h"
-	//typedef gpu_prng::mwc gpu_rng_t;
 	typedef prngs::gpu::mwc gpu_prng_impl;
 	typedef prngs::cpu::mwc cpu_prng_impl;
+
+	//
+	// Maintains a multi-threaded random number generator instance
+	// that persists through the application and is downloaded/uploaded
+	// to GPU as needed. It is auto-initialized on first call, using the
+	// seed provided by seeder rng, and freed on exit from the application.
+	//
+	// Usage:
+	//	gpu_rng_t bla(seeder)
+	//	bla.uniform(); ....
+	//
 	struct gpu_rng_t : public gpu_prng_impl
 	{
 		struct persistent_rng
@@ -427,156 +437,12 @@ typedef rng_t &gpu_rng_t;
 		};
 		static persistent_rng gpuRNG;
 
-//#if !CUDA_RNG_NOCONSTRUCTORS
 		gpu_rng_t(rng_t &seeder)
 		{
 			(gpu_prng_impl&)*this = gpuRNG.get(seeder);
 		}
 		gpu_rng_t() {}
-//#endif
 	};
-#endif
-
-#if 0
-// thin random number generator abstraction
-struct rng_t
-{
-	virtual float uniform() = 0;
-	virtual float gaussian(const float sigma) = 0;
-	virtual ~rng_t() {}
-	// interface compatibility with gpu_rng_t
-	void load(const otable_ks &o) {}
-};
-#define ALIAS_GPU_RNG 0
-
-// GPU random number generator abstraction
-#if !HAVE_CUDA && ALIAS_GPU_RNG
-typedef rng_t &gpu_rng_t;
-#endif
-
-#include <gsl/gsl_rng.h>
-#if !__CUDACC__
-#include <iostream>
-#endif
-
-#if HAVE_CUDA || !ALIAS_GPU_RNG
-struct gpu_rng_t
-{
-	uint32_t *streams;	// pointer to RNG stream states vector
-	uint32_t nstreams;	// number of initialized streams
-
-//	gpu_rng_t(uint32_t s) : seed(s) { }
-	gpu_rng_t(rng_t &rng);		// initialization constructor from existing rng
-
-	__device__ float uniform() const
-	{
-		/*
-			Marsaglia's Multiply-With-Carry RNG. For theory and details see:
-			
-				http://www.stat.fsu.edu/pub/diehard/cdrom/pscript/mwc1.ps
-				http://www.ms.uky.edu/~mai/RandomNumber
-				http://www.ast.cam.ac.uk/~stg20/cuda/random/index.html
-		*/
-		#define a  (((uint32_t*)shmem)[               threadIdx.x])
-		#define c  (((uint32_t*)shmem)[  blockDim.x + threadIdx.x])
-		#define xn (((uint32_t*)shmem)[2*blockDim.x + threadIdx.x])
-
-		uint64_t xnew = (uint64_t)a*xn + c;
-		c = xnew >> 32;
-		xn = (xnew << 32) >> 32;
-		return 2.32830643708e-10f * xn;
-
-		#undef a
-		#undef c
-		#undef xn
-	}
-
-	__device__ float uniform_pos() const
-	{
-		float x;
-		do { 
-			x = uniform(); 
-			} 
-		while (x == 0.f);
-		return x;
-	}
-
-	__device__ float gaussian(const float sigma)
-	{
-		float x, y, r2;
-
-		do
-		{
-			/* choose x,y in uniform square (-1,-1) to (+1,+1) */
-			x = -1.f + 2.f * uniform_pos();
-			y = -1.f + 2.f * uniform_pos();
-
-			/* see if it is in the unit circle */
-			r2 = x * x + y * y;
-		}
-		while (r2 > 1.0f || r2 == 0.f);
-
-		/* Box-Muller transform */
-		return sigma * y * sqrt (-2.0f * logf (r2) / r2);
-	}
-
-	__device__ bool load(kernel_state &ks)
-	{
-#if 0
-		((int32_t*)shmem)[threadIdx.x] = seed + threadID();
-		if(!rng) rng = gsl_rng_alloc(gsl_rng_default);
-#else
-#if 0
-		gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
-		gsl_rng_set(rng, seed + threadID());
-		((int32_t*)shmem)[threadIdx.x] = gsl_rng_get(rng);
-		gsl_rng_free(rng);
-#else
-		// load the RNG state
-		uint32_t tid = threadID();
-		if(tid >= nstreams)
-		{
-			// we should somehow abort the entire kernel here
-#if !__CUDACC__
-			ASSERT(tid >= nstreams) {
-				std::cerr << "threadID= " << tid << " >= nstreams=" << nstreams << "\n";
-			}
-#endif
-			return false;
-		};
-		((uint32_t*)shmem)[               threadIdx.x] = streams[             tid];
-		((uint32_t*)shmem)[  blockDim.x + threadIdx.x] = streams[  nstreams + tid];
-		((uint32_t*)shmem)[2*blockDim.x + threadIdx.x] = streams[2*nstreams + tid];
-		return true;
-#endif
-		//std::cerr << seed << " " << threadID() << " " << ((int32_t*)shmem)[threadIdx.x] << "\n";
-#endif
-	}
-
-	__device__ void store(kernel_state &ks)
-	{
-#if 0
-		if(threadIdx.x == 0)
-		{
-			// This "stores" the RNG state by storing the current
-			// state of threadID=0 RNG, and disregarding the rest.
-			seed = ((uint32_t *)shmem)[0];
-		}
-#else
-		// store the RNG state
-		uint32_t tid = threadID();
-		streams[             tid] = ((uint32_t*)shmem)[               threadIdx.x];
-		streams[  nstreams + tid] = ((uint32_t*)shmem)[  blockDim.x + threadIdx.x];
-		streams[2*nstreams + tid] = ((uint32_t*)shmem)[2*blockDim.x + threadIdx.x];
-#endif
-	}
-
-/*	void srand(uint32_t s)
-	{
-		seed = s;
-	}*/
-};
-#endif
 #endif
 
 #endif

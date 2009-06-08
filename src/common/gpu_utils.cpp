@@ -150,6 +150,7 @@ gpu_prng_impl &gpu_rng_t::persistent_rng::get(rng_t &seeder)
 		uint32_t seed = (uint32_t)(seeder.uniform()*(1<<24));
 		std::string file = datadir() + "/safeprimes32.txt";
 
+		cpuRNG = cpu_prng_impl::create();
 		cpuRNG.srand(seed, 1<<16, file.c_str());
 		state = CPU;
 	}

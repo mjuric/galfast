@@ -27,8 +27,6 @@
 // GPU implementation
 //
 
-#define CUDA_RNG_NOCONSTRUCTORS 1
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>

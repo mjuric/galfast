@@ -10,32 +10,17 @@
 /*
 
 Host interface:
-	cuda_rng rng(seed, nstreams); // nstreams must be >= nthreads
+	cuda_rng rng = cuda_rng::create(seed, nstreams); // nstreams must be >= nthreads
 	kernel<<...>>(rng);
 	rng.free()
 
-Kernel interface:
+Device interface:
 	rng.load();
 	...
 	u = rng.uniform();
 	...
 	rng.store();
-	
-Using RNGs from constant memory:
-	It's in principle possible to use the RNGs from __constant__ memory
-	(the state is still in global; only the pointers are in constant). 
-	However, CUDA runtime does not allow __constant__ variables with
-	constructors. To work around it, you may #define
-	CUDA_RNG_NOCONSTRUCTORS 1 in the file where you define the constants
-	(before including this header, ofcourse.). WARNING: It is
-	_important_ that you do not instantiate (in the host code) any of
-	the RNGs from a file where CUDA_RNG_NOCONSTRUCTORS was defined, as
-	(obviously) no constructors will be called, and your program will
-	crash.
-
 */
-
-#define CUDA_RNG_NOCONSTRUCTORS		0
 
 #include <assert.h>
 #include <cmath>
@@ -53,9 +38,6 @@ namespace prngs
 		uint32_t nstreams;
 
 		__host__ void construct_base() { gstate = NULL; nstreams = 0; }
-// 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-// 		__host__ rng_base() : gstate(NULL), nstreams(0) {}
-// 		#endif
 
 //		#ifdef __CUDACC__
 		__device__ void load(uint32_t tid) const
@@ -161,9 +143,15 @@ namespace prngs
 	};
 
 	template<typename rng_impl>
-	struct rng_noctor : public rng_impl
+	struct rng : public rng_impl
 	{
 	public:
+		static rng create(uint32_t seed, uint32_t nstreams) { rng r; r.construct_base(); r.srand(seed, nstreams); return r; }
+		static rng create() { rng r; r.construct_base(); return r; }
+
+		//typedef rng_noctor<rng_impl> constant;
+		typedef rng constant;
+
 //		#ifdef __CUDACC__
 		__device__ float uniform_pos() const
 		{
@@ -387,21 +375,6 @@ namespace prngs
 //		#endif
 	};
 
-	template<typename rng_impl>
-	struct rng : public rng_noctor<rng_impl>
-	{
-	public:
-/*		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		__host__ rng(uint32_t seed, uint32_t nstreams) { this->construct_impl(seed, nstreams); }
-		__host__ rng() { this->construct_impl(); }
-		#endif*/
-		static rng create(uint32_t seed, uint32_t nstreams) { rng r; r.construct_impl(seed, nstreams); return r; }
-		static rng create() { rng r; r.construct_impl(); return r; }
-
-		//typedef rng_noctor<rng_impl> constant;
-		typedef rng constant;
-	};
-
 	template<bool on_gpu>
 	struct ran0_impl : public rng_base<1, on_gpu>
 	{
@@ -411,10 +384,6 @@ namespace prngs
 		static const int IQ = 127773;
 		static const int IR = 2836;
 		static const int MASK = 123459876;
-
-		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		__host__ ran0_impl(uint32_t seed, uint32_t nstreams) : rng_base<1, on_gpu>() { this->srand(seed, nstreams); }
-		#endif
 
 		// An ultra-simple random number generator (straight out of NR)
 //		#ifdef __CUDACC__
@@ -443,13 +412,6 @@ namespace prngs
 	template<bool on_gpu>
 	struct mwc_impl : public rng_base<3, on_gpu>
 	{
-		__host__ void construct_impl(uint32_t seed, uint32_t nstreams) { this->construct_base(); this->srand(seed, nstreams); }
-		__host__ void construct_impl() { this->construct_base(); }
-// 		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-// 		__host__ mwc_impl(uint32_t seed, uint32_t nstreams) { this->construct_base(); this->srand(seed, nstreams); }
-// 		__host__ mwc_impl() { this->construct_base(); }
-// 		#endif
-
 //		#ifdef __CUDACC__
 #if 0	// if this is on, the integrator state is stored in registers
 		uint32_t a, c, xn;
@@ -534,10 +496,6 @@ namespace prngs
 	template<bool on_gpu>
 	struct taus2_impl : public rng_base<3, on_gpu>
 	{
-		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		__host__ taus2_impl(int seed, int nstreams) : rng_base<3, on_gpu>() { this->srand(seed, nstreams); }
-		#endif
-
 		#ifdef __CUDACC__
 		__device__ float uniform() const
 		{
@@ -568,10 +526,6 @@ namespace prngs
 	template<bool on_gpu>
 	struct rand48_impl : public rng_base<3, on_gpu>
 	{
-		#if !CUDA_RNG_NOCONSTRUCTORS // Not meant to be used within kernels
-		__host__ rand48_impl(int seed, int nstreams) : rng_base<3, on_gpu>() { this->srand(seed, nstreams); }
-		#endif
-
 		// Adapted from:
 		// 	http://forums.nvidia.com/index.php?act=attach&type=post&id=9512
 		//

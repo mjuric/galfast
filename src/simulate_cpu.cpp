@@ -24,4 +24,4 @@
 
 #define BUILD_FOR_CPU	1
 
-#include "simulate_gpu.cu"
+#include "simulate_gpu.cu.h"

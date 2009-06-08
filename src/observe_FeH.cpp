@@ -177,8 +177,33 @@ bool os_fixedFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	return true;
 }
 
+bool os_unresolvedMultiples::runtime_init(otable &t)
+{
+	// Not ready until absmag is available
+	if(!osink::runtime_init(t)) { return false; }
 
-DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M));
+	// by default, absmagSys1 is aliased to absmag. Drop this alias, as we're going to
+	// provide absmagSys1
+	t.drop_column("M1");
+
+	// output absolute magnitudes
+	otable::columndef &col = t.getColumn("absmag");
+	const std::string &absmag = col.getPrimaryName();
+	absmagSys = absmag + "Sys";
+	std::string band = col.get_property("band");
+	std::string absmagSysDef = absmagSys + "[2]{class=magnitude;alias=absmagSys;band=" + band + ";"
+//		+ "fieldNames=0:" + absmag + "1,1:" + absmag + "2;}";
+		+ "fieldNames=0:M1,1:M2;}";
+	t.use_column(absmagSysDef);
+
+	// number of components present
+	std::string ncompDef = absmagSys + "Ncomp{type=int;fmt=%1d;}";
+	t.use_column(ncompDef);
+
+	return true;
+}
+
+DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M, ct::cfloat::gpu_t Msys, ct::cint::gpu_t ncomp, multiplesAlgorithms::algo algo));
 size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -186,9 +211,11 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
 	using namespace column_types;
-	cfloat &M   = in.col<float>("absmag");
+	cfloat &M     = in.col<float>("absmag");
+	cfloat &Msys  = in.col<float>(absmagSys);
+	cint   &ncomp = in.col<int>(absmagSys+"Ncomp");
 
-	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, M.width(), M);
+	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, algo);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -198,15 +225,36 @@ DECLARE_TEXTURE(invCumLF);
 
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	std::string LFfile;
+	std::string LFfile, binaryFractionFile, strAlgo;
 	cfg.get(LFfile, "lumfunc", "");
-	std::string binaryFractionFile	= cfg.get("binary_fraction_file");
+	cfg.get(binaryFractionFile, "fraction_file", "");
+	strAlgo = cfg.get("algorithm");
 
-	secProbManager.load(binaryFractionFile.c_str(), 64);
+	// decide on the secondary assignment algorithm
+	using namespace multiplesAlgorithms;
+	if(strAlgo == "LF_M2_gt_M1") 		{ algo = LF_M2_GT_M1; }
+	else if(strAlgo == "LF")		{ algo = LF; }
+	else if(strAlgo == "equal_mass")	{ algo = EQUAL_MASS; }
+	else { THROW(EAny, "Unknow secondary mag. assignment algorithm '" + strAlgo + "'"); }
+
+	// Load binary fraction
+	if(!binaryFractionFile.empty())
+	{
+		secProbManager.load(binaryFractionFile.c_str(), 64);
+	}
+	else
+	{
+		// 100% binary fraction across all plausible absolute
+		// magnitudes
+		std::vector<double> x, y;
+		x.push_back(-100); y.push_back(1.);
+		x.push_back(+100); y.push_back(1.);
+		secProbManager.construct(&x[0], &y[0], x.size(), 64);
+	}
 
 	// Load luminosity function
-	std::vector<double> x, y, ycum;
-	if(LFfile.empty())
+	std::vector<double> x, y;
+	if(!LFfile.empty())
 	{
 		text_input_or_die(datain, LFfile);
 		::load(datain, x, 0, y, 1);
@@ -221,24 +269,40 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 
 	// Construct cumulative distribution (the normalized integral of
 	// piecewise linearly interpolated luminosify function)
-	ycum.resize(y.size());
-	ycum[0] = 0;
-	FOR(1, y.size())
+	const int NPIX = 256;
+	spline lf; lf.construct(x, y);
+	double dx = (x.back() - x.front()) / (NPIX-1);
+	std::vector<double> ycum(NPIX), xcum(NPIX);
+	xcum[0] = x.front(); ycum[0] = 0;
+	double yprev = lf(x.front());
+	FOR(1, NPIX)
 	{
-		double dx = x[i] - x[i-1];
-		double dy = y[i] - y[i-1];
-		double dA = (y[i-1] + 0.5*dy)*dx;	// increase in area from y[i-1] to y[i]
+		double xx = x.front() + i*dx;
+		double yy = lf(xx);
+
+		double dy = yy - yprev;
+		double dA = (yprev + 0.5*dy)*dx;	// increase in area from y[i-1] to y[i]
+
+		xcum[i] = xx;
 		ycum[i] = ycum[i-1] + dA;
-		std::cerr << x[i] << " " << ycum[i] << "\n";
+
+		yprev = yy;
+		std::cerr << xcum[i] << " " << ycum[i] << "\n";
 	}
 	double norm = ycum.back();
-	FOR(1, ycum.size()) { ycum[i] /= norm; }
-	FOR(0, ycum.size()) { std::cerr << x[i] << " " << ycum[i] << "\n"; }
+	FOR(0, ycum.size()) { ycum[i] /= norm; }
+	FOR(0, ycum.size()) { std::cerr << xcum[i] << " " << ycum[i] << "\n"; }
 
 	// NOTE: WARNING: because of resampling, invCumLF(cumLF(x)) != x,
 	// so DONT EVER DEPEND ON IT!
-	   cumLFManager.construct(&x[0], &ycum[0], x.size(), 256);
-	invCumLFManager.construct(&ycum[0], &x[0], x.size(), 256);
+	   cumLFManager.construct(&xcum[0], &ycum[0], xcum.size(), NPIX);
+	invCumLFManager.construct(&ycum[0], &xcum[0], xcum.size(), NPIX);
+	FOR(0, xcum.size()) { std::cerr << xcum[i] << " " << ycum[i] << " " << cumLFManager.sample(xcum[i]) << "\n"; }
+
+// 	for(float u=0; u <=1; u += 0.01)
+// 	{
+// 		std::cerr << u << "\t" << invCumLFManager.sample(u) << "\n";
+// 	}
 
 	return true;
 }

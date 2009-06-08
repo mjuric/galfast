@@ -958,10 +958,13 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	ct::cint  &flags  = in.col<int>(photoFlagsName);
 	ct::cfloat &DM    = in.col<float>("DM");
-	ct::cfloat &Mr    = in.col<float>(absbband);
 	ct::cfloat &mags  = in.col<float>(bandset2);
 	ct::cfloat &FeH   = in.col<float>("FeH");
-//	const size_t nbands = bnames.size();
+
+	std::string absmagSys = absbband + "Sys";
+	ct::cfloat &Mr    = in.using_column(absmagSys) ?
+				in.col<float>(absmagSys) :
+				in.col<float>(absbband);
 
 	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
@@ -1582,7 +1585,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 500000;
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
-	static const size_t Kbatch = 500000;
+	static const size_t Kbatch = 5000000;
 	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects\n";
 	otable t(Kbatch);
 

@@ -152,8 +152,12 @@ public:
 #ifdef __CUDACC__
 	__device__ void setpos(expModel::state &s, float x, float y, float z) const
 	{
+//		x = 7720.f; y= -770.1f; z = 2252.f;
 //		((float*)shmem)[threadIdx.x] = rho(x, y, z, 0.f);
 		s.rho = rho(x, y, z, 0.f);
+#if __DEVICE_EMULATION__
+//		printf("rho_A=%f\n", s.rho);
+#endif
 	}
 
 	__device__ float rho(expModel::state &s, float M) const
@@ -161,7 +165,12 @@ public:
 //		return 1.f;
 //		return 1.f * ((float*)shmem)[threadIdx.x];
 //		return 0.05f * s.rho;
-		return lf.sample(texLF, M) * s.rho;
+//		M = 5.80;
+		float phi = lf.sample(texLF, M);
+#if __DEVICE_EMULATION__
+//		printf("phi=%f rho=%f\n", phi, phi*s.rho);
+#endif
+		return phi * s.rho;
 	}
 
 	static const int THIN  = 0;
@@ -393,8 +402,6 @@ struct ALIGN(16) skyConfigGPU
 	int npixels, nm, nM;
 	int nthreads;			// total number of threads processing the sky
 	int stopstars;			// stop after this many stars have been generated
-
-	int nabsmag;			// number of components possibly present in a multiple system
 
 	cux_ptr<int> lock;
 	cux_ptr<int> nstars;

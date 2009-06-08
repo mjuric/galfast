@@ -636,6 +636,13 @@ public:
 	{
 		getColumn(column).add_alias(alias);
 	}
+	void drop_column(const std::string &name)
+	{
+		// remove this column from the list of columns.
+		// NOTE: For now, please don't use this for nothing other than
+		// dropping aliases.
+		columns.erase(name);
+	}
 //	bool del_column(const std::string &name);
 
 	otable(const size_t len)

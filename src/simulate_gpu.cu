@@ -667,7 +667,7 @@ DEFINE_TEXTURE(secProb);
 DEFINE_TEXTURE(cumLF);
 DEFINE_TEXTURE(invCumLF);
 
-__device__ bool draw_companion(float &M2, float M, gpu_rng_t &rng)
+__device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
 {
 #if 0 //__DEVICE_EMULATION__
 	printf("%f %f\n", secProb.x0, secProb.inv_dx);
@@ -690,45 +690,89 @@ __device__ bool draw_companion(float &M2, float M, gpu_rng_t &rng)
 	// draw the probability that this star has a secondary
 	float psec, u;
 
-	psec = secProb.sample(M);
+	psec = secProb.sample(M1);
 	u = rng.uniform();
+#if __DEVICE_EMULATION__
+/*	for(float u=0; u <= 17; u += .1)
+	{
+		printf("secProb: %.3f %f\n", u, (float)secProb.sample(u));
+	}
+	abort();*/
+#endif
+
+#if __DEVICE_EMULATION__
+//	assert(psec == 1.f);
+#endif
 	if(u > psec) { return false; }
 
-	// draw the absolute magnitude of the secondary
-	// subject to the requirement that it is fainter than the primary
-	float pprim = cumLF.sample(M);
+	// draw the absolute magnitude of the secondary, subject to requested
+	// algorithm
+	using namespace multiplesAlgorithms;
+	if(algo == EQUAL_MASS) { M2 = M1; return true; }
+
+	float pprim = cumLF.sample(M1);
 	u = rng.uniform();
-	u = pprim + u * (1. - pprim);
-	M2 = invCumLF.sample(u);
-	if(M2 < M)
+	if(algo == LF_M2_GT_M1)
+	{
+		// draw subject to the requirement that it is fainter than the primary
+		u = pprim + u * (1. - pprim);
+	}
+	M2 = invCumLF.sample(u);// + rng.gaussian(1.f);
+//	M2 = 5.f + 12.f*u;
+	if(algo == LF_M2_GT_M1 && M2 < M1)
 	{
 		// This can happen due to resampling of cumLF and invCumLF
 		// (see the note in os_unresolvedMultiples::construct)
-		M2 = M;
+		M2 = M1;
 	}
+
+#if __DEVICE_EMULATION__
+/*	for(float u=0; u <=1; u += 0.01)
+ 	{
+ 		printf("%.3f %f\n", u, (float)invCumLF.sample(u));
+ 	}
+ 	abort();*/
+#endif
 
 	return true;
 }
 
 KERNEL(
 	ks, 3*4,
-	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M),
+	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M, ct::cfloat::gpu_t Msys, ct::cint::gpu_t ncomp, multiplesAlgorithms::algo algo),
 	os_unresolvedMultiples_kernel,
-	(ks, rng, nabsmag, M)
+	(ks, rng, nabsmag, M, Msys, ncomp, algo)
 )
 {
+	/*
+		Input:	M -- absolute magnitude of the primary.
+		Output:	Msys[] -- absolute magnitudes of system components.
+			M      -- total absolute magnitude of the system
+	*/
 	rng.load(threadID());
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-		float M1 = M(row, 0);
+		float M1 = M[row];
+		Msys(row, 0) = M1;
+		float Ltot = exp10f(-0.4f*M1);
+		int ncomps = 1;			/* Number of components of the multiple system */
 		for(int i = 1; i < nabsmag; i++)
 		{
 			float M2;
-			if(draw_companion(M2, M1, rng))
+			if(draw_companion(M2, M1, algo, rng))
 			{
-				M(row, i) = M2;
+				Msys(row, i) = M2;
+				Ltot += exp10f(-0.4f*M2);
+				ncomps++;
+			}
+			else
+			{
+				Msys(row, i) = ABSMAG_NOT_PRESENT;
 			}
 		}
+		float Mtot = -2.5*log10f(Ltot);
+		    M[row] = Mtot;
+		ncomp[row] = ncomps;
 	}
 	rng.store(threadID());
 }

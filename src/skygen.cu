@@ -393,9 +393,14 @@ __device__ void skyConfigGPU<T>::kernel() const
 
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
+#if __DEVICE_EMULATION__
+//		printf("dN=%f dA=%f dm=%f dM=%f D=%f\n", rho, dA, dm, dM, D);
+#endif
 		rho *= D*D*D; // multiply by volume (part one)
 		rho *= dA * POGSON * dm * dM; // multiply by volume (part two)
-
+#if __DEVICE_EMULATION__
+//		printf("dN=%g dA=%f dm=%f dM=%f\n", rho, dA, dm, dM); abort();
+#endif
 		if(draw) // draw stars
 		{
 			int k = rng.poisson(rho);
@@ -408,10 +413,6 @@ __device__ void skyConfigGPU<T>::kernel() const
 				{
 					float Mtmp, mtmp, DMtmp;
 					stars.M[idx] = Mtmp = M + dM*(rng.uniform() - 0.5f);
-					for(int i=1; i < nabsmag; i++)
-					{
-						stars.M(idx, i) = ABSMAG_NOT_PRESENT;
-					}
 //					stars.m[idx] = mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
 					mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
 					DMtmp = mtmp - Mtmp;

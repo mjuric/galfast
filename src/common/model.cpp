@@ -540,8 +540,11 @@ struct pred_col_less
 	bool operator()(const otable::columndef *a, const otable::columndef *b) const
 	{
 		int ranka = get_rank(a), rankb = get_rank(b);
-		if(ranka == rankb) { return a->getPrimaryName() < b->getPrimaryName(); }
-		return ranka < rankb;
+		bool altb = ranka == rankb ? strcasecmp(a->getPrimaryName().c_str(), b->getPrimaryName().c_str()) < 0 : ranka < rankb;
+/*		std::cout << "rank(" << a->getPrimaryName() << ")=" << ranka << "  ";
+		std::cout << "rank(" << b->getPrimaryName() << ")=" << rankb << "  ";
+		std::cout << (altb ? "a < b" : "a > b") << "\n";*/
+		return altb;
 	}
 };
 

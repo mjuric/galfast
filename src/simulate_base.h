@@ -124,4 +124,13 @@ struct skyConfigInterface
 	virtual ~skyConfigInterface() {};
 };
 
+namespace multiplesAlgorithms
+{
+	enum algo {
+		LF_M2_GT_M1	= 1,
+		LF		= 2,
+		EQUAL_MASS	= 3
+	};
+}
+
 #endif

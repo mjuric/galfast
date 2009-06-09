@@ -289,6 +289,7 @@ void make_skymap_piece(gpc_polygon sky, partitioned_skymap *skymap, int X0, int 
 		pix.poly = poly;
 		pix.coveredArea = polygon_area(poly);
 		pix.pixelArea = sqr(skymap->dx);
+//		std::cerr << pix.pixelArea/sqr(ctn::pi/180) << " " << pix.coveredArea/sqr(ctn::pi/180) << "\n";
 		return;
 	}
 
@@ -357,9 +358,13 @@ bool skyConfig<T>::init(
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
 
+	// Setup footprint and clipper
 	boost::shared_ptr<opipeline_stage> foot( opipeline_stage::create("clipper") );
-	Config fcfg(foot_cfg);
+	Config fcfg(foot_cfg);					// pixelization scale
 	fcfg.insert(std::make_pair("dx", pdf_cfg.get("dx")));
+	float bmin;						// Galactic plane zone of avoidance
+	foot_cfg.get(bmin, "bmin", 0.f);
+	fcfg.insert(std::make_pair("bmin", str(bmin)));
 	if(!foot->construct(fcfg, t, pipe))
 	{
 		return false;
@@ -436,10 +441,10 @@ bool skyConfig<T>::init(
 	blockDim.x = 64; //256;
 	gridDim.x = 120; // 30;
 	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
-	DLOG(verb1) << "nthreads=" << this->nthreads << "\n";
 	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
 
-	DLOG(verb1) << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels << "\n";
+	DLOG(verb1) << "nthreads=" << this->nthreads;
+	DLOG(verb1) << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels;
 
 	return true;
 }
@@ -601,20 +606,31 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 
 ////////////////////////////////////////////////////////////////////////////
 
-void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians margin);
+void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians dx, Radians margin);
 gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj);
 
 bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(this->dx,	"dx", 	1.f);
+	cfg.get(this->bmin,	"bmin", 0.f);
+	this->bmin = rad(this->bmin);
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
 
 	gpc_polygon allsky, nsky, ssky, tmp;
-	tmp    = make_footprint(cfg, proj[0]);
-	allsky = clip_zone_of_avoidance(tmp, rad(30.), proj[0]);
-	makeHemisphereMaps(nsky, ssky, proj[1], proj[0], allsky, 1.*this->dx);
-	gpc_free_polygon(&tmp);
+	allsky = make_footprint(cfg, proj[0]);
+	if(this->bmin)
+	{
+		MLOG(verb1) << "Clipping Galactic plane zone of avoidance |b| < " << deg(this->bmin) << " deg";
+		tmp = clip_zone_of_avoidance(allsky, this->bmin, proj[0]);
+		gpc_free_polygon(&allsky);
+		allsky = tmp;
+	}
+	Radians hdx = rad(0.1);			// polygonization of the circle
+	double margin = 1./cos(0.5*hdx) - 1.;	// Ensure the polygon makeHemisphereMaps will create 
+						// will be superscribed, not inscribed, in the unit circle
+	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
+	makeHemisphereMaps(nsky, ssky, proj[1], proj[0], allsky, hdx, margin);
 	gpc_free_polygon(&allsky);
 
 	this->sky[0] = make_skymap(this->dx, nsky);
@@ -673,6 +689,13 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		Radians b = rad(lb(row, 1));
 		int projIdx = pIdx[row];
 		nstars[projIdx]++;
+
+		// Galactic plane zone of avoidance
+		if(bmin && fabs(b) <= bmin)
+		{
+			hidden[row] = 1;
+			continue;
+		}
 
 		Radians x, y;
 		proj[projIdx].convert(l, b, x, y);

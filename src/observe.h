@@ -56,6 +56,7 @@ class os_clipper : public osink
 {
 protected:
 	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
+	float bmin;			// zone of avoidance around the Galactic plane
 	peyton::math::lambert proj[2];
 	partitioned_skymap *sky[2];
 

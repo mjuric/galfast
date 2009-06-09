@@ -279,23 +279,23 @@ void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const la
 
 void poly_print_info(const gpc_polygon &poly, const char *name = "poly")
 {
-	DLOG(verb1) << name << ": ncontours=" << poly.num_contours << "\n";
+	DLOG(verb1) << name << ": ncontours=" << poly.num_contours;
 	for(int i = 0; i != poly.num_contours; i++)
 	{
 		gpc_vertex_list &contour = poly.contour[i];
 		DLOG(verb1) << name << ": contour " << i << ": nvertices=" << contour.num_vertices
 			<< " area= " << contour_area(poly.contour[i])*sqr(deg(1.))
-			<< (poly.hole[i] ? " (hole)" : "") << "\n";
+			<< (poly.hole[i] ? " (hole)" : "");
 	}
 }
 
 // Splits an all-sky map into two nort/south hemisphere maps, possibly including an overlapping margin 
-void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, const lambert &nproj, gpc_polygon allsky, Radians margin = rad(0.))
+void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, const lambert &nproj, gpc_polygon allsky, Radians dx = rad(.1), Radians margin = rad(0.))
 {
 	const Radians south_pole_epsilon2 = sqr(rad(0.03));
 
-	gpc_polygon northBoundary = make_circle(0, 0, sqrt(2.) + margin, rad(.1));
-	gpc_polygon southBoundary = make_circle(0, 0, sqrt(2.) - margin, rad(.1));
+	gpc_polygon northBoundary = make_circle(0, 0, sqrt(2.) + margin, dx);
+	gpc_polygon southBoundary = make_circle(0, 0, sqrt(2.) - margin, dx);
 
 	// North sky (easy)
 	gpc_polygon_clip(GPC_INT, &allsky, &northBoundary, &nsky);
@@ -309,7 +309,7 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 	gpc_polygon_clip(GPC_DIFF, &allsky, &southBoundary, &ssky);
 
 	sproj = lambert(modulo(nproj.l0 + ctn::pi, ctn::twopi), -nproj.phi1);
-	DLOG(verb1) << "South projection pole: " << deg(sproj.l0) << " " << deg(sproj.phi1) << "\n";
+	DLOG(verb1) << "South projection pole: " << deg(sproj.l0) << " " << deg(sproj.phi1);
 	gpc_vertex pole = {0., 0.};
 	int at = 0;
 	for(int i = 0; i != ssky.num_contours; i++)
@@ -359,7 +359,7 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 
 		if(south_pole)
 		{
-			DLOG(verb1) << "South pole detected, removing contour " << i << "\n";
+			DLOG(verb1) << "South pole detected, removing contour " << i;
 			free(ssky.contour[i].vertex);
 		}
 		else
@@ -385,7 +385,7 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 		poly_print_info(ssky, "south");
 		DLOG(verb1) << "(area, narea+sarea, relerr, abserr, narea, sarea) = "
 			<< area << " " << tarea << " " << relerr << " " << abserr
-			<< "     " << narea << " " << sarea << "\n";
+			<< "     " << narea << " " << sarea;
 		assert(margin != 0 || !failed);
 	}
 	#undef failed

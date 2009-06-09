@@ -68,7 +68,6 @@ bool opipeline_stage::runtime_init(/*const std::list<opipeline_stage *> &pipelin
 		if(!t.using_column(*i))
 		{
 			DLOG(verb2) << "Failed on: " << *i;
-			std::cerr << "Failed on: " << *i << "\n";
 			return false;
 		}
 	}
@@ -90,7 +89,6 @@ bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
 	{
 		if(!haves.count(*i)) {
 			DLOG(verb2) << "Failed on: " << *i;
-			std::cerr << "Failed on: " << *i << "\n";
 			return false;
 		}
 	}

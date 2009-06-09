@@ -57,7 +57,8 @@ struct partitioned_skymap
 
 	struct pixel_t {
 		gpc_polygon poly;
-		double area;
+		double coveredArea;	// Area within the pixel covered by the polygon
+		double pixelArea;	// Area of the entire rectangular lambert pixel
 	};
 	
 	std::map<std::pair<int, int>, pixel_t> skymap;	// a map of rectangular sections of the sky, for fast is-point-in-survey-area lookup

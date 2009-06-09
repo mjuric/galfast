@@ -218,14 +218,15 @@ struct direction
 struct ALIGN(16) skypixel : public direction
 {
 	int projIdx;
+	float coveredFraction;
 
 	skypixel() {}
-	skypixel(Radians l_, Radians b_, int projIdx_)
-	: direction(l_, b_), projIdx(projIdx_)
+	skypixel(Radians l_, Radians b_, int projIdx_, float coveredFraction_)
+	: direction(l_, b_), projIdx(projIdx_), coveredFraction(coveredFraction_)
 	{ }
 };
 
-class lambert
+class ALIGN(16) lambert
 {
 public:
 	Radians l0, b0;
@@ -405,7 +406,7 @@ struct ALIGN(16) skyConfigGPU
 
 	cux_ptr<int> lock;
 	cux_ptr<int> nstars;
-	cux_ptr<float> counts;
+	cux_ptr<float> counts, countsCovered;
 	ocolumns stars;
 
 	static const int nhistbins = 10;
@@ -423,9 +424,10 @@ struct ALIGN(16) skyConfigGPU
 
 class opipeline;
 template<typename Model>
-struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
+struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 {
-	float Rg;	// distance to the galactic center
+	float Rg;		// distance to the galactic center
+	size_t nstarLimit;	// maximum number of stars to generate
 
 	gpuRng *rng;
 	unsigned seed;
@@ -433,7 +435,8 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 	lambert proj[2];	// north/south sky lambert projections
 
 	// return
-	float nstarsExpected;
+	float nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
+	float nstarsExpected;		// expected number of stars in the actual footprint
 	int stars_generated;
 	int *cpu_hist;
 	float *cpu_maxCount;
@@ -451,13 +454,14 @@ struct skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 	void compute(bool draw = false);
 	void upload(bool draw = false);
 	void download(bool draw = false);
-	void loadConfig();
 
 	skyConfig();
 	~skyConfig();
 
 	// external interface
-	virtual bool init(const peyton::system::Config &cfg,
+	virtual bool init(
+			const peyton::system::Config &cfg,
+			const peyton::system::Config &pdf_cfg,
 			const peyton::system::Config &foot_cfg,
 			const peyton::system::Config &model_cfg,
 			otable &t,

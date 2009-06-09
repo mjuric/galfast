@@ -432,7 +432,8 @@ void model_pdf::construct_mpdf(const std::string &footfn, const std::string &mod
 			// store the polygon into a fast lookup map
 			partitioned_skymap::pixel_t &pix = skymap.skymap[std::make_pair(X, Y)];
 			pix.poly = poly;
-			pix.area = polygon_area(poly);
+			pix.coveredArea = polygon_area(poly);
+			pix.pixelArea = sqr(skymap.dx);
 
 			shared_ptr<Sy> sy(new Sy(xysum, Y));
 

@@ -184,7 +184,14 @@ public:
 		{
 			if(!logticker)
 			{
-				std::cerr << title << "...\n";
+				if(title[title.size()-1] == '\n')
+				{
+					std::cerr << title.substr(0, title.size()-1) << "...\n";
+				}
+				else
+				{
+					std::cerr << title << ": ";
+				}
 			}
 			else
 			{

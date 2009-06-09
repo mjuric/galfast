@@ -395,12 +395,12 @@ bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthr
 	find_best_factorization(gridDim.x, gridDim.y, nblocks);
 	gridDim.z = 1;
 
-	MLOG(verb2) << "Grid parameters: tpb(" << threadsPerBlock << "), nthreads(" << neededthreads << "), shmemPerTh(" << dynShmemPerThread <<
-			"), shmemPerBlock(" << staticShmemPerBlock <<
-			") --> grid(" << gridDim.x << ", " << gridDim.y << ", " << gridDim.z <<
-			") block(" << threadsPerBlock << ", 1, 1)" <<
-			" " << shared_mem_required << " shmem/block (" << (float)shared_mem_required / shmemPerMP << ")" << 
-			" == total of " << nthreads << " threads.";
+	DLOG(verb2) << "Grid: tpb(" << threadsPerBlock << "), nthr(" << neededthreads << "), sh/th(" << dynShmemPerThread <<
+			"), sh/blk(" << staticShmemPerBlock <<
+			") = g(" << gridDim.x << ", " << gridDim.y << ", " << gridDim.z <<
+			") b(" << threadsPerBlock << ", 1, 1)" <<
+			" " << shared_mem_required << " sh/blk(" << (float)shared_mem_required / shmemPerMP << ")" <<
+			" (" << nthreads << " thr).";
 
 	return true;
 }

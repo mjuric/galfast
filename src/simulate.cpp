@@ -279,17 +279,17 @@ void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const la
 
 void poly_print_info(const gpc_polygon &poly, const char *name = "poly")
 {
-	std::cerr << name << ": ncontours=" << poly.num_contours << "\n";
+	DLOG(verb1) << name << ": ncontours=" << poly.num_contours << "\n";
 	for(int i = 0; i != poly.num_contours; i++)
 	{
 		gpc_vertex_list &contour = poly.contour[i];
-		std::cerr << name << ": contour " << i << ": nvertices=" << contour.num_vertices 
+		DLOG(verb1) << name << ": contour " << i << ": nvertices=" << contour.num_vertices
 			<< " area= " << contour_area(poly.contour[i])*sqr(deg(1.))
 			<< (poly.hole[i] ? " (hole)" : "") << "\n";
 	}
 }
 
-// Splits an all-sky map into two nort/south hemisphere maps, possibly including an overlapping margin
+// Splits an all-sky map into two nort/south hemisphere maps, possibly including an overlapping margin 
 void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, const lambert &nproj, gpc_polygon allsky, Radians margin = rad(0.))
 {
 	const Radians south_pole_epsilon2 = sqr(rad(0.03));
@@ -383,7 +383,7 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 	{
 		poly_print_info(nsky, "north");
 		poly_print_info(ssky, "south");
-		std::cerr << "(area, narea+sarea, relerr, abserr, narea, sarea) = "
+		DLOG(verb1) << "(area, narea+sarea, relerr, abserr, narea, sarea) = "
 			<< area << " " << tarea << " " << relerr << " " << abserr
 			<< "     " << narea << " " << sarea << "\n";
 		assert(margin != 0 || !failed);
@@ -599,11 +599,72 @@ gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
 	std::istringstream ss2(cfg["footprint_beam"]);
 	ss2 >> l >> b >> r >> rhole;
 
-	MLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
+	DLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
 	DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
 
 	return makeBeamMap(rad(l), rad(b), rad(r), rad(rhole), proj);
 
+}
+
+inline double polygon_area_deg(const gpc_polygon &sky)
+{
+	return polygon_area(sky)*sqr(180./ctn::pi);
+}
+
+gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj)
+{
+	static const int npts = 360;
+	Radians dx = ctn::twopi / npts;
+
+	if(abs(proj.phi1) == bmin) { bmin *= 0.999; }	// slightly reduce ZOA to ensure the pole is out of it
+
+	// construct ZoA contours
+	std::vector<double> x(npts), y(npts);
+	gpc_polygon mask, contour1, contour2;
+	FOR(0, npts) { proj.convert(i*dx,  bmin, x[i], y[i]); }
+	contour1 = make_polygon(x, y);
+	FOR(0, npts) { proj.convert(i*dx, -bmin, x[i], y[i]); }
+	contour2 = make_polygon(x, y);
+
+	std::cerr << "A(contour1) = " << polygon_area_deg(contour1) << "\n";
+	std::cerr << "A(contour2) = " << polygon_area_deg(contour2) << "\n";
+	std::cerr << "    A(band) = " << polygon_area_deg(contour2)-polygon_area_deg(contour1) << "\n";
+
+	// determine the topology of ZoA curve and accordingly construct
+	// the clipping mask
+	if(abs(proj.phi1) < bmin)
+	{
+		// pole is within the zone
+		gpc_polygon circle = make_circle(0., 0., 2.001, dx);		// whole sky
+
+		// construct the mask
+		gpc_polygon tmp;
+		gpc_polygon_clip(GPC_DIFF, &circle, &contour1, &tmp);
+		gpc_polygon_clip(GPC_DIFF, &tmp, &contour2, &mask);
+
+		gpc_free_polygon(&tmp);
+		gpc_free_polygon(&circle);
+	}
+	else
+	{
+		// pole is out of the zone. Topology is a simple band.
+		if(proj.phi1 < -bmin) { std::swap(contour1, contour2); } // ensure contour1 is the inner contour
+
+		// construct the mask
+		gpc_polygon_clip(GPC_DIFF, &contour2, &contour1, &mask);
+	}
+	std::cerr << "A(mask) = " << polygon_area_deg(mask) << "\n";
+
+	gpc_polygon sky2;
+	gpc_polygon_clip(GPC_DIFF, &sky, &mask, &sky2);
+	std::cerr << "A(sky) = " << polygon_area_deg(sky) << "\n";
+	std::cerr << "A(sky2) = " << polygon_area_deg(sky2) << "\n";
+
+	gpc_free_polygon(&mask);
+	gpc_free_polygon(&contour1);
+	gpc_free_polygon(&contour2);
+
+	return sky2;
 }
 
 void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &proj, Radians b0 = rad(0.))

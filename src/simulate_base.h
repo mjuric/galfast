@@ -115,7 +115,9 @@ class opipeline;
 
 struct skyConfigInterface
 {
-	virtual bool init(const peyton::system::Config &cfg,
+	virtual bool init(
+		const peyton::system::Config &cfg,
+		const peyton::system::Config &pdf_cfg,
 		const peyton::system::Config &foot_cfg,
 		const peyton::system::Config &model_cfg,
 		otable &t,

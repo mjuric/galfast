@@ -64,8 +64,10 @@ public:
 	{
 		double l, b; // in Radians
 		int projIdx;
+		float pixelArea, coveredArea;	// area of the nominal pixel, area covered by the footprint within the pixel
 		
-		pixel(double l_, double b_, int projIdx_) : l(l_), b(b_), projIdx(projIdx_) {}
+		pixel(double l_, double b_, int projIdx_, float pixelArea_, float coveredArea_)
+			: l(l_), b(b_), projIdx(projIdx_), pixelArea(pixelArea_), coveredArea(coveredArea_) {}
 	};
 
 public:

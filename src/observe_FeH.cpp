@@ -287,17 +287,17 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 		ycum[i] = ycum[i-1] + dA;
 
 		yprev = yy;
-		std::cerr << xcum[i] << " " << ycum[i] << "\n";
+		//std::cerr << xcum[i] << " " << ycum[i] << "\n";
 	}
 	double norm = ycum.back();
 	FOR(0, ycum.size()) { ycum[i] /= norm; }
-	FOR(0, ycum.size()) { std::cerr << xcum[i] << " " << ycum[i] << "\n"; }
+	//FOR(0, ycum.size()) { std::cerr << xcum[i] << " " << ycum[i] << "\n"; }
 
 	// NOTE: WARNING: because of resampling, invCumLF(cumLF(x)) != x,
 	// so DONT EVER DEPEND ON IT!
 	   cumLFManager.construct(&xcum[0], &ycum[0], xcum.size(), NPIX);
 	invCumLFManager.construct(&ycum[0], &xcum[0], xcum.size(), NPIX);
-	FOR(0, xcum.size()) { std::cerr << xcum[i] << " " << ycum[i] << " " << cumLFManager.sample(xcum[i]) << "\n"; }
+	//FOR(0, xcum.size()) { std::cerr << xcum[i] << " " << ycum[i] << " " << cumLFManager.sample(xcum[i]) << "\n"; }
 
 // 	for(float u=0; u <=1; u += 0.01)
 // 	{

@@ -106,6 +106,7 @@ skyConfig<T>::skyConfig()
 	this->pixels = 0;
 	this->lock = 0;
 	this->counts = 0;
+	this->countsCovered = 0;
 	this->nstars = 0;
 
 	this->ks.constructor();
@@ -123,6 +124,7 @@ skyConfig<T>::~skyConfig()
 	this->lock.free();
 	this->pixels.free();
 	this->counts.free();
+	this->countsCovered.free();
 	this->nstars.free();
 
 	this->ks.destructor();
@@ -140,7 +142,7 @@ int skyConfig<T>::bufferSafetyMargin()
 	int bufsize = (int)ceil(maxCount + 7.*sqrt(maxCount))	// for maxCount > 100, P(k > k+7sqrt(k)) ~ nthreads*7e-11
 			 + 3*this->nthreads;			// and this part is to cover the selection effect that we only break if k>1
 
-#if 1
+#if 0
 	// some diagnostic info
 	sort(cpu_maxCount, cpu_maxCount + this->nthreads, std::greater<float>());
 	for(int i = 0; i != 3 && i != this->nthreads; i++)
@@ -175,6 +177,8 @@ void skyConfig<T>::upload_generic(bool draw)
 
 		this->counts.alloc(this->nthreads);
 		cudaMemset(this->counts.ptr, 0, this->nthreads*4);
+		this->countsCovered.alloc(this->nthreads);
+		cudaMemset(this->countsCovered.ptr, 0, this->nthreads*4);
 	}
 	else
 	{
@@ -201,60 +205,6 @@ void skyConfig<expModel>::upload(bool draw)
 	this->upload_generic(draw);
 	texLFMgr.bind();
 	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
-}
-
-template<typename T>
-void skyConfig<T>::loadConfig()
-{
-	// Galactic center distance (in pc)
-// 	Rg = 8000.;
-
-	// Galactic model initialization
-//	this->model.setmodel(2150., 245., 25,  0.13, 3261, 743,   0.0051, 1./0.64, 2.77);
-//	this->model.setmodel(2150., 300., 25.,  0.13, 2150, 900,   0.0051, 1./0.64, 2.77);
-
-	// luminosity function initialization
-// 	               //  0      4      8    12    16    20   24
-// 	const int nlf = 7;
-// 	float cpu_lf[] = { 0.00, 0.03, 0.05, 0.07, 0.04, 0.02, 0.00 };
-// 	float lfM0 = 0, lfM1 = 24, lfdM = (lfM1 - lfM0) / (nlf-1);
-// 	this->model.lf = texLFMgr.set(cpu_lf, nlf, lfM0, lfM1, lfdM);
-
-	// density histogram setup
-// 	this->lrho0 = -3.5f;
-// 	this->dlrho = 1.0f;
-
-	// integration limits
-/*	float deltam = 0.01;*/
-//	this->M0 = 10.; this->M1 = 10.05;  this->dM = deltam;
-// 	this->M0 =  4.; this->M1 = 15.;  this->dM = deltam;
-// 	this->m0 = 15.; this->m1 = 24.;  this->dm = deltam;
-// 	this->nM = (int)round((this->M1 - this->M0) / this->dM);
-// 	this->nm = (int)round((this->m1 - this->m0) / this->dm);
-// 	this->m0 += 0.5*this->dm;
-// 	this->M1 -= 0.5*this->dM;
-
-	// generate sky pixels
-// 	this->proj.init(rad(90.), rad(90.));
-// 	this->npixels = 1; //2000;
-// 	this->dx = rad(1.);
-// 	this->dA = sqr(this->dx);
-// 	cpu_pixels = new direction[this->npixels];
-// 	Radians l0 = rad(44), b0 = rad(85.), dx = rad(1), l, b;
-// //	Radians l0 = rad(0.), b0 = rad(5.), dx = rad(1), l, b;
-// 	for(int i=0; i != this->npixels; i++)
-// 	{
-// 		l = l0 + i*dx;
-// 		b = b0;
-// 		cpu_pixels[i] = direction(l, b);
-// 	}
-
-	// compute/set kernel execution parameters
-/*	blockDim.x = 64; //256;
-	gridDim.x = 120; // 30;
-	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
-	std::cout << "nthreads=" << this->nthreads << "\n";
-	shb = 12 * blockDim.x; // for RNG*/
 }
 
 gpc_polygon makeBeamMap(const peyton::system::Config &cfg, peyton::math::lambert &proj);
@@ -302,7 +252,8 @@ partitioned_skymap *make_skymap_slow(Radians dx, gpc_polygon sky)
 			// store the polygon into a fast lookup map
 			partitioned_skymap::pixel_t &pix = skymap->skymap[std::make_pair(X, Y)];
 			pix.poly = poly;
-			pix.area = polygon_area(poly);
+			pix.coveredArea = polygon_area(poly);
+			pix.pixelArea = sqr(skymap->dx);
 		}
 	}
 
@@ -336,7 +287,8 @@ void make_skymap_piece(gpc_polygon sky, partitioned_skymap *skymap, int X0, int 
 //		std::cerr << " Leaf node.\n";
 		partitioned_skymap::pixel_t &pix = skymap->skymap[std::make_pair(X0, Y0)];
 		pix.poly = poly;
-		pix.area = polygon_area(poly);
+		pix.coveredArea = polygon_area(poly);
+		pix.pixelArea = sqr(skymap->dx);
 		return;
 	}
 
@@ -389,21 +341,25 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 template<typename T>
 bool skyConfig<T>::init(
 			const peyton::system::Config &cfg,
+			const peyton::system::Config &pdf_cfg,
 			const peyton::system::Config &foot_cfg,
 			const peyton::system::Config &model_cfg,
 			otable &t,
 			opipeline &pipe)
 {
+	// maximum number of stars skygen is allowed to generate (0 for unlimited)
+	cfg.get(this->nstarLimit, "nstarlimit", (size_t)100*1000*1000);
+
 	// Galactic center distance (in pc)
 	Rg = 8000.;
 
-	cfg.get(this->dx,	"dx", 	1.f);
+	pdf_cfg.get(this->dx,	"dx", 	1.f);
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
 
 	boost::shared_ptr<opipeline_stage> foot( opipeline_stage::create("clipper") );
 	Config fcfg(foot_cfg);
-	fcfg.insert(std::make_pair("dx", cfg.get("dx")));
+	fcfg.insert(std::make_pair("dx", pdf_cfg.get("dx")));
 	if(!foot->construct(fcfg, t, pipe))
 	{
 		return false;
@@ -417,7 +373,9 @@ bool skyConfig<T>::init(
 	int cnt = 0;
 	FOREACH(pix)
 	{
-		cpu_pixels[cnt++] = skypixel(i->l, i->b, i->projIdx);
+		float coveredFraction = i->coveredArea / i->pixelArea;
+		cpu_pixels[cnt] = skypixel(i->l, i->b, i->projIdx, coveredFraction);
+		cnt++;
 	}
 
 	// projections the pixels are bound to
@@ -430,12 +388,12 @@ bool skyConfig<T>::init(
 	}
 
 	// Density binning parameters
-	this->M0 = cfg.get_any_of("M0", "ri0");
-	this->M1 = cfg.get_any_of("M1", "ri1");
-	this->dM = cfg.get_any_of("dM", "dri");
-	this->m0 = cfg.get_any_of("m0", "r0");
-	this->m1 = cfg.get_any_of("m1", "r1");
-	this->dm = cfg.get("dm");
+	this->M0 = pdf_cfg.get_any_of("M0", "ri0");
+	this->M1 = pdf_cfg.get_any_of("M1", "ri1");
+	this->dM = pdf_cfg.get_any_of("dM", "dri");
+	this->m0 = pdf_cfg.get_any_of("m0", "r0");
+	this->m1 = pdf_cfg.get_any_of("m1", "r1");
+	this->dm = pdf_cfg.get("dm");
 	assert(this->dM == this->dm);
 
 	this->nM = (int)round((this->M1 - this->M0) / this->dM);
@@ -478,10 +436,10 @@ bool skyConfig<T>::init(
 	blockDim.x = 64; //256;
 	gridDim.x = 120; // 30;
 	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
-	std::cout << "nthreads=" << this->nthreads << "\n";
+	DLOG(verb1) << "nthreads=" << this->nthreads << "\n";
 	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
 
-	std::cout << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels << "\n";
+	DLOG(verb1) << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels << "\n";
 
 	return true;
 }
@@ -515,8 +473,21 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb1) << ss.str();
 
-	MLOG(verb1) << "Total expected star count: " << std::setprecision(9) << this->nstarsExpected;
-	MLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
+	MLOG(verb1) << "Total expected star count: " <<
+		std::setprecision(9) << this->nstarsExpected <<
+		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";
+	DLOG(verb1) << "Skygen kernel runtime: " << this->swatch.getAverageTime();
+
+	//
+	// Stop if the expected number of stars is more than the limit
+	//
+	if(this->nstarsExpected > this->nstarLimit && this->nstarLimit != 0)
+	{
+		THROW(EAny, "The expected number of generated stars (" + str(this->nstarsExpected) + ") "
+			"exceeds the configuration limit (" + str(this->nstarLimit) + "). Increase "
+			"nstarlimit or set to zero for unlimited."
+			);
+	}
 
 	//
 	// Second pass: draw stars
@@ -542,8 +513,8 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->download(true);
 		in.set_size(this->stars_generated);
 
-		MLOG(verb1) << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpected - total << " expected).";
-		MLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
+		MLOG(verb1) << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpectedToGenerate - total << " expected).";
+		DLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
 
 		if(in.size())
 		{
@@ -579,7 +550,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		fclose(fp);
 #endif
 	} while(this->stars_generated >= this->stopstars);
-	MLOG(verb1) << "Generated " << total << " stars (" << this->nstarsExpected << " expected in _unclipped_ volume).";
+	MLOG(verb1) << "Generated " << total << " stars (" << this->nstarsExpected << " expected).";
 
 	#if _EMU_DEBUG
 	long long voxelsVisitedExpected = this->npixels;
@@ -615,11 +586,11 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	if(cfg.count("pdf"))
 	{
 		Config cfgPDF(cfg["pdf"]);
-		return skygen->init(cfgPDF, cfgFoot, cfgModel, t, pipe);
+		return skygen->init(cfg, cfgPDF, cfgFoot, cfgModel, t, pipe);
 	}
 	else
 	{
-		return skygen->init(cfg, cfgFoot, cfgModel, t, pipe);
+		return skygen->init(cfg, cfg, cfgFoot, cfgModel, t, pipe);
 	}
 }
 
@@ -631,6 +602,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 ////////////////////////////////////////////////////////////////////////////
 
 void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians margin);
+gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj);
 
 bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
@@ -638,16 +610,18 @@ bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 	this->dx = rad(this->dx);
 	this->dA = sqr(this->dx);
 
-	gpc_polygon allsky, nsky, ssky;
-	allsky = make_footprint(cfg, proj[0]);
+	gpc_polygon allsky, nsky, ssky, tmp;
+	tmp    = make_footprint(cfg, proj[0]);
+	allsky = clip_zone_of_avoidance(tmp, rad(30.), proj[0]);
 	makeHemisphereMaps(nsky, ssky, proj[1], proj[0], allsky, 1.*this->dx);
+	gpc_free_polygon(&tmp);
 	gpc_free_polygon(&allsky);
 
 	this->sky[0] = make_skymap(this->dx, nsky);
 	this->sky[1] = make_skymap(this->dx, ssky);
 
-	MLOG(verb1) << "Sky pixels, north = " << this->sky[0]->skymap.size();
-	MLOG(verb1) << "Sky pixels, south = " << this->sky[1]->skymap.size();
+	DLOG(verb1) << "Sky pixels, north = " << this->sky[0]->skymap.size();
+	DLOG(verb1) << "Sky pixels, south = " << this->sky[1]->skymap.size();
 
 	return true;
 }
@@ -675,7 +649,7 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix)		// returns
 			x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
 			y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
 			proj[projIdx].inverse(x, y, l, b);
-			pix.push_back(pixel(l, b, projIdx));
+			pix.push_back(pixel(l, b, projIdx, i->second.pixelArea, i->second.coveredArea));
 		}
 	}
 
@@ -732,8 +706,8 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		hidden[row] = !infoot;
 	}
 
-	MLOG(verb1) << "nstars north: " << nstars[0];
-	MLOG(verb1) << "nstars south: " << nstars[1];
+	DLOG(verb1) << "nstars north: " << nstars[0];
+	DLOG(verb1) << "nstars south: " << nstars[1];
 
 	return nextlink->process(in, begin, end, rng);
 }

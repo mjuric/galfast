@@ -567,11 +567,11 @@ std::ostream& otable::serialize_header(std::ostream &out)
 	field["pmradec"] = ord++;
 	std::sort(outColumns.begin(), outColumns.end(), pred_col_less(field));
 	
-	FOREACH(outColumns)
-	{
-		std::cerr << (*i)->getPrimaryName() << " ";
-	}
-	std::cerr << "\n";
+// 	FOREACH(outColumns)
+// 	{
+// 		std::cerr << (*i)->getPrimaryName() << " ";
+// 	}
+// 	std::cerr << "\n";
 
 	FOREACH(outColumns)
 	{

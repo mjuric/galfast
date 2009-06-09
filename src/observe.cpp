@@ -1328,17 +1328,20 @@ class os_textout : public osink
 struct mask_output : otable::mask_functor
 {
 	column_types::cint::host_t hidden;
-	mask_output(column_types::cint::host_t &h) : hidden(h) {}
+	ticker &tick;
+	mask_output(column_types::cint::host_t &h, ticker &tck) : hidden(h), tick(tck) {}
 
 	virtual bool shouldOutput(int row) const
 	{
+		tick.tick();
 		return !hidden[row];
 	}
 };
 
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
-	if(tick.step <= 0) { tick.open("Processing", 10000); }
+//	if(tick.step <= 0) { tick.open("Writing output", 10000); }
+	ticker tick("Output", (int)round((to-from)/50.));
 
 	if(!headerWritten)
 	{
@@ -1355,7 +1358,7 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	if(t.using_column("hidden"))
 	{
 		column_types::cint::host_t   hidden = t.col<int>("hidden");
-		nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden));
+		nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden, tick));
 	}
 	else
 	{
@@ -1367,14 +1370,14 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
-	// quick hack to limit the number of stars that can be generated
-	static int ntotal = 0;
-	ntotal += nserialized;
-	const static int nmax = 100*1000*1000;
-	if(ntotal > nmax)
-	{
-		THROW(EAny, "Output currently limited to not (much) more than " + str(ntotal) + " stars.");
-	}
+// 	// quick hack to limit the number of stars that can be generated
+// 	static int ntotal = 0;
+// 	ntotal += nserialized;
+// 	const static int nmax = 100*1000*1000;
+// 	if(ntotal > nmax)
+// 	{
+// 		THROW(EAny, "Output currently limited to not (much) more than " + str(ntotal) + " stars.");
+// 	}
 
 	return nserialized;
 }
@@ -1586,7 +1589,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
 	static const size_t Kbatch = 5000000;
-	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects\n";
+	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 
 	std::string name;

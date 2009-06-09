@@ -192,12 +192,12 @@ BISTREAM2(partitioned_skymap &m)
 
 BOSTREAM2(const partitioned_skymap::pixel_t &m)
 {
-	return out << m.poly << m.area;
+	return out << m.poly << m.coveredArea << m.pixelArea;
 }
 
 BISTREAM2(partitioned_skymap::pixel_t &m)
 {
-	return in >> m.poly >> m.area;
+	return in >> m.poly >> m.coveredArea >> m.pixelArea;
 }
 
 // ASCII file serialization with projection information

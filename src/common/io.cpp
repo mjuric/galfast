@@ -58,12 +58,12 @@ std::ostream *flex_output::open(const std::string &fn)
 	}
 	else if(fn == "-")
 	{
-		MLOG(verb2) << "Outputing plain text to standard output.";
+		DLOG(verb2) << "Outputing plain text to standard output.";
 		stream = &std::cout;
 	}
 	else
 	{
-		MLOG(verb2) << "Outputing plain text to " << fn << ".";
+		DLOG(verb2) << "Outputing plain text to " << fn << ".";
 		stream = new std::ofstream(fn.c_str());
 	}
 

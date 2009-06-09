@@ -57,7 +57,7 @@ lfParams lfTextureManager::set(float *cpu_lf, int lfLen, float M0, float M1, flo
 
 void lfTextureManager::bind()
 {
-	fprintf(stderr, "Binding luminosity function texture.\n");
+	//fprintf(stderr, "Binding luminosity function texture.\n");
 	assert(lfArray);
 	cuxErrCheck( cudaBindTextureToArray(&texref, lfArray, &texref.channelDesc) );
 }
@@ -97,15 +97,20 @@ void skyConfig<T>::download(bool draw)
 	else
 	{
 		float *cpu_counts = new float[this->nthreads];
+		float *cpu_countsCovered = new float[this->nthreads];
 		this->counts.download(cpu_counts, this->nthreads);
+		this->countsCovered.download(cpu_countsCovered, this->nthreads);
 
 		// sum up the total expected number of stars
+		nstarsExpectedToGenerate = 0;
 		nstarsExpected = 0;
 		for(int i=0; i != this->nthreads; i++)
 		{
-			nstarsExpected += cpu_counts[i];
+			nstarsExpectedToGenerate += cpu_counts[i];
+			nstarsExpected += cpu_countsCovered[i];
 		}
 		delete [] cpu_counts;
+		delete [] cpu_countsCovered;
 
 		int *cpu_rhoHistograms = new int[this->nthreads*this->nhistbins];
 		this->rhoHistograms.download(cpu_rhoHistograms, this->nthreads*this->nhistbins);
@@ -297,7 +302,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	skypixel pix;
 	int k;
 
-	double count = 0.f;
+	double count = 0.f, countCovered = 0.f;
 	float maxCount1 = 0.;
 	int bc = 0;
 	float D;
@@ -457,6 +462,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 		else
 		{
 			count += rho;
+			countCovered += rho * pix.coveredFraction;
 			if(maxCount1 < rho) { maxCount1 = rho; }
 #if 1
 			// add this sample to the correct histogram bin
@@ -473,6 +479,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	if(!draw)
 	{
 		counts[tid] = count;
+		countsCovered[tid] = countCovered;
 		maxCount[tid] = maxCount1;
 	}
 	else

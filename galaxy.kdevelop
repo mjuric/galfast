@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
@@ -88,7 +88,7 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemuX --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
+        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
@@ -198,8 +198,8 @@
       <includestyle>3</includestyle>
       <root>/usr/lib64/qt-3.3</root>
       <designerintegration>EmbeddedKDevDesigner</designerintegration>
-      <qmake/>
-      <designer/>
+      <qmake></qmake>
+      <designer></designer>
       <designerpluginpaths/>
     </qt>
     <splitheadersource>

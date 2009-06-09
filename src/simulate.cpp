@@ -586,12 +586,19 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 
 gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
 {
+	// coordinate system (default: galactic)
+	std::string coordsys;
+	cfg.get(coordsys, "coordsys", std::string("gal"));
+
+	// transform the chosen direction to Galactic coordinate system
+	peyton::coordinates::transform xxx2gal= peyton::coordinates::get_transform(coordsys, "gal");
+	if(xxx2gal == NULL) { THROW(EAny, "Don't know how to convert from coordinate system '" + coordsys + "' to galactic coordinates."); }
+
 	// projection
 	std::string pole; double l0, b0;
 	cfg.get(pole,	"projection",	std::string("90 90"));
 	std::istringstream ss(pole);
 	ss >> l0 >> b0;
-	proj = lambert(rad(l0), rad(b0));
 
 	// beam direction and radius
 	double l, b, r, rhole = 0;
@@ -602,7 +609,12 @@ gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
 	DLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
 	DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
 
-	return makeBeamMap(rad(l), rad(b), rad(r), rad(rhole), proj);
+	// transform to galactic coordinates (and radians)
+	xxx2gal(rad(l), rad(b), l, b);
+	xxx2gal(rad(l0), rad(b0), l0, b0);
+
+	proj = lambert(l0, b0);
+	return makeBeamMap(l, b, rad(r), rad(rhole), proj);
 
 }
 

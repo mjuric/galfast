@@ -424,7 +424,7 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 	if(l0 >= l1) { if(l0 == 0) { l1 = 360; } else { l0 -= 360; } }
 	if(fabs((l1 - l0) - 360) < 1e-5)
 	{
-		MLOG(verb1) << "Generating a ring -- delegating to beam footprint generation routine.";
+		DLOG(verb1) << "Generating a ring -- delegating to beam footprint generation routine.";
 		Radians r = rad(90. - b0), rhole = rad(90. - b1);
 		return makeBeamMap(lp, bp, r, rhole, proj);
 	}
@@ -559,7 +559,7 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 
 	if(rhole)
 	{
-		std::cerr << "Clipping the hole.\n";
+		//std::cerr << "Clipping the hole.\n";
 		gpc_polygon poly, hole = make_polygon(hx, hy);
 		gpc_polygon_clip(GPC_DIFF, &sky, &hole, &poly);
 		sky = poly;
@@ -638,9 +638,9 @@ gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::
 	FOR(0, npts) { proj.convert(i*dx, -bmin, x[i], y[i]); }
 	contour2 = make_polygon(x, y);
 
-	std::cerr << "A(contour1) = " << polygon_area_deg(contour1) << "\n";
-	std::cerr << "A(contour2) = " << polygon_area_deg(contour2) << "\n";
-	std::cerr << "    A(band) = " << polygon_area_deg(contour2)-polygon_area_deg(contour1) << "\n";
+	DLOG(verb2) << "A(contour1) = " << polygon_area_deg(contour1) << "\n";
+	DLOG(verb2) << "A(contour2) = " << polygon_area_deg(contour2) << "\n";
+	DLOG(verb2) << "    A(band) = " << polygon_area_deg(contour2)-polygon_area_deg(contour1) << "\n";
 
 	// determine the topology of ZoA curve and accordingly construct
 	// the clipping mask
@@ -665,12 +665,12 @@ gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::
 		// construct the mask
 		gpc_polygon_clip(GPC_DIFF, &contour2, &contour1, &mask);
 	}
-	std::cerr << "A(mask) = " << polygon_area_deg(mask) << "\n";
+	DLOG(verb2) << "A(mask) = " << polygon_area_deg(mask) << "\n";
 
 	gpc_polygon sky2;
 	gpc_polygon_clip(GPC_DIFF, &sky, &mask, &sky2);
-	std::cerr << "A(sky) = " << polygon_area_deg(sky) << "\n";
-	std::cerr << "A(sky2) = " << polygon_area_deg(sky2) << "\n";
+	DLOG(verb2) << "A(sky) = " << polygon_area_deg(sky) << "\n";
+	DLOG(verb2) << "A(sky2) = " << polygon_area_deg(sky2) << "\n";
 
 	gpc_free_polygon(&mask);
 	gpc_free_polygon(&contour1);

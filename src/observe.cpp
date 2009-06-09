@@ -1589,7 +1589,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
 	static const size_t Kbatch = 5000000;
-	MLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
+	DLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 
 	std::string name;
@@ -1614,7 +1614,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		smodules.insert(name);
 	}
 	modules.insert(smodules.begin(), smodules.end());
-	MLOG(verb2) << "Adding modules from config file:" << msg.str();
+	//DLOG(verb2) << "Adding modules from config file:" << msg.str();
 
 	// merge-in modules with options given in the config file
 	opipeline pipe;
@@ -1650,7 +1650,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
 
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
+		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 
 		pipe.add(stage);
 	}
@@ -1663,7 +1663,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", input));
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
+		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}
 	if(!pipe.has_module_of_type("output"))
@@ -1673,7 +1673,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		modcfg.insert(make_pair("filename", output));
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		MLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
+		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
 	}
 

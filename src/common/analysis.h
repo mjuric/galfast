@@ -195,7 +195,8 @@ public:
 			}
 			else
 			{
-				MLOG(verb2) << title << "...";
+				if(title[title.size()-1] == '\n') { title = title.substr(0, title.size()-1); }
+				MLOG(verb2) << " " << title << " @ 0";
 			}
 		}
 	}
@@ -210,7 +211,7 @@ public:
 			}
 			else
 			{
-				MLOG(verb2) << title << " @ " << tickk << " done";
+				MLOG(verb2) << title << " @ " << tickk << " (done).";
 			}
 		}
 		tickk = 0;
@@ -231,7 +232,7 @@ public:
 			time_t t = time(NULL);
 			if(t - t0 >= dt)
 			{
-				MLOG(verb2) << title << " @ " << tickk;
+				MLOG(verb2) << " " << title << " @ " << tickk;
 				t0 = t;
 			}
 		}

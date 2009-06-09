@@ -518,13 +518,18 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->download(true);
 		in.set_size(this->stars_generated);
 
-		MLOG(verb1) << "Skygen generated " << this->stars_generated << " stars (" << this->nstarsExpectedToGenerate - total << " expected).";
+		DLOG(verb1) << "Skygen generated " << this->stars_generated << " stars ";
 		DLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
 
 		if(in.size())
 		{
 			total += nextlink->process(in, 0, in.size(), cpurng);
 		}
+		
+		double pctdone = 100. * total / this->nstarsExpected;
+		char pcts[50]; sprintf(pcts, "% 2.0f", pctdone);
+		MLOG(verb1) << pcts << "% done.";
+
 #if 0
 		// write out where each thread stopped
 		for(int i=0; i != this->nthreads; i++)
@@ -555,7 +560,9 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		fclose(fp);
 #endif
 	} while(this->stars_generated >= this->stopstars);
-	MLOG(verb1) << "Generated " << total << " stars (" << this->nstarsExpected << " expected).";
+	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
+	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
+	MLOG(verb1) << "Generated " << total << " stars, " << sigmas << " sigma from model mean (" << this->nstarsExpected << ").";
 
 	#if _EMU_DEBUG
 	long long voxelsVisitedExpected = this->npixels;

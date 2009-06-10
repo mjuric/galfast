@@ -453,9 +453,15 @@ bool cuda_init()
 	if(cuda_initialized) { return true; }
 
 	// get requested device from environment
+	int dev;
 	const char *devStr = getenv("CUDA_DEVICE");
-	int dev = devStr == NULL ? 0 : atoi(devStr);
-	cudaError err;
+	bool autoselect = devStr == NULL;
+
+	if(!autoselect)
+	{
+		dev = atoi(devStr);
+		cuxErrCheck( cudaSetDevice(dev) );
+	}
 
 	// disable GPU acceleration
 	if(dev == -1)
@@ -466,26 +472,30 @@ bool cuda_init()
 		MLOG(verb1) << "Using CPU: \"" << cpuinfo() << "\"";
 		return true;
 	}
+
+#if !CUDA_DEVEMU
+	// ensure a CUDA context is created and fetch the active
+	// device id
+	void *tmp;
+	cuxErrCheck( cudaMalloc(&tmp, 1024) );
+	cuxErrCheck( cudaFree(tmp) );
+	cuxErrCheck( cudaGetDevice(&dev) );
+#endif
+
 #if !CUDA_DEVEMU
 	// get device properties
 	cudaDeviceProp deviceProp;
-	err = cudaGetDeviceProperties(&deviceProp, dev);
-	if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); return false; }
+	cuxErrCheck( cudaGetDeviceProperties(&deviceProp, dev) );
 
-	// use the device
-	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"") << dev << deviceProp.name;
+	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"%s") << dev << deviceProp.name << (autoselect ? " (autoselected)" : "");
 
 #else
 	MLOG(verb1) << "Using CUDA Device Emulation";
 #endif
-	cuxErrCheck( cudaSetDevice(dev) );
 
 #if !CUDA_DEVEMU
 	// Memory info
 	unsigned free = 0, total = 0;
-	void *tmp;
-	cuxErrCheck( cudaMalloc(&tmp, 1024) );	// ensure CUDA context is created, for the cuMemGetInfo call
-	cuxErrCheck( cudaFree(tmp) );
 	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
 	MLOG(verb1) << "Device memory (free, total): " << free / (1<<20) << "M, " << total / (1<<20) << "M";
 #endif

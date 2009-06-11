@@ -468,7 +468,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	{
 		ss << std::setw(8) << this->lrho0+i*this->dlrho << "|";
 	}
-	MLOG(verb1) << ss.str();
+	MLOG(verb2) << ss.str();
 	ss.str("");
 	ss << "Histogram: rho=" << pow10f(this->lrho0 - this->dlrho*0.5) << "-->|";
 	for(int i=0; i != this->nhistbins; i++)
@@ -476,9 +476,9 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		ss << std::setw(8) << this->cpu_hist[i] << "|";
 	}
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
-	MLOG(verb1) << ss.str();
+	MLOG(verb2) << ss.str();
 
-	MLOG(verb1) << "Total expected star count: " <<
+	MLOG(verb2) << "Total expected star count: " <<
 		std::setprecision(9) << this->nstarsExpected <<
 		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";
 	DLOG(verb1) << "Skygen kernel runtime: " << this->swatch.getAverageTime();
@@ -527,8 +527,8 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		}
 		
 		double pctdone = 100. * total / this->nstarsExpected;
-		char pcts[50]; sprintf(pcts, "% 2.0f", pctdone);
-		MLOG(verb1) << pcts << "% done.";
+		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
+		MLOG(verb1) << "Skygen progress: " << pcts << "% done.";
 
 #if 0
 		// write out where each thread stopped
@@ -562,7 +562,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	} while(this->stars_generated >= this->stopstars);
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
-	MLOG(verb1) << "Generated " << total << " stars, " << sigmas << " sigma from model mean (" << this->nstarsExpected << ").";
+	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
 
 	#if _EMU_DEBUG
 	long long voxelsVisitedExpected = this->npixels;
@@ -628,7 +628,7 @@ bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 	allsky = make_footprint(cfg, proj[0]);
 	if(this->bmin)
 	{
-		MLOG(verb1) << "Clipping Galactic plane zone of avoidance |b| < " << deg(this->bmin) << " deg";
+		MLOG(verb1) << "Zone of avoidance: clipping |b| < " << deg(this->bmin) << " deg";
 		tmp = clip_zone_of_avoidance(allsky, this->bmin, proj[0]);
 		gpc_free_polygon(&allsky);
 		allsky = tmp;

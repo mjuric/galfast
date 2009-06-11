@@ -4,6 +4,7 @@
 #include <astro/io/gzstream/fstream.h>
 #include <astro/system/fs.h>
 #include <astro/system/log.h>
+#include <astro/ui/term.h>
 #include "textstream.h"
 #include <set>
 #include <valarray>
@@ -151,7 +152,7 @@ public:
 	int step;
 	std::string title;
 
-	bool logticker;
+	bool logticker, newline;
 	time_t t0, dt;
 
 	typedef int value_type;
@@ -184,14 +185,15 @@ public:
 		{
 			if(!logticker)
 			{
+				using namespace peyton::ui::term;
+				using namespace peyton::util;
+
 				if(title[title.size()-1] == '\n')
 				{
 					std::cerr << title.substr(0, title.size()-1) << "...\n";
+					title = "";
 				}
-				else
-				{
-					std::cerr << title << ": ";
-				}
+				newline = title.size();
 			}
 			else
 			{
@@ -224,8 +226,18 @@ public:
 		tickk++;
 		if(!logticker)
 		{
-			if(tickk % step == 0) { std::cerr << "#"; }
-			if(tickk % (step*50) == 0) { std::cerr << " [" << tickk << "]\n"; }
+			if(tickk % step == 0)
+			{
+				if(newline)
+				{
+					using namespace peyton::util;
+					using namespace peyton::ui::term;
+					std::cerr << BOLD << pad(title, TAB1-1) << ": " << OFF;
+					newline = false;
+				}
+				std::cerr << "#";
+			}
+			if(tickk % (step*50) == 0) { std::cerr << " [" << tickk << "]\n"; newline = title.size(); }
 		}
 		else
 		{

@@ -502,9 +502,11 @@ void makeRectMap(const std::string &output, peyton::system::Config &cfg, bool sm
 gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
 {
 
-	double x, y;
-	MLOG(verb1) << "Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg, hole = " << deg(rhole);
+	ostringstream ss;
+	if(rhole) { ss << ", hole = " << deg(rhole) << "deg"; }
+	MLOG(verb1) << "Footprint: Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg" << ss.str();
 
+	double x, y;
 	std::vector<double> lx, ly, hx, hy;
 	lambert bproj(l, b);
 
@@ -1101,6 +1103,11 @@ int main(int argc, char **argv)
 {
 try
 {
+#define ASCII_ESC 27
+//	printf( "%c[2J", ASCII_ESC );
+//	printf( "%c[1m Bla bla %c[m", ASCII_ESC, ASCII_ESC );
+//	abort();
+
 	test_pm_conversions();
 //	test_kin();
 	test_otable();

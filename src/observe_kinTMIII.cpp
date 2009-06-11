@@ -210,27 +210,27 @@ bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
  	vPhi2[0] += DeltavPhi;
 
 	// some info
-	MLOG(verb1) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
-	MLOG(verb1) << "Second disk gaussian offset:  " << DeltavPhi;
+	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
+	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;
 
-	MLOG(verb1) << "vR coefficients:              " << vR_fvec;
-	MLOG(verb1) << "vZ coefficients:              " << vZ_fvec;
-	MLOG(verb1) << "sigmaRR coefficients:         " << sigmaRR_fvec;
-	MLOG(verb1) << "sigmaRPhi coefficients:       " << sigmaRPhi_fvec;
-	MLOG(verb1) << "sigmaRZ coefficients:         " << sigmaRZ_fvec;
-	MLOG(verb1) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1_fvec;
-	MLOG(verb1) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2_fvec;
-	MLOG(verb1) << "sigmaZPhi coefficients:       " << sigmaZPhi_fvec;
-	MLOG(verb1) << "sigmaZZ coefficients:         " << sigmaZZ_fvec;
+	MLOG(verb2) << "vR coefficients:              " << vR_fvec;
+	MLOG(verb2) << "vZ coefficients:              " << vZ_fvec;
+	MLOG(verb2) << "sigmaRR coefficients:         " << sigmaRR_fvec;
+	MLOG(verb2) << "sigmaRPhi coefficients:       " << sigmaRPhi_fvec;
+	MLOG(verb2) << "sigmaRZ coefficients:         " << sigmaRZ_fvec;
+	MLOG(verb2) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1_fvec;
+	MLOG(verb2) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2_fvec;
+	MLOG(verb2) << "sigmaZPhi coefficients:       " << sigmaZPhi_fvec;
+	MLOG(verb2) << "sigmaZZ coefficients:         " << sigmaZZ_fvec;
 
-	MLOG(verb1) << "HvR coefficients:             " << HvR_fvec;
-	MLOG(verb1) << "HvZ coefficients:             " << HvZ_fvec;
-	MLOG(verb1) << "HsigmaRR coefficients:        " << HsigmaRR_fvec;
-	MLOG(verb1) << "HsigmaRPhi coefficients:      " << HsigmaRPhi_fvec;
-	MLOG(verb1) << "HsigmaRZ coefficients:        " << HsigmaRZ_fvec;
-	MLOG(verb1) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi_fvec;
-	MLOG(verb1) << "HsigmaZPhi coefficients:      " << HsigmaZPhi_fvec;
-	MLOG(verb1) << "HsigmaZZ coefficients:        " << HsigmaZZ_fvec;
+	MLOG(verb2) << "HvR coefficients:             " << HvR_fvec;
+	MLOG(verb2) << "HvZ coefficients:             " << HvZ_fvec;
+	MLOG(verb2) << "HsigmaRR coefficients:        " << HsigmaRR_fvec;
+	MLOG(verb2) << "HsigmaRPhi coefficients:      " << HsigmaRPhi_fvec;
+	MLOG(verb2) << "HsigmaRZ coefficients:        " << HsigmaRZ_fvec;
+	MLOG(verb2) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi_fvec;
+	MLOG(verb2) << "HsigmaZPhi coefficients:      " << HsigmaZPhi_fvec;
+	MLOG(verb2) << "HsigmaZZ coefficients:        " << HsigmaZZ_fvec;
 
 	return true;
 }

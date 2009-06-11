@@ -170,7 +170,7 @@ bool os_photometricErrors::runtime_init(otable &t)
 	std::set<std::string> bandset;
 	if(!t.get_used_columns_by_class(bandset, "magnitude"))
 	{
-		MLOG(verb1) << "Warning: Not mixing in photometric errors, as no photometric information is being generated.";
+		MLOG(verb1) << "WARNING: Not mixing in photometric errors, as no photometric information is being generated.";
 		return true;
 	}
 
@@ -211,7 +211,7 @@ bool os_photometricErrors::runtime_init(otable &t)
 			int bandIdx = cdef.getFieldIndex(*i);
 			columnsToTransform.push_back(errdef(obsBandset, trueBandset, bandIdx, bandErrors));
 
-			MLOG(verb1) << "Adding photometric errors to " << trueBandset << "." << *i << " (output in " << obsBandset << "." << *i << ")";
+			MLOG(verb2) << "Adding photometric errors to " << trueBandset << "." << *i << " (output in " << obsBandset << "." << *i << ")";
 		}
 	}
 	return true;
@@ -224,7 +224,7 @@ void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::
 	load(in, mag, 0, sigma, 1);
 
 	availableErrors[bandset][band].construct(mag, sigma);
-	MLOG(verb1) << "Loaded photometric errors for " << bandset << ", " << band << " band";
+	MLOG(verb2) << "Loaded photometric errors for " << bandset << ", " << band << " band";
 }
 
 bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pipe)
@@ -260,7 +260,7 @@ bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pi
 		path += "*.photoerr.txt";
 		peyton::io::dir dir(path);
 		
-		MLOG(verb1) << "Looking for error definition files for " << bandset << " (" << path << ")";
+		MLOG(verb2) << "Looking for error definition files for " << bandset << " (" << path << ")";
 
 		FOREACH(dir)
 		{
@@ -594,27 +594,27 @@ bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
 	cfg.get(HsigmaZZ     , "HsigmaZZ"     , split<dvec>("85 0 0 0 0"));	haloEllip[5] = &HsigmaZZ;
 
 	// some info
-	MLOG(verb1) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
-	MLOG(verb1) << "Second disk gaussian offset:  " << DeltavPhi;
+	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
+	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;
 
-	MLOG(verb1) << "vR coefficients:              " << vR;
-	MLOG(verb1) << "vZ coefficients:              " << vZ;
-	MLOG(verb1) << "sigmaRR coefficients:         " << sigmaRR;
-	MLOG(verb1) << "sigmaRPhi coefficients:       " << sigmaRPhi;
-	MLOG(verb1) << "sigmaRZ coefficients:         " << sigmaRZ;
-	MLOG(verb1) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1;
-	MLOG(verb1) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2;
-	MLOG(verb1) << "sigmaZPhi coefficients:       " << sigmaZPhi;
-	MLOG(verb1) << "sigmaZZ coefficients:         " << sigmaZZ;
+	MLOG(verb2) << "vR coefficients:              " << vR;
+	MLOG(verb2) << "vZ coefficients:              " << vZ;
+	MLOG(verb2) << "sigmaRR coefficients:         " << sigmaRR;
+	MLOG(verb2) << "sigmaRPhi coefficients:       " << sigmaRPhi;
+	MLOG(verb2) << "sigmaRZ coefficients:         " << sigmaRZ;
+	MLOG(verb2) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1;
+	MLOG(verb2) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2;
+	MLOG(verb2) << "sigmaZPhi coefficients:       " << sigmaZPhi;
+	MLOG(verb2) << "sigmaZZ coefficients:         " << sigmaZZ;
 
-	MLOG(verb1) << "HvR coefficients:             " << HvR;
-	MLOG(verb1) << "HvZ coefficients:             " << HvZ;
-	MLOG(verb1) << "HsigmaRR coefficients:        " << HsigmaRR;
-	MLOG(verb1) << "HsigmaRPhi coefficients:      " << HsigmaRPhi;
-	MLOG(verb1) << "HsigmaRZ coefficients:        " << HsigmaRZ;
-	MLOG(verb1) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi;
-	MLOG(verb1) << "HsigmaZPhi coefficients:      " << HsigmaZPhi;
-	MLOG(verb1) << "HsigmaZZ coefficients:        " << HsigmaZZ;
+	MLOG(verb2) << "HvR coefficients:             " << HvR;
+	MLOG(verb2) << "HvZ coefficients:             " << HvZ;
+	MLOG(verb2) << "HsigmaRR coefficients:        " << HsigmaRR;
+	MLOG(verb2) << "HsigmaRPhi coefficients:      " << HsigmaRPhi;
+	MLOG(verb2) << "HsigmaRZ coefficients:        " << HsigmaRZ;
+	MLOG(verb2) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi;
+	MLOG(verb2) << "HsigmaZPhi coefficients:      " << HsigmaZPhi;
+	MLOG(verb2) << "HsigmaZZ coefficients:        " << HsigmaZZ;
 
 	return true;
 }
@@ -767,13 +767,13 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	}
 	text_input_or_die(in, tmp);
 
-	MLOG(verb1) << "Generating " << bandset2 << " photometry.";
-	MLOG(verb1) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
-	MLOG(verb1) << bandset2 << ": Input absolute magnitude assumed to be in " << bband << " band.";
-	MLOG(verb1) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
-	MLOG(verb1) << bandset2 << ": Resampling color table to fast lookup grid:";
-	MLOG(verb1) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
-	MLOG(verb1) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
+	MLOG(verb1) << "Photometry: Generating " << bandset2 << " ( " << bnames << ")";
+	MLOG(verb2) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
+	MLOG(verb2) << bandset2 << ": Input absolute magnitude assumed to be in " << bband << " band.";
+	MLOG(verb2) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
+	MLOG(verb2) << bandset2 << ": Resampling color table to fast lookup grid:";
+	MLOG(verb2) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
+	MLOG(verb2) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
 
 	// load the data
 	std::map<double, std::vector<Mr2col> > v;
@@ -876,8 +876,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		nextrap[i] /= nFeH*nMr;
 	}
 ///	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
-	MLOG(verb1) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
-	MLOG(verb1) << bandset2 << ":    extrapolation fractions = " << nextrap;
+	MLOG(verb2) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
+	MLOG(verb2) << bandset2 << ":    extrapolation fractions = " << nextrap;
 
 #if HAVE_CUDA
 	// upload lookup table to CUDA textures
@@ -1339,7 +1339,7 @@ struct mask_output : otable::mask_functor
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
 //	if(tick.step <= 0) { tick.open("Writing output", 10000); }
-	ticker tick("Output", (int)round((to-from)/50.));
+	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
 	if(!headerWritten)
 	{
@@ -1535,9 +1535,9 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		ASSERT(next);
 		last->chain(next);
 		last = next;
-		ss << " -> " << last->name();
+		ss << " | " << last->name();
 	}
-	MLOG(verb1) << "Postprocessing module chain: " << ss.str();
+	MLOG(verb1) << "Pipeline: " << ss.str();
 
 #if 0
 	//
@@ -1553,12 +1553,12 @@ size_t opipeline::run(otable &t, rng_t &rng)
 
 	int ret = source->run(t, rng);
 
-	MLOG(verb2) << "Postprocessing times:";
+	DLOG(verb2) << "Postprocessing times:";
 	FOREACH(pipeline)
 	{
-		MLOG(verb2) << io::format("  %10s: %f") << (*i)->name() << (*i)->getProcessingTime();
+		DLOG(verb2) << io::format("  %10s: %f") << (*i)->name() << (*i)->getProcessingTime();
 	}
-	MLOG(verb2) << "Pure kernel run time: " << kernelRunSwatch.getTime();
+	DLOG(verb2) << "Pure kernel run time: " << kernelRunSwatch.getTime();
 
 	return ret;
 }
@@ -1676,5 +1676,5 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	}
 
 	int nstars = pipe.run(t, rng);
-	MLOG(verb1) << "Observing pipeline generated " << nstars << " point sources.";
+	MLOG(verb2) << "Observing pipeline generated " << nstars << " point sources.";
 }

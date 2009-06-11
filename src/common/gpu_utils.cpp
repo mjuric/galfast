@@ -422,7 +422,7 @@ void abort_on_cuda_error(cudaError err)
 {
 	if(err == cudaSuccess) { return; }
 
-	MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err);
+	MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
 	abort();
 }
 
@@ -430,7 +430,7 @@ void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const in
 {
 	if(err != cudaSuccess)
 	{
-		MLOG(verb1) << "CUDA Error: In " << fun << " (" << file << ":" << line << ")\n";
+		MLOG(verb1) << "CUDA ERROR: In " << fun << " (" << file << ":" << line << ")\n";
 		abort_on_cuda_error(err);
 //		throw cuxException(err);
 	}
@@ -469,7 +469,7 @@ bool cuda_init()
 		cuda_initialized = 1;
 		cuda_enabled = 0;
 
-		MLOG(verb1) << "Using CPU: \"" << cpuinfo() << "\"";
+		MLOG(verb1) << "GPU accelerator: Using CPU: \"" << cpuinfo() << "\"";
 		return true;
 	}
 
@@ -487,17 +487,17 @@ bool cuda_init()
 	cudaDeviceProp deviceProp;
 	cuxErrCheck( cudaGetDeviceProperties(&deviceProp, dev) );
 
-	MLOG(verb1) << io::format("Using CUDA Device %d: \"%s\"%s") << dev << deviceProp.name << (autoselect ? " (autoselected)" : "");
+	MLOG(verb1) << io::format("GPU accelerator: Using Device %d: \"%s\"%s") << dev << deviceProp.name << (autoselect ? " (autoselected)" : "");
 
 #else
-	MLOG(verb1) << "Using CUDA Device Emulation";
+	MLOG(verb1) << "GPU accelerator: Using Device Emulation";
 #endif
 
 #if !CUDA_DEVEMU
 	// Memory info
 	unsigned free = 0, total = 0;
 	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
-	MLOG(verb1) << "Device memory (free, total): " << free / (1<<20) << "M, " << total / (1<<20) << "M";
+	MLOG(verb2) << "Device memory (free, total): " << free / (1<<20) << "M, " << total / (1<<20) << "M";
 #endif
 
 	cuda_initialized = 1;

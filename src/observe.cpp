@@ -1384,6 +1384,7 @@ bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	out.open(cfg["filename"].c_str());
+	MLOG(verb1) << "Output file: " << cfg["filename"] << "\n";
 
 #if 0 // not implemented
 	// slurp up any output/formatting information

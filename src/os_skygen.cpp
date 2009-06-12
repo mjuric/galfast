@@ -478,6 +478,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb2) << ss.str();
 
+	MLOG(verb1) << "Expected starcount: " << std::setprecision(9) << this->nstarsExpected;
 	MLOG(verb2) << "Total expected star count: " <<
 		std::setprecision(9) << this->nstarsExpected <<
 		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";

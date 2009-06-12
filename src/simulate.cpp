@@ -429,9 +429,9 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 		return makeBeamMap(lp, bp, r, rhole, proj);
 	}
 
-	MLOG(verb1) << "Projection pole (l, b)               = " << deg(lp) << " " << deg(bp);
-	MLOG(verb1) << "Observed rectangle (l0, l1, b0, b1)  = " << l0 << " " << l1 << " " << b0 << " " << b1;
-	MLOG(verb1) << "Sampling resolution (dx)             = " << dx;
+	MLOG(verb1) << "Footprint: lon=(" << l0 << " to " << l1 << ") lat=(" << b0 << " to " << b1 << "), coordsys=" << coordsys;
+	MLOG(verb2) << "Projection pole (l, b)               = " << deg(lp) << " " << deg(bp);
+	MLOG(verb2) << "Sampling resolution (dx)             = " << dx;
 
 	// South pole causes a divergence in lambert routines
 	if(b0 <= -89.99)

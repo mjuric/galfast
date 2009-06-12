@@ -423,7 +423,8 @@ void abort_on_cuda_error(cudaError err)
 	if(err == cudaSuccess) { return; }
 
 	MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
-	abort();
+	//abort();
+	exit(-100);
 }
 
 void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const int line)

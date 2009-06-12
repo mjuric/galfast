@@ -1130,6 +1130,7 @@ try
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
 		"postprocess - \tpostprocess the mock catalog (e.g., derive photometry, add instrumental errors, etc.)\n"
+		"  cudaquery - \tquery available cuda devices\n"
 					   );
 	opts.stop_after_final_arg = true;
 	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
@@ -1169,6 +1170,8 @@ try
 	sopts["pdfinfo"].reset(new Options(argv0 + " pdfinfo", progdesc + " Print information about a .pdf.bin file.", version, Authorship::majuric));
 	sopts["pdfinfo"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
 	sopts["pdfinfo"]->add_standard_options();
+
+	sopts["cudaquery"].reset(new Options(argv0 + " cudaquery", progdesc + " Query available CUDA devices.", version, Authorship::majuric));
 
 	bool simpleOutput = true;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
@@ -1217,6 +1220,12 @@ try
 	{
 		MLOG(verb1) << "Error initializing GPU acceleration. Aborting.";
 		return -1;
+	}
+
+	if(cmd == "cudaquery")
+	{
+		// The real test was that we successfully passed the cuda_init() step above.
+		return 0;
 	}
 
 	if(cmd == "pdfinfo")

@@ -1425,6 +1425,7 @@ class os_fitsout : public osink
 		std::vector<coldef> columns;
 
 		bool headerWritten;
+		std::string header_def;
 		ticker tick;
 
 	public:
@@ -1542,6 +1543,11 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 	if(!headerWritten)
 	{
+		// collect header metadata
+		std::ostringstream hdr;
+		t.serialize_header(hdr);
+		header_def = hdr.str();
+
 		// create the output table
 		char *ttype[tfields], *tform[tfields];
 		data.resize(tfields);
@@ -1557,7 +1563,7 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 		}
 
 		int status = 0;
-		fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, NULL, &status);
+		fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, "CATALOG", &status);
 		//fits_insert_btbl(fptr, 0, tfields, ttype, tform, NULL, NULL, 0, &status);
 		ASSERT(status == 0) { fits_report_error(stderr, status); }
 
@@ -1630,6 +1636,26 @@ os_fitsout::~os_fitsout()
 	if(fptr)
 	{
 		int status = 0;
+		if(!header_def.empty())
+		{
+			int len = header_def.size();
+
+			// create an additional extension with a single column exactly wide enough to store
+			// our header
+			char *ttype = "HEADER";
+			char *tform;
+			asprintf(&tform, "%dA", len);
+			fits_create_tbl(fptr, BINARY_TBL, 0, 1, &ttype, &tform, NULL, "METADATA", &status);
+			ASSERT(status == 0) { fits_report_error(stderr, status); }
+			free(tform);
+
+			// write header
+			fits_insert_rows(fptr, 0, 1, &status);
+			ASSERT(status == 0) { fits_report_error(stderr, status); }
+			const char *hstr = header_def.c_str();
+			fits_write_col(fptr, TSTRING, 1, 1, 1, 1, &hstr, &status);
+			ASSERT(status == 0) { fits_report_error(stderr, status); }
+		}
 		fits_close_file(fptr, &status);
 	}
 }

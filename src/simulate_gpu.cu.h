@@ -614,7 +614,9 @@ inline __device__ double2 galequ(const double2 lb)
 		) + angp;
 	r.y = asin(cb*ce*sl + sb*se);
 
-	while(r.x < 0.) { r.x += ctn::pi2; }
+	while(r.x < 0.)        { r.x += ctn::pi2; }
+	while(r.x >= ctn::pi2) { r.x -= ctn::pi2; }
+
 	return r;
 }
 

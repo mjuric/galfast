@@ -237,6 +237,10 @@ namespace xptrng
 		{
 			return ((T*)data)[i];
 		}
+		__device__ operator bool() const
+		{
+			return data != NULL;
+		}
 	};
 	template<typename T>
 	inline gptr<T> make_gptr(void *data, uint32_t pitch)

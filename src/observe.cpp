@@ -1400,6 +1400,242 @@ bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 	return out.out();
 }
 
+
+/////////////////////////////
+
+#if HAVE_LIBCFITSIO
+#include "fitsio2.h"
+
+// in/out ends of the chain
+class os_fitsout : public osink
+{
+	public:
+		struct coldef
+		{
+			char *data;
+			int width;
+			int elementSize;
+			size_t pitch;
+		};
+
+	protected:
+		fitsfile *fptr;       /* pointer to the FITS file; defined in fitsio.h */
+		std::vector<iteratorCol> data;
+		std::vector<coldef> columns;
+
+		bool headerWritten;
+		ticker tick;
+
+	public:
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		virtual const std::string &name() const { static std::string s("fitsout"); return s; }
+		virtual const std::string &type() const { static std::string s("output"); return s; }
+
+		os_fitsout() : osink(), headerWritten(false), tick(-1), fptr(NULL)
+		{
+		}
+		~os_fitsout();
+};
+
+struct write_fits_rows_state
+{
+	column_types::cint::host_t hidden;
+	os_fitsout::coldef *columns;
+	int row, to, rowswritten;
+
+	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
+	{
+		hidden = xptrng::make_hptr<int>(NULL, 0);
+		rowswritten = 0;
+
+		columns = columns_;
+		row = from_;
+		to = to_;
+	}
+};
+
+int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int narrays, iteratorCol *data,  void *userPointer)
+{
+	write_fits_rows_state &st = *(write_fits_rows_state *)userPointer;
+	os_fitsout::coldef *columns = st.columns;
+	firstn--;		// adjust to 0-based convention
+	firstn -= offset;	// refer to the first row of the otable we're dumping
+
+	// for each column...
+	int orow = st.row;
+	FOR(0, narrays)
+	{
+		os_fitsout::coldef &c = columns[i];
+		char *f = (char *)fits_iter_get_array(data+i);
+		ASSERT(c.width == data[i].repeat);
+
+		// tell cfitsio we have no NULLs
+		memset(f, 0, c.width*c.elementSize);
+//		f += c.width*c.elementSize;
+		f += c.elementSize;
+
+		// for each row...
+		orow = st.row;
+		FORj(row, 0, nvalues)
+		{
+			if(st.hidden)
+			{
+				while(orow != st.to && st.hidden[orow]) { orow++; }	// find next non-hidden row
+			}
+			if(orow == st.to) { break; }				// have we reached the end of the table?
+
+			char *from = c.data + c.elementSize * orow;	// 0th element in this row
+			char *to = f + c.width*c.elementSize*row;
+			// for each vector element in row...
+			FORj(elem, 0, c.width)
+			{
+				char *elemto = to + c.elementSize*elem;
+				char *elemfrom = from + c.pitch*elem;
+				memcpy(
+					elemto,
+					elemfrom,
+					c.elementSize
+				);
+#if 0
+				memset(
+					elemto,
+					'A'+i,
+					c.elementSize
+				);
+#endif
+#if 0
+				switch(data[i].datatype)
+				{
+					case TFLOAT:
+						std::cerr << *(float*)elemto << " ";
+						break;
+					case TDOUBLE:
+						std::cerr << *(double*)elemto << " ";
+						break;
+					case TLONG:
+						std::cerr << *(int*)elemto << " ";
+						break;
+				}
+#endif
+			}
+
+			if(i == 0) { st.rowswritten++; }
+			orow++;
+		}
+	}
+	st.row = orow;
+	return 0;
+}
+
+size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
+{
+//	if(tick.step <= 0) { tick.open("Writing output", 10000); }
+	ticker tick("Writing output", (int)ceil((to-from)/50.));
+
+	// fetch columns we're going to write
+	std::vector<const otable::columndef *> cols;
+	t.getSortedColumnsForOutput(cols);
+	const int tfields = cols.size();
+
+	if(!headerWritten)
+	{
+		// create the output table
+		char *ttype[tfields], *tform[tfields];
+		data.resize(tfields);
+		FOR(0, tfields)
+		{
+			coldef c;
+			(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
+
+			ttype[i] = strdup(cols[i]->getPrimaryName().c_str());
+			asprintf(&tform[i], "%d%s", c.width, cols[i]->type()->fitstype());
+
+			//std::cerr << ttype[i] << " " << tform[i] << "\n";
+		}
+
+		int status = 0;
+		fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, NULL, &status);
+		//fits_insert_btbl(fptr, 0, tfields, ttype, tform, NULL, NULL, 0, &status);
+		ASSERT(status == 0) { fits_report_error(stderr, status); }
+
+		// construct array for cfitsio/Iterator routines
+		columns.resize(tfields);
+		FOR(0, tfields)
+		{
+			int dtype;
+			switch(cols[i]->type()->fitstype()[0])
+			{
+				case 'A': dtype = TSTRING; break;
+				case 'J': dtype = TLONG; break;
+				case 'E': dtype = TFLOAT; break;
+				case 'D': dtype = TDOUBLE; break;
+				default: ASSERT(0);
+			}
+
+			fits_iter_set_by_num(&data[i], fptr, i+1, dtype,  OutputCol);
+
+			coldef &c = columns[i];
+			c.data = (char*)(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
+
+			free(ttype[i]);
+			free(tform[i]);
+		}
+
+		headerWritten = true;
+	}
+
+	swatch.start();
+
+//	if(t.using_column("hidden"))
+	// call cfitsio Iterator
+	int status = 0;
+	long nrows;
+	fits_get_num_rows(fptr, &nrows, &status);
+	fits_insert_rows(fptr, nrows, to-from, &status);
+
+	write_fits_rows_state st(&columns[0], from, to);
+	if(t.using_column("hidden"))
+	{
+		st.hidden = t.col<int>("hidden");
+	}
+	fits_iterate_data(tfields, &data[0], nrows, 0, write_fits_rows, &st, &status);
+	fits_delete_rows(fptr, nrows + st.rowswritten + 1, to-from-st.rowswritten, &status);
+
+	swatch.stop();
+	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
+
+	if(status != 0) { fits_report_error(stderr, status); }
+
+	return st.rowswritten;
+}
+
+bool os_fitsout::construct(const Config &cfg, otable &t, opipeline &pipe)
+{
+	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+
+	int status = 0;         /* initialize status before calling fitsio routines */
+	unlink(cfg["filename"].c_str());
+	fits_create_file(&fptr, cfg["filename"].c_str(), &status);   /* create new file */
+	if(status) { abort(); }
+
+	return true;
+}
+
+os_fitsout::~os_fitsout()
+{
+	if(fptr)
+	{
+		int status = 0;
+		fits_close_file(fptr, &status);
+	}
+}
+#endif
+
+/////////////////////////////
+
+
 class os_textin : public osource
 {
 	protected:
@@ -1457,6 +1693,9 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	if(name == "textin") { s.reset(new os_textin); }
 	else if(name == "skygen") { s.reset(new os_skygen); }
 	else if(name == "textout") { s.reset(new os_textout); }
+#if HAVE_LIBCFITSIO
+	else if(name == "fitsout") { s.reset(new os_fitsout); }
+#endif
 	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }

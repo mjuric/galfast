@@ -461,17 +461,20 @@ bool cuda_init()
 	if(!autoselect)
 	{
 		dev = atoi(devStr);
-		cuxErrCheck( cudaSetDevice(dev) );
-	}
 
-	// disable GPU acceleration
-	if(dev == -1)
-	{
-		cuda_initialized = 1;
-		cuda_enabled = 0;
+		// disable GPU acceleration
+		if(dev == -1)
+		{
+			cuda_initialized = 1;
+			cuda_enabled = 0;
 
-		MLOG(verb1) << "GPU accelerator: Using CPU: \"" << cpuinfo() << "\"";
-		return true;
+			MLOG(verb1) << "GPU accelerator: Using CPU: \"" << cpuinfo() << "\"";
+			return true;
+		}
+		else
+		{
+			cuxErrCheck( cudaSetDevice(dev) );
+		}
 	}
 
 #if !CUDA_DEVEMU

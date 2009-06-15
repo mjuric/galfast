@@ -311,9 +311,9 @@ public:
 		THROW(peyton::exceptions::EAny, "Internal error");
 	}
 
-	int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
 	int printf_aux(char *dest, size_t maxlen, const char *fmt, const float &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
 	int printf_aux(char *dest, size_t maxlen, const char *fmt, const int &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
+	int printf_aux(char *dest, size_t maxlen, const char *fmt, const double &v) 	{ pos += snprintf(dest, maxlen, fmt, v); }
 
 	template<typename T>
 	int printf(const std::string &fmt, const T &v)
@@ -346,6 +346,7 @@ struct column_type_traits
 	virtual void  unserialize(void *val, std::istream &in) const = 0;
 	virtual void* constructor(void *p) const = 0;
 	virtual void  destructor(void *val) const = 0;
+	virtual const char *fitstype() const = 0;
 
 	static const column_type_traits *get(const std::string &datatype);
 	template<typename T> static const column_type_traits *get() { ASSERT(0); }
@@ -547,6 +548,15 @@ public:
 			return (const column<T> &)ptr;
 		}
 	public:
+		void *rawdataptr(int &elementSize, int &nfields, size_t &pitch)
+		{
+			nfields = ptr.width();
+			pitch = ptr.pitch();
+			elementSize = ptr.elementSize();
+
+			column<char>::host_t h = ptr;
+			return &h[0];
+		}
 		~columndef();
 		columndef &add_alias(const std::string &name)		// add an additional name (alias) to this column
 		{
@@ -615,6 +625,8 @@ protected:
 	void getColumnsForInput(std::vector<columndef*> &cols);			// aux helper
 
 public:
+	int getSortedColumnsForOutput(std::vector<const columndef*> &outColumns) const;
+
 	// column lookup by name
 	columndef &getColumn(const std::string &name);
 	const columndef &getColumn(const std::string &name) const;

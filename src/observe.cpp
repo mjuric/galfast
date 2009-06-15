@@ -1382,9 +1382,9 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	out.open(cfg["filename"].c_str());
-	MLOG(verb1) << "Output file: " << cfg["filename"] << "\n";
+	const char *fn = cfg.count("filename") ? cfg["filename"].c_str() : "sky.obs.txt";
+	out.open(fn);
+	MLOG(verb1) << "Output file: " << fn << " (text)\n";
 
 #if 0 // not implemented
 	// slurp up any output/formatting information
@@ -1614,11 +1614,12 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 bool os_fitsout::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	if(!cfg.count("filename")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	const char *fn = cfg.count("filename") ? cfg["filename"].c_str() : "sky.fits";
 
 	int status = 0;         /* initialize status before calling fitsio routines */
-	unlink(cfg["filename"].c_str());
-	fits_create_file(&fptr, cfg["filename"].c_str(), &status);   /* create new file */
+	unlink(fn);
+	fits_create_file(&fptr, fn, &status);   /* create new file */
+	MLOG(verb1) << "Output file: " << fn << " (FITS)\n";
 	if(status) { abort(); }
 
 	return true;
@@ -1662,7 +1663,7 @@ bool os_textin::runtime_init(otable &t)
 
 bool os_textin::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	const char *fn = cfg["filename"].c_str();
+	const char *fn = cfg.count("filename") ? cfg["filename"].c_str() : "sky.cat.txt";
 	in.open(fn);
 	if(!in.in()) { THROW(EFile, "Failed to open '" + (std::string)fn + "' for input."); }
 
@@ -1884,8 +1885,8 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 
 		stage->setUniqueId(modcfg["module"]);
 
-		if(stage->type() == "input")  { modcfg.insert(make_pair("filename", input)); }
-		if(stage->type() == "output") { modcfg.insert(make_pair("filename", output)); }
+		if(stage->type() == "input" && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
+		if(stage->type() == "output" && !output.empty()) { modcfg.insert(make_pair("filename", output)); }
 
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
@@ -1899,7 +1900,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		name = "textin";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-		modcfg.insert(make_pair("filename", input));
+		if(!input.empty()) modcfg.insert(make_pair("filename", input));
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
@@ -1909,7 +1910,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		name = "textout";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-		modcfg.insert(make_pair("filename", output));
+		if(!output.empty()) modcfg.insert(make_pair("filename", output));
 		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
 		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);

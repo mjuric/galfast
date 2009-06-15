@@ -1187,7 +1187,7 @@ try
 
 /*	std::string catalog, in_module = "textin", out_module = "textout";*/
 	std::vector<std::string> modules;
-	std::string infile("sky.cat.txt"), outfile("sky.obs.txt");
+	std::string infile(""), outfile("");
 	sopts["postprocess"].reset(new Options(argv0 + " postprocess", progdesc + " Apply postprocessing steps to catalog sources.", version, Authorship::majuric));
 	sopts["postprocess"]->argument("conf").bind(input).desc("Postprocessing (\"postprocess.conf\") configuration file");
 	sopts["postprocess"]->argument("modules").bind(modules).optional().gobble().desc("List of postprocessing module configuration files (or module names)");

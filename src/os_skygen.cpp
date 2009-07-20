@@ -28,6 +28,7 @@
 #include <iomanip>
 #include <fstream>
 #include <vector>
+#include <ext/numeric>	// for iota
 
 #include <astro/useall.h>
 
@@ -449,6 +450,35 @@ bool skyConfig<T>::init(
 	return true;
 }
 
+struct star_comp
+{
+	column_types::cdouble::host_t	lb;
+	column_types::cint::host_t 	projIdx;
+	column_types::cfloat::host_t	XYZ;
+	column_types::cint::host_t	comp;
+	column_types::cfloat::host_t	M;
+	column_types::cfloat::host_t	DM;
+
+	star_comp(otable &in)
+	{
+		lb      = in.col<double>("lb");
+		projIdx = in.col<int>("projIdx");
+		XYZ     = in.col<float>("XYZ");
+		comp    = in.col<int>("comp");
+		M       = in.col<float>("absmag");
+		DM      = in.col<float>("DM");
+	}
+
+	bool operator()(const size_t a, const size_t b) const	// less semantics
+	{
+		return	lb(a, 0) <  lb(b, 0)	||	lb(a, 0) == lb(b, 0) && (
+			lb(a, 1) <  lb(b, 1)	||	lb(a, 1) == lb(b, 1) && (
+			DM[a]    <  DM[b]	||	DM[a]    == DM[b] && (
+			M[a]     < M[b]
+			)));
+	}
+};
+
 template<typename T>
 size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 {
@@ -511,13 +541,43 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		this->stars.comp    = in.col<int>("comp");
 		this->stars.M       = in.col<float>("absmag");
 		this->stars.DM      = in.col<float>("DM");
-		//this->nabsmag       = in.col<float>("absmag").width();
-		//this->stars.color = in.col<float>("color"); -- not implemented yet
 
 		this->upload(true);
 		this->compute(true);
 		this->download(true);
 		in.set_size(this->stars_generated);
+
+		{
+			// sort the generated stars by l,b,DM,M
+			std::vector<size_t> s(this->stars_generated);
+			__gnu_cxx::iota(s.begin(), s.end(), size_t(0));
+			std::vector<size_t> h2a(s), a2h(s);
+			star_comp sc(in);
+			std::sort(s.begin(), s.end(), sc);
+			
+			FOR(0, s.size())
+			{
+				#define  SWAP(arr)    std::swap(sc.arr[i],    sc.arr[j])
+				#define SWAP1(arr, k) std::swap(sc.arr(i, k), sc.arr(j, k))
+
+				int hi = a2h[i];
+				int hj = s[i];
+				int j = h2a[hj];
+
+				SWAP1(lb, 0);	SWAP1(lb, 1);
+				SWAP(projIdx);
+				SWAP1(XYZ, 0);	SWAP1(XYZ, 1);	SWAP1(XYZ, 2);
+				SWAP(comp);
+				SWAP(M);
+				SWAP(DM);
+
+				std::swap(h2a[hi], h2a[hj]);
+				std::swap(a2h[i],  a2h[j]);
+
+				#undef SWAP
+				#undef SWAP1
+			}
+		}
 
 		DLOG(verb1) << "Skygen generated " << this->stars_generated << " stars ";
 		DLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();

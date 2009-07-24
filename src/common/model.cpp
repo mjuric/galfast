@@ -169,15 +169,15 @@ otable::kv *otable::parse(const std::string &defs, otable::parse_callback *cback
 template<typename T>
 struct default_column_type_traits : public column_type_traits
 {
-	const char *m_fitstype;
+	const char m_tform_code;
 
 	virtual void  serialize(fmtout &out, const std::string &format, const void *val) const { const T *v = reinterpret_cast<const T*>(val); out.printf(format, *v); }
 	virtual void  unserialize(void *val, std::istream &in) const { T *v = reinterpret_cast<T*>(val); in >> *v; }
 	virtual void* constructor(void *p) const { return new (p) T(); }
 	virtual void  destructor(void *val) const { reinterpret_cast<T*>(val)->~T(); }
-	virtual const char *fitstype() const { return m_fitstype; }
+	virtual char  fits_tform() const { return m_tform_code; }
 
-	default_column_type_traits(const std::string &name, const char *ftype) : column_type_traits(name, sizeof(T)), m_fitstype(ftype) {}
+	default_column_type_traits(const std::string &name, const char tform_code) : column_type_traits(name, sizeof(T)), m_tform_code(tform_code) {}
 };
 
 // These are C type->traits mappings. Specialize them for each datatype supported by column_type_traits::get
@@ -194,10 +194,10 @@ const column_type_traits *column_type_traits::get(const std::string &datatype)
 	if(!initialized)
 	{
 		#define ADDTYPE(strT, fitsT, T) defined_types[strT].reset(new default_column_type_traits<T>(strT, fitsT));
-		ADDTYPE("int", "J", int);
-		ADDTYPE("double", "D", double);
-		ADDTYPE("char", "A", char);
-		ADDTYPE("float", "E", float);
+		ADDTYPE("int",    'J', int);
+		ADDTYPE("double", 'D', double);
+		ADDTYPE("char",   'A', char);
+		ADDTYPE("float",  'E', float);
 		#undef CREATETYPE
 		initialized = true;
 	}

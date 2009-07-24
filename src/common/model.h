@@ -346,7 +346,7 @@ struct column_type_traits
 	virtual void  unserialize(void *val, std::istream &in) const = 0;
 	virtual void* constructor(void *p) const = 0;
 	virtual void  destructor(void *val) const = 0;
-	virtual const char *fitstype() const = 0;
+	virtual char  fits_tform() const = 0;
 
 	static const column_type_traits *get(const std::string &datatype);
 	template<typename T> static const column_type_traits *get() { ASSERT(0); }

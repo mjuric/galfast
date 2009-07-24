@@ -1474,8 +1474,7 @@ int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int nar
 		ASSERT(c.width == data[i].repeat);
 
 		// tell cfitsio we have no NULLs
-		memset(f, 0, c.width*c.elementSize);
-//		f += c.width*c.elementSize;
+		memset(f, 0, c.elementSize);
 		f += c.elementSize;
 
 		// for each row...
@@ -1506,18 +1505,19 @@ int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int nar
 					'A'+i,
 					c.elementSize
 				);
+				elemto[0] = '0'+(row%10);
 #endif
 #if 0
 				switch(data[i].datatype)
 				{
 					case TFLOAT:
-						std::cerr << *(float*)elemto << " ";
+						std::cerr << *(float*)elemfrom << " ";
 						break;
 					case TDOUBLE:
-						std::cerr << *(double*)elemto << " ";
+						std::cerr << *(double*)elemfrom << " ";
 						break;
-					case TLONG:
-						std::cerr << *(int*)elemto << " ";
+					case TINT:
+						std::cerr << *(int*)elemfrom << " ";
 						break;
 				}
 #endif
@@ -1533,7 +1533,6 @@ int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int nar
 
 size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
-//	if(tick.step <= 0) { tick.open("Writing output", 10000); }
 	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
 	// fetch columns we're going to write
@@ -1557,14 +1556,13 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 			(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
 
 			ttype[i] = strdup(cols[i]->getPrimaryName().c_str());
-			asprintf(&tform[i], "%d%s", c.width, cols[i]->type()->fitstype());
+	 		asprintf(&tform[i], "%d%c", c.width, cols[i]->type()->fits_tform());
 
 			//std::cerr << ttype[i] << " " << tform[i] << "\n";
 		}
 
 		int status = 0;
 		fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, "CATALOG", &status);
-		//fits_insert_btbl(fptr, 0, tfields, ttype, tform, NULL, NULL, 0, &status);
 		ASSERT(status == 0) { fits_report_error(stderr, status); }
 
 		// construct array for cfitsio/Iterator routines
@@ -1572,10 +1570,10 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 		FOR(0, tfields)
 		{
 			int dtype;
-			switch(cols[i]->type()->fitstype()[0])
+			switch(cols[i]->type()->fits_tform())
 			{
 				case 'A': dtype = TSTRING; break;
-				case 'J': dtype = TLONG; break;
+				case 'J': dtype = TINT; break;
 				case 'E': dtype = TFLOAT; break;
 				case 'D': dtype = TDOUBLE; break;
 				default: ASSERT(0);
@@ -1599,16 +1597,16 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	// call cfitsio Iterator
 	int status = 0;
 	long nrows;
-	fits_get_num_rows(fptr, &nrows, &status);
-	fits_insert_rows(fptr, nrows, to-from, &status);
+	fits_get_num_rows(fptr, &nrows, &status);		ASSERT(status == 0) { fits_report_error(stderr, status); }
+	fits_insert_rows(fptr, nrows, to-from, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
 
 	write_fits_rows_state st(&columns[0], from, to);
 	if(t.using_column("hidden"))
 	{
 		st.hidden = t.col<int>("hidden");
 	}
-	fits_iterate_data(tfields, &data[0], nrows, 0, write_fits_rows, &st, &status);
-	fits_delete_rows(fptr, nrows + st.rowswritten + 1, to-from-st.rowswritten, &status);
+	fits_iterate_data(tfields, &data[0], nrows, 0, write_fits_rows, &st, &status);		ASSERT(status == 0) { fits_report_error(stderr, status); }
+	fits_delete_rows(fptr, nrows + st.rowswritten + 1, to-from-st.rowswritten, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
 
 	swatch.stop();
 	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }

@@ -454,4 +454,24 @@ struct zero_init
 	T& operator ++() { return ++val; }*/
 };
 
+// Split a string into components (whitespace delimited)
+template<typename T>
+	int split(T& arr, const std::string &text)
+{
+	typename T::value_type tmp;
+	std::stringstream ss(text);
+
+	arr.clear();
+	while(ss >> tmp) { arr.push_back(tmp); }
+	return arr.size();
+}
+
+template<typename T>
+	T split(const std::string &text)
+{
+	T ret;
+	split(ret, text);
+	return ret;
+}
+
 #endif

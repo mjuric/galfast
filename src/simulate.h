@@ -190,4 +190,62 @@ public:
 void observe_catalog(const std::string &conffn, const std::string &input, const std::string &output);
 void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules);
 
+//
+// Polygons (contours) on a sphere
+//
+class sph_contourX
+{
+public:
+	std::vector<gpc_vertex> c;	// polygon contour
+	gpc_vertex p;			// point inside the polygon
+	peyton::Radians dx;		// resolution at which this contour should be polygonized
+
+public:
+
+	sph_contourX(bool allsky = false)
+	{
+		reset(allsky);
+	}
+
+	sph_contourX &operator =(const sph_contourX &a)
+	{
+		c = a.c;
+		p = a.p;
+		dx = a.dx;
+		return *this;
+	}
+
+	void reset(bool allsky = false)
+	{
+		dx = 0.;		// try to "guess" the right resolution
+		p.x = p.y = 0;
+		if(allsky)
+		{
+			c.push_back(p);	// add a single point to the contour (doesn't matter what this point actually is)
+		}
+	}
+
+	bool allsky() const { return c.size() == 1; }
+
+public:	// projected gpc_polygon conversion routines
+
+	// Project and resample the contour onto projection proj, sampling the edges along geodesics with resolution dx
+	gpc_polygon project(const peyton::math::lambert &proj) const;
+};
+
+class sph_polygon
+{
+public:
+	std::list<std::pair<gpc_op, sph_contourX> > contours;
+public:
+	// Project and resample the contour onto two hemispheres defined by the projection proj (north), using
+	// project() to do the sampling, and dx to determine the sampling resolution for the equator (and margin)
+	std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const peyton::math::lambert &proj, peyton::Radians dx) const;
+	sph_contourX &add_contour(gpc_op op = GPC_UNION)
+	{
+		contours.push_back(std::make_pair(op, sph_contourX()));
+		return contours.back().second;
+	}
+};
+
 #endif // simulate_h__

@@ -23,6 +23,9 @@
 
 #include "gpu.h"
 
+// returns numeric_limits::epsilon() for the type of x
+#define EPSILON_OF(x) std::numeric_limits<typeof(x)>::epsilon()
+
 static const float ABSMAG_NOT_PRESENT = 99.999f;
 
 struct os_FeH_data
@@ -113,16 +116,18 @@ class otable;
 class osink;
 class opipeline;
 
+struct skygenConfig;
+struct skypixel;
 struct skyConfigInterface
 {
 	virtual bool init(
-		const peyton::system::Config &cfg,
-		const peyton::system::Config &pdf_cfg,
-		const peyton::system::Config &foot_cfg,
-		const peyton::system::Config &model_cfg,
 		otable &t,
-		opipeline &pipe) = 0;
-	virtual size_t run(otable &in, osink *nextlink, rng_t &rng) = 0;
+		const peyton::system::Config &cfg,	// model cfg file
+		const skygenConfig &sc,
+		const skypixel *pixels) = 0;
+	virtual void initRNG(rng_t &rng) = 0;	// initialize the random number generator from CPU RNG
+	virtual double integrateCounts() = 0;	// return the expected starcounts contributed by this model
+	virtual size_t run(otable &in, osink *nextlink) = 0;
 	virtual ~skyConfigInterface() {};
 };
 

@@ -400,7 +400,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 //		printf("dN=%f dA=%f dm=%f dM=%f D=%f\n", rho, dA, dm, dM, D);
 #endif
 		rho *= D*D*D; // multiply by volume (part one)
-		rho *= dA * POGSON * dm * dM; // multiply by volume (part two)
+		rho *= pix.dA * POGSON * dm * dM; // multiply by volume (part two)
 #if __DEVICE_EMULATION__
 //		printf("dN=%g dA=%f dm=%f dM=%f\n", rho, dA, dm, dM); abort();
 #endif
@@ -425,8 +425,8 @@ __device__ void skyConfigGPU<T>::kernel() const
 					float x, y;
 					stars.projIdx[idx] = pix.projIdx;
 					proj[pix.projIdx].convert(pix, x, y);
-					x += dx*(rng.uniform() - 0.5f);
-					y += dx*(rng.uniform() - 0.5f);
+					x += pix.dx*(rng.uniform() - 0.5f);
+					y += pix.dx*(rng.uniform() - 0.5f);
 
 					double l, b;
 					proj[pix.projIdx].inverse(x, y, l, b);

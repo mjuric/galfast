@@ -255,7 +255,7 @@ double model_pdf::ri_mpdf(std::vector<double> &pdf, const double x, const double
 {
 	// deproject to (l,b)
 	Radians l, b;
-	proj.inverse(x, y, l, b);
+	proj.deproject(l, b, x, y);
 	pencil_beam pb(l, b);
 
 	const int Npts = 1000;
@@ -616,7 +616,7 @@ void model_pdf::magnitude_mpdf(cumulative_dist &mspl, double x, double y, double
 {
 	// deproject to (l,b)
 	Radians l, b;
-	proj.inverse(x, y, l, b);
+	proj.deproject(l, b, x, y);
 	pencil_beam pb(l, b);
 
 	// absolute magnitude for this spectral type
@@ -973,7 +973,7 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 
 		// position -- convert to l,b
 		Radians l, b;
-		proj.inverse(s.x, s.y, l, b);
+		proj.deproject(l, b, s.x, s.y);
 		double cl = cos(l), cb = cos(b), sl = sin(l), sb = sin(b);
 		if(l < 0) { l = ctn::twopi + l; }
 

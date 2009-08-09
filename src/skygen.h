@@ -219,10 +219,11 @@ struct ALIGN(16) skypixel : public direction
 {
 	int projIdx;
 	float coveredFraction;
+	float dx, dA;
 
 	skypixel() {}
-	skypixel(Radians l_, Radians b_, int projIdx_, float coveredFraction_)
-	: direction(l_, b_), projIdx(projIdx_), coveredFraction(coveredFraction_)
+	skypixel(Radians l_, Radians b_, int projIdx_, float dx_, float coveredFraction_)
+	: direction(l_, b_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_)
 	{ }
 };
 
@@ -240,7 +241,6 @@ public:
 		p.sl = sin(l0); p.sb = sin(b0);
 	}
 
-#if 1
 	__device__ void convert(const direction &d, float &x, float &y) const
 	{
 		double cll0 = d.cl*p.cl + d.sl*p.sl; // cos(l - l0);
@@ -249,8 +249,7 @@ public:
 		x = kp*d.cb*sll0;
 		y = kp*(p.cb*d.sb-p.sb*d.cb*cll0);
 	}
-#endif
-#if 1
+	
 	__device__ void inverse(const float x, const float y, double &l, double &b) const
 	{
 		double r2 = x*x + y*y;
@@ -267,35 +266,6 @@ public:
 		b = asin(cc*p.sb + y*sc*p.cb*ir);
 		l = l0 + atan2(x*sc, p.cb*cc/ir - y*p.sb*sc);
 	}
-#endif
-#if 0
-	__device__ void convert(const direction &d, float &x, float &y) const
-	{
-		float cll0 = d.cl*p.cl + d.sl*p.sl; // cos(l - l0);
-		float sll0 = p.cl*d.sl - d.cl*p.sl; // sin(l - l0);
-		float kp = 1.414213562373095f * sqrtf(1.f/(1.f+p.sb*d.sb+p.cb*d.cb*cll0));
-		x = kp*d.cb*sll0;
-		y = kp*(p.cb*d.sb-p.sb*d.cb*cll0);
-	}
-#endif
-#if 0
-	__device__ void inverse(const float x, const float y, double &l, double &b) const
-	{
-		float r2 = x*x + y*y;
-		if(r2 == 0.f)
-		{
-			b = b0;
-			l = 0.f;
-			return;
-		}
-		float ir = 1.f/sqrtf(r2);			// ir == 1/r
-		float sc = 1.f/ir * sqrtf(1.f - 0.25f*r2);	// sin(c) == r*Sqrt(1 - Power(r,2)/4.)		where c = 2*asin(0.5*r)
-		float cc = 1.f - 0.5*r2;			// cos(c) == 1 - Power(r,2)/2			where c = 2*asin(0.5*r)
-
-		b = asin(cc*p.sb + y*sc*p.cb*ir);
-		l = l0 + atan2(x*sc, p.cb*cc/ir - y*p.sb*sc);
-	}
-#endif
 };
 
 __device__ inline float3 position(const direction &p, const float d)
@@ -389,20 +359,26 @@ struct ALIGN(16) runtime_state
 	bool continuing(int tid) const { return this->cont[tid]; }
 };
 
+struct skygenConfig
+{
+	float m0, m1, dm;		// apparent magnitude range
+	float M0, M1, dM;		// absolute magnitude range
+	int npixels, nm, nM;
+	int nthreads;			// total number of threads processing the sky
+	int stopstars;			// stop after this many stars have been generated
+
+	lambert proj[2];		// north/south sky lambert projections
+};
+
 template<typename Model>
-struct ALIGN(16) skyConfigGPU
+struct ALIGN(16) skyConfigGPU : public skygenConfig
 {
 	typedef Model Model_t;
 
 	Model_t model;
 
 	cux_ptr<skypixel> pixels;	// pixels on the sky to process
-	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
-	float m0, m1, dm;		// apparent magnitude range
-	float M0, M1, dM;		// absolute magnitude range
-	int npixels, nm, nM;
-	int nthreads;			// total number of threads processing the sky
-	int stopstars;			// stop after this many stars have been generated
+//	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
 
 	cux_ptr<int> lock;
 	cux_ptr<int> nstars;
@@ -427,12 +403,11 @@ template<typename Model>
 struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 {
 	float Rg;		// distance to the galactic center
-	size_t nstarLimit;	// maximum number of stars to generate
 
 	gpuRng *rng;
+	rng_t *cpurng;
 	unsigned seed;
 	skypixel *cpu_pixels;
-	lambert proj[2];	// north/south sky lambert projections
 
 	// return
 	float nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
@@ -459,14 +434,21 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	~skyConfig();
 
 	// external interface
+	virtual void initRNG(rng_t &rng);	// initialize the random number generator from CPU RNG
+	virtual double integrateCounts();	// return the expected starcounts contributed by this model
 	virtual bool init(
+		otable &t,
+		const peyton::system::Config &cfg,	// model cfg file
+		const skygenConfig &sc,
+		const skypixel *pixels);
+/*	virtual bool init(
 			const peyton::system::Config &cfg,
 			const peyton::system::Config &pdf_cfg,
 			const peyton::system::Config &foot_cfg,
 			const peyton::system::Config &model_cfg,
 			otable &t,
-			opipeline &pipe);
-	virtual size_t run(otable &in, osink *nextlink, rng_t &rng);
+			opipeline &pipe);*/
+	virtual size_t run(otable &in, osink *nextlink);
 };
 
 #if _EMU_DEBUG

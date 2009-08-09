@@ -24,6 +24,7 @@
 #include "simulate_base.h"
 #include "model.h"
 #include "gpu.h"
+#include "gpc_cpp.h"
 #include <astro/system/config.h>
 #include <projections.h>
 #include <vector>
@@ -55,10 +56,23 @@ class partitioned_skymap;
 class os_clipper : public osink
 {
 protected:
-	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
-	float bmin;			// zone of avoidance around the Galactic plane
-	peyton::math::lambert proj[2];
-	partitioned_skymap *sky[2];
+//	float dx/*, dA*/;			// linear scale and angular area of each pixel (rad, rad^2)
+//	float bmin;				// zone of avoidance around the Galactic plane
+
+	struct hemisphere
+	{
+		peyton::math::lambert 	proj;	// projection
+		partitioned_skymap 	*sky;	// skymap of the hemisphere polygon
+
+		hemisphere() : sky(NULL) {}
+		~hemisphere() { delete sky; }
+	private:
+		// disallow copy, copy constructable
+		hemisphere &operator=(const hemisphere&);
+		hemisphere(const hemisphere&);
+	};
+
+	hemisphere hemispheres[2];
 
 public:
 	struct pixel
@@ -78,8 +92,11 @@ public:
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
 	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this is placed near the end of the pipeline
 
-	int getPixelCenters(std::vector<os_clipper::pixel> &pix);		// returns the centers of all pixels
-	int getProjections(std::vector<std::pair<double, double> > &ppoles);	// returns the poles of all used projections
+	// constructs the clipper object from north/south hemispheres in projection proj
+	void construct_from_hemispheres(float dx, const peyton::math::lambert &nproj, const std::pair<gpc_polygon, gpc_polygon> &sky);
+
+	int getPixelCenters(std::vector<os_clipper::pixel> &pix) const;			// returns the centers of all pixels
+	int getProjections(std::vector<std::pair<double, double> > &ppoles) const;	// returns the poles of all used projections
 
 	os_clipper() : osink()
 	{
@@ -92,7 +109,8 @@ public:
 class os_skygen : public osource
 {
 protected:
-	skyConfigInterface *skygen;
+	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
+	size_t nstarLimit;	// maximum number of stars to generate
 
 public:
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
@@ -100,8 +118,22 @@ public:
 	virtual const std::string &name() const { static std::string s("skygen"); return s; }
 	virtual const std::string &type() const { static std::string s("input"); return s; }
 
-	os_skygen() : skygen(NULL) {};
-	virtual ~os_skygen() { delete skygen; }
+protected:
+	const os_clipper &load_footprints(const std::string &footprints, float dx, opipeline &pipe);
+	skyConfigInterface *create_kernel_for_model(const std::string &model);
+	int load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper);
+	void load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn);
+
+// 	bool init(
+// 		const peyton::system::Config &cfg,
+// 		const peyton::system::Config &pdf_cfg,
+// 		const peyton::system::Config &foot_cfg,
+// 		const peyton::system::Config &model_cfg,
+// 		otable &t,
+// 		opipeline &pipe);
+
+/*	os_skygen() : skygen(NULL) {};
+	virtual ~os_skygen() { delete skygen; }*/
 };
 
 // add Fe/H information

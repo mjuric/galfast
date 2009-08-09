@@ -435,25 +435,6 @@ void test_kin()
 }
 #endif
 
-template<typename T>
-	int split(T& arr, const std::string &text)
-{
-	typename T::value_type tmp;
-	std::stringstream ss(text);
-
-	arr.clear();
-	while(ss >> tmp) { arr.push_back(tmp); }
-	return arr.size();
-}
-
-template<typename T>
-	T split(const std::string &text)
-{
-	T ret;
-	split(ret, text);
-	return ret;
-}
-
 inline double modfun(double Rsquared, double Z, double a, double b, double c, double d, double e)
 {
 	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);

@@ -24,12 +24,14 @@
 #include <astro/sdss/rungeometry.h>
 #include <astro/system/options.h>
 
+#include <float.h>
 #include <fstream>
 #include <sys/time.h>
 
 #include "gpc_cpp.h"
 #include "io.h"
 #include "analysis.h"
+#include "simulate_base.h"
 #include "simulate.h"
 
 #include <astro/useall.h>
@@ -37,6 +39,7 @@ using namespace std;
 
 ///////////////////////////////////
 
+template<typename T> inline void memzero(T &x) { memset(&x, 0, sizeof(x)); }
 
 gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx)
 {
@@ -89,7 +92,7 @@ gpc_polygon make_polygon(const RunGeometry &geom, const lambert &proj, double dx
 		gpc_vertex v[ex.size()];
 		FOR(0, ex.size())
 		{
-			proj.convert(ex[i], ey[i], v[i].x, v[i].y);
+			proj.project(v[i].x, v[i].y, ex[i], ey[i]);
 		}
 
 		// TODO: check if the projection antipode is inside of the polygon
@@ -185,6 +188,39 @@ gpc_polygon make_circle(double x0, double y0, double r, double dx)
 	return p;
 }
 
+// Adds a spherical coordinates rectangle contour(s) to the polygon
+int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION)
+{
+	// Reduce longitudes to [0, 2pi) domain
+	l0 = peyton::math::modulo(l0, ctn::twopi);
+	l1 = peyton::math::modulo(l1, ctn::twopi);
+	if(fabs(l0 - l1) < 100*EPSILON_OF(l0))
+	{
+		// full band -- generate as two >half-sky contours (the 0.1*pi term is to ensure the contours
+		// overlap and will be properly merged by gpc_* routines later on).
+		int k = 0;
+		k += add_lonlat_rect(poly, l0, b0, l0 + ctn::pi + 0.1*ctn::pi, b1, dl, op);
+		k += add_lonlat_rect(poly, l0 + ctn::pi, b0, l0 + 0.1*ctn::pi, b1, dl, op);
+		return k;
+	}
+	if(l0 > l1)
+	{
+		l0 -= ctn::twopi;
+	}
+
+	sph_contourX &c = poly.add_contour(op);
+
+	// Construct the rectangle (in spherical coordinates)
+	int nl = (int)ceil((l1 - l0)/dl);
+	dl = (l1 - l0) / nl;
+	FOR(0, nl+1) { gpc_vertex vv = { l0 + dl*i, b0 }; c.c.push_back(vv); }	// Lower edge
+	FOR(0, nl+1) { gpc_vertex vv = { l1 - dl*i, b1 }; c.c.push_back(vv); }	// Upper edge
+	c.p.x = l0 + 0.5*(l1 - l0);	// A point _inside_ the polygon
+	c.p.y = b0 + 0.5*(b1 - b0);
+
+	return 1;
+}
+
 gpc_tristrip triangulatePoly(gpc_polygon sky)
 {
 	double dx = rad(5);
@@ -256,6 +292,11 @@ gpc_polygon make_polygon(const std::vector<double> &x, const std::vector<double>
 	return p;
 }
 
+inline double polygon_area_deg(const gpc_polygon &sky)
+{
+	return polygon_area(sky)*sqr(180./ctn::pi);
+}
+
 void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const lambert &proj, bool smOutput)
 {
 	int nvert = 0;
@@ -323,8 +364,8 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 			double &x = contour.vertex[k].x;
 			double &y = contour.vertex[k].y;
 
-			nproj.inverse(x, y, l, b);
-			sproj.convert(l, b, x, y);
+			nproj.deproject(l, b, x, y);
+			sproj.project(x, y, l, b);
 
 #if 0
 			// merge adjacent points
@@ -391,8 +432,433 @@ void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, lambert &sproj, co
 	#undef failed
 }
 
-gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj);
-gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
+//
+// Based on formulae from http://williams.best.vwh.net/avform.htm
+//
+struct great_circle
+{
+	double clon1, slon1, clat1, slat1, clon2, slon2, clat2, slat2, d;
+
+	great_circle(Radians lon1, Radians lat1, Radians lon2, Radians lat2)
+	{
+		clon1 = cos(lon1);
+		slon1 = sin(lon1);
+		clat1 = cos(lat1);
+		slat1 = sin(lat1);
+
+		clon2 = cos(lon2);
+		slon2 = sin(lon2);
+		clat2 = cos(lat2);
+		slat2 = sin(lat2);
+
+		d = 2*asin(sqrt(sqr(sin((lat1-lat2)/2)) + clat1*clat2*sqr(sin((lon1-lon2)/2))));
+	}
+
+	double dist() const
+	{
+		/*
+			Return the distance along the great circle between
+			(lon1, lat1) and (lon2, lat2)
+		*/
+		return d;
+	}
+
+	great_circle &intermediate(Radians &lon, Radians &lat, const double f)
+	{
+		/*
+			Return an intermediate point along the great circle.
+
+			f = 0 maps to (lon1, lat1)
+			f = 1 maps to (lon2, lat2)
+		*/
+		double A = sin((1.-f)*d)/sin(d);
+		double B = sin(f*d)/sin(d);
+		double x = A*clat1*clon1 +  B*clat2*clon2;
+		double y = A*clat1*slon1 +  B*clat2*slon2;
+		double z = A*slat1       +  B*slat2;
+		lat = atan2(z,sqrt(x*x+y*y));
+		lon = atan2(y,x);
+		return *this;
+	}
+};
+
+// project but don't fail close to the south pole
+void safe_project(Radians &x, Radians &y, const lambert &proj, const Radians l, const Radians b)
+{
+	// detect south pole hit
+	great_circle gc(proj.l0 + ctn::pi, -proj.phi1, l, b);
+	Radians d = gc.dist();
+	if(d/ctn::pi > 1e-5)
+	{
+		proj.project(x, y, l, b);
+	}
+	else
+	{
+		// compute where on the edge are we
+		x = 2.*cos(l - proj.l0);
+		y = 2.*sin(l - proj.l0);
+	}
+}
+
+gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_vertex &inptsph, const lambert &proj, Radians dx)
+{
+	// Algorithm:
+	// 0. Detect special cases:
+	//	0a. All sky (polygon with one vertex)
+	//	0b. Empty (polygon with no vertices)
+	//	0c. Two-angle (error)
+	// 1. Convert the vertices to output projection
+	// 2. Figure out if inpt is inside the projected polygon
+	//	2a. Yes: The polygon does not enclose the south pole
+	//	2b. No: Poly topology inverted => encloses the south pole. Clip it.
+
+	// 0.
+	if(nvert == 1)	// All sky
+	{
+		// TODO: should I add a small margin here, so that the polygon fully encloses the r=2 circle?
+		gpc_polygon allsky = make_circle(0, 0, 2., dx);
+		return allsky;
+	}
+	if(nvert == 0)	// Empty footprint
+	{
+		gpc_polygon foot = { 0, NULL, NULL };
+		return foot;
+	}
+	if(nvert == 2) // Two-angle
+	{
+		ASSERT(!(nvert == 2));
+	}
+
+	// 1.
+	size_t pole_hit = -1;
+	std::vector<gpc_vertex> vv;
+	FOR(0, nvert)
+	{
+		size_t end_hit = -1;
+
+		int j = (i+1) % nvert;
+		const gpc_vertex &a = vsph[i], &b = vsph[j];
+		great_circle gc(a.x, a.y, b.x, b.y);
+
+		// number of samples along the great circle, ensuring the distance between adjacent
+		// samples is not greater than dx
+#if 0
+		int nsamp = (int)ceil(gc.dist() / dx);
+		Radians ddx = 1. / nsamp;
+
+		gpc_vertex p0, p;
+		proj.project(p0.x, p0.y, a.x, a.y);
+		vv.push_back(p0);
+		double f = 0, f1, ld;
+		while(f < 1.)
+		{
+			do
+			{
+				f1 = f + ddx;
+				gc.intermediate(p.x, p.y, f1);
+				proj.project(p.x, p.y, p.x, p.y);
+
+				ld = sqrt(sqr(p.x-p0.x) + sqr(p.y-p0.y));
+				if(ld > dx)
+				{
+					ddx /= 2.;
+					continue;
+				}
+			} while(false);
+
+			// this point will be processed in the next FOR loop iteration
+			if(f1 >= 1.) { break; }
+
+			// we're exiting the loop here
+			if(ld < 0.4*dx)	// try to increase the step
+			{
+				ddx *= 2.;
+			}
+			f = f1;
+			vv.push_back(p);
+			p0 = p;
+		}
+#else
+		int nsamp = (int)ceil(gc.dist() / dx);
+		Radians df = 1. / nsamp;
+		if(nsamp > 1)
+		{
+			df = 1. / nsamp;
+		}
+
+		gpc_vertex p;
+		FOR(0, nsamp)
+		{
+			double f = i*df;
+			gc.intermediate(p.x, p.y, f);
+			if(!proj.project(p.x, p.y, p.x, p.y))
+			{
+				// we hit the south pole, the singular point. Now use the direction
+				// in which we entered the pole, and the direction in which we'll exit
+				// to regularize the behavior at the pole
+
+				// Do the actual regularization later, now just remember where the problem
+				// occurred
+				if(pole_hit != -1)
+				{
+					if(pole_hit != vv.size()) // silently ignore adjacent points identified with the pole (this can happen if the polygon's been densly sampled)
+					{
+						if(pole_hit == 0 && (end_hit == -1 || end_hit == vv.size())) // case where there are points at the beginning and the end of the contour that belong to the pole
+						{
+							end_hit = vv.size();
+						}
+						else
+						{
+							THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
+						}
+					}
+				}
+				else
+				{
+					pole_hit = vv.size();
+				}
+			}
+			else
+			{
+				if(end_hit == -1)
+				{
+					vv.push_back(p);
+				}
+				else
+				{
+					THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
+				}
+			}
+		}
+#endif
+	}
+
+	if(pole_hit != -1)
+	{
+		std::vector<gpc_vertex> v2;
+		size_t p = pole_hit;
+		std::copy(&vv[0], &vv[p], back_inserter(v2));
+
+		// insert an arc with r=2, connecting a to b
+		gpc_vertex a = vv[p ? p-1 : vv.size()-1];
+		gpc_vertex b = vv[p % vv.size()];
+		Radians phia = atan2(a.y, a.x);
+		Radians phib = atan2(b.y, b.x);
+		if(phia > phib)
+		{
+			std::swap(phia, phib);
+		}
+		int nsamp = (int)ceil(2.*(phib-phia) / dx);
+		Radians dphi = (phib-phia) / nsamp;
+		FOR(0, nsamp+1)
+		{
+			Radians phi = phia + dphi*i;
+			gpc_vertex vv = { 2.*cos(phi), 2.*sin(phi) };
+			v2.push_back(vv);
+		}
+
+		std::copy(vv.begin()+p, vv.end(), back_inserter(v2));
+
+		vv.swap(v2);
+	}
+
+	gpc_polygon foot = { 0, NULL, NULL };
+	gpc_vertex_list vl = { vv.size(), &vv[0] };
+	gpc_add_contour(&foot, &vl, 0);
+
+	// 2.
+	gpc_vertex inpt;
+	proj.project(inpt.x, inpt.y, inptsph.x, inptsph.y);
+	if(!in_polygon(inpt, foot))
+	{
+		// 2b
+		Radians dx = rad(0.05);
+		gpc_polygon southpole = make_circle(0, 0, 2., dx);
+		gpc_polygon_clip(GPC_DIFF, &southpole, &foot, &foot);
+
+		gpc_free_polygon(&southpole);
+	}
+
+	DLOG(verb2) << "Area of constructed polygon: " << polygon_area_deg(foot) << "\n";
+
+	return foot;
+}
+
+gpc_polygon sph_contourX::project(const peyton::math::lambert &proj) const
+{
+	return spherical_to_lambert(c.size(), &c[0], p, proj, dx);
+}
+
+std::pair<gpc_polygon, gpc_polygon> sph_polygon::project_to_hemispheres(const peyton::math::lambert &proj, Radians dx) const
+{
+	lambert sproj(modulo(proj.l0 + ctn::pi, ctn::twopi), -proj.phi1);
+
+	std::pair<gpc_polygon, gpc_polygon> ns;	// ns.first == northern hemisphere, ns.second == southern hemisphere
+	memzero(ns);
+
+	//
+	// Project the spherical polygons onto north/south hemispheres
+	//
+	FOREACH(contours)
+	{
+		gpc_polygon tmp;
+
+		tmp = i->second.project(proj);
+		gpc_polygon_clip(i->first, &ns.first, &tmp, &ns.first);
+		gpc_free_polygon(&tmp);
+
+		tmp = i->second.project(sproj);
+		gpc_polygon_clip(i->first, &ns.second, &tmp, &ns.second);
+		gpc_free_polygon(&tmp);
+	}
+
+	//
+	// Cut north/south
+	//
+	Radians margin = 1./cos(0.5*dx) - 1.;	// Ensure the polygon makeHemisphereMaps will create
+						// will be superscribed, not inscribed, in the unit circle
+	gpc_polygon boundary = make_circle(0, 0, sqrt(2.) + margin, dx);
+
+	gpc_polygon_clip(GPC_INT, &ns.first, &boundary, &ns.first);
+	gpc_polygon_clip(GPC_INT, &ns.second, &boundary, &ns.second);
+
+	gpc_free_polygon(&boundary);
+
+	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
+	DLOG(verb2) << "Polygon areas (north, south) = (" << polygon_area_deg(ns.first) << ", " << polygon_area_deg(ns.second) << ")\n";
+
+	return ns;
+}
+
+// Project and resample the list of contours onto two hemispheres defined by the projection proj (north), using
+// project() to do the sampling, and possibly adding a margin along the equator to each hemisphere
+std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_polygon> &foot, const peyton::math::lambert &proj, Radians dx)
+{
+	std::pair<gpc_polygon, gpc_polygon> sky, ns;
+	memzero(sky);
+
+	FOREACH(foot)
+	{
+		ns = i->project_to_hemispheres(proj, dx);
+
+		gpc_polygon_clip(GPC_UNION, &sky.first,  &ns.first,  &sky.first);
+		gpc_polygon_clip(GPC_UNION, &sky.second, &ns.second, &sky.second);
+
+		gpc_free_polygon(&ns.first);
+		gpc_free_polygon(&ns.second);
+	}
+
+	return sky;
+}
+
+int makeBeamMap(std::list<sph_polygon> &out, Radians l, Radians b, Radians r, Radians rhole, Radians dx);
+
+int load_footprint_rect(std::list<sph_polygon> &out, const peyton::system::Config &cfg)
+{
+	// coordinate system (default: galactic)
+	std::string coordsys;
+	cfg.get(coordsys, "coordsys", std::string("gal"));
+
+	// transformer from the chosen to galactic coordinate system
+	peyton::coordinates::transform xxx2gal= peyton::coordinates::get_transform(coordsys, "gal");
+	if(xxx2gal == NULL) { THROW(EAny, "Don't know how to convert from coordinate system '" + coordsys + "' to galactic coordinates."); }
+
+	// load rectangle bounds and sampling scale dx
+	std::string rect; double l0, l1, b0, b1;
+	cfg.get(rect, "rect", std::string("0 1 0 1"));
+	std::istringstream ss(rect);
+	ss >> l0 >> l1 >> b0 >> b1;
+	l0 = rad(l0); b0 = rad(b0);
+	l1 = rad(l1); b1 = rad(b1);
+
+	// sampling resolution
+	Radians dx;
+	cfg.get(dx, "dx", 0.);
+	dx = rad(dx);
+
+	// Reduce longitudes to [0, 360) domain
+	l0 = peyton::math::modulo(l0, ctn::twopi);
+	l1 = peyton::math::modulo(l1, ctn::twopi);
+	// The complicated if is there to ensure that the common case
+	// of l0=l1=0 (all sky) gets printed out as l0=0, l1=360
+	if(l0 >= l1) { if(l0 == 0) { l1 = ctn::twopi; } else { l0 -= ctn::twopi; } }
+
+	if(fabs((l1 - l0)/ctn::twopi - 1.) < 1e-5)
+	{
+		// ring -- delegate to beam
+		Radians lon0, lat0;
+		xxx2gal(0, ctn::pi, lon0, lat0);
+		return makeBeamMap(out, lon0, lat0, ctn::pi - b1, ctn::pi - b0, dx);
+	}
+	MLOG(verb1) << "Footprint: lon=(" << deg(l0) << " to " << deg(l1) << ") lat=(" << deg(b0) << " to " << deg(b1) << "), coordsys=" << coordsys;
+
+	// autosetting of dx
+	if(dx == 0.)
+	{
+		dx = min(l1 - l0, b1 - b0) / 10.;	// 1/10th of the smaller dimension ...
+		dx = min(dx, rad(0.1));			// ... but not bigger than 0.1deg
+		MLOG(verb2) << "Autoset dx (rect): " << deg(dx) << "\n";
+	}
+
+	out.push_back(sph_polygon());
+	sph_contourX &c = out.back().add_contour();
+	c.dx = dx;
+
+	MLOG(verb2) << "Sampling resolution (dx, degrees)             = " << deg(dx);
+
+	// Construct the rectangle (in spherical coordinates)
+	int nl = (int)ceil((l1 - l0)/dx);
+	double dl = (l1 - l0) / nl;
+
+	bool southpole = fabs(-b0/ctn::halfpi - 1.) < 1e-5;
+	bool northpole = fabs( b1/ctn::halfpi - 1.) < 1e-5;
+
+	// Lower edge
+	if(!southpole)
+	{
+		FOR(0, nl+1) { gpc_vertex vv = { l0 + dl*i, b0 }; c.c.push_back(vv); }
+	}
+	else
+	{
+		gpc_vertex vv = { l0, b0 }; c.c.push_back(vv);
+	}
+
+	// Upper edge
+	if(!northpole)
+	{
+		FOR(0, nl+1) { gpc_vertex vv = { l1 - dl*i, b1 }; c.c.push_back(vv); }	// Upper edge
+	}
+	else
+	{
+		if(northpole)
+		{
+			// a case such as l0=30,b0=-90 l1=60,b1=90
+			{ gpc_vertex vv = { l1, 0. }; c.c.push_back(vv); }
+			{ gpc_vertex vv = { l1, b1 }; c.c.push_back(vv); }
+			{ gpc_vertex vv = { l0, 0. }; c.c.push_back(vv); }
+		}
+		else
+		{
+			gpc_vertex vv = { l1, b1 }; c.c.push_back(vv);
+		}
+	}
+
+	// A point _inside_ the polygon
+	c.p.x = l0 + 0.5*(l1 - l0);
+	c.p.y = b0 + 0.5*(b1 - b0);
+
+	// transform to radians, Galactic coordinate system
+	FOREACH(c.c)
+	{
+		xxx2gal(i->x, i->y, i->x, i->y);
+	}
+	xxx2gal(c.p.x, c.p.y, c.p.x, c.p.y);
+
+	return 1;
+}
+
+#if 0
+gpc_polygon makeRectMap_old(const peyton::system::Config &cfg, const lambert &proj)
 {
 	// coordinate system (default: galactic)
 	std::string coordsys;
@@ -404,9 +870,13 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 
 	// set up the lambert projection (in galactic coordinates), with the pole being the
 	// pole of the chosen coordinate system
+#if 0
 	Radians lp, bp;
 	xxx2gal(rad(90), rad(90), lp, bp);
 	proj = lambert(lp, bp);
+#else
+	Radians lp = proj.l0, bp = proj.phi1;
+#endif
 
 	// load rectangle bounds and sampling scale dx
 	std::string rect; double l0, l1, b0, b1;
@@ -434,9 +904,9 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 	MLOG(verb2) << "Sampling resolution (dx)             = " << dx;
 
 	// South pole causes a divergence in lambert routines
-	if(b0 <= -89.99)
+	if(fabs(b0-deg(bp)) <= 0.01)
 	{
-		b0 = -89.99;
+		b0 = deg(bp) - 0.01;
 		MLOG(verb1) << "Footprint includes or approaches the south pole. Setting b0=" << b0 << " to avoid numerical issues.";
 	}
 
@@ -449,11 +919,11 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 
 		//std::cerr << l << " " << l1 << " " << dx << "\n";
 		v.x = rad(l); v.y = rad(b1);
-		xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+		xxx2gal(v.x, v.y, v.x, v.y); proj.project(v.x, v.y, v.x, v.y);
 		vup.push_back(v);
 
 		v.x = rad(l); v.y = rad(b0);
-		xxx2gal(v.x, v.y, v.x, v.y); proj.convert(v.x, v.y, v.x, v.y);
+		xxx2gal(v.x, v.y, v.x, v.y); proj.project(v.x, v.y, v.x, v.y);
 		vdown.push_back(v);
 
 		if(l >= l1) { break; }
@@ -486,22 +956,121 @@ gpc_polygon makeRectMap(const peyton::system::Config &cfg, lambert &proj)
 
 	return sky;
 }
+#endif
 
+#if 0
 // Create rectangular footprint based on cfg, store to output, possibly with sm if smOutput=true
 void makeRectMap(const std::string &output, peyton::system::Config &cfg, bool smOutput)
 {
 	lambert proj;
 	gpc_polygon sky = makeRectMap(cfg, proj);
 
-//	gpc_polygon nsky, ssky; makeHemisphereMaps(nsky, ssky, proj, sky); exit();
-
 	writeGPCPolygon(output, sky, proj, smOutput);
 	gpc_free_polygon(&sky);
 }
+#endif
 
-gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
+
+int makeBeamMap(std::list<sph_polygon> &out, Radians l, Radians b, Radians r, Radians rhole, Radians dx)
 {
+	ostringstream ss;
+	if(rhole) { ss << ", hole = " << deg(rhole) << "deg"; }
+	MLOG(verb1) << "Footprint: Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg" << ss.str();
 
+	// autosetting of dx
+	int npts;
+	if(dx == 0.)
+	{
+		// Set polygon sampling as 1/1000th of 2*pi*min(r, hole)
+		int npts = 3600; // == 0.1 deg longitudinal resolution
+		Radians dx = ctn::twopi / npts;
+		MLOG(verb2) << "Autosetting dx (beam): " << deg(dx) << "\n";
+	}
+	else
+	{
+		npts = (int)ceil(ctn::twopi / dx);
+		dx = ctn::twopi / npts;
+	}
+
+	out.push_back(sph_polygon());
+	sph_contourX &c = out.back().add_contour();
+	c.dx = dx;
+
+	// test for full-sky
+	if(fabs(r/ctn::pi - 1.) < 1e-5)
+	{
+		// Do we have a hole?
+		if(rhole > 1e-5)
+		{
+			// this handles the corner case where the user sets r=180, rhole=nonzero
+			// Convert it to r=180-rhole beam around the antipode
+			l = modulo(l + ctn::pi, ctn::twopi);
+			b = -b;
+			r = ctn::pi - rhole;
+			rhole = 0.;
+		}
+		else
+		{
+			// full sky
+			c.reset(true);
+			return 1;
+		}
+	}
+
+	// construct the footprint in lambert coordinates centered on
+	// the direction of the pencil beam
+	lambert pproj(rad(90.), rad(90.));
+	Radians dummy;
+	pproj.project(r,     dummy, ctn::pi, ctn::pi/2. - r);
+	if(rhole) pproj.project(rhole, dummy, ctn::pi, ctn::pi/2. - rhole);
+
+	lambert proj(l, b);
+	gpc_vertex v;
+	FOR(0, npts)
+	{
+		proj.deproject(v.x, v.y, r*cos(dx*i), r*sin(dx*i));
+		c.c.push_back(v);
+	}
+
+	// set the inside point
+	c.p.x = l; c.p.y = b;
+
+	if(rhole != 0.)
+	{
+		// add the hole contour
+		sph_contourX &c = out.back().add_contour(GPC_DIFF);
+		FOR(0, npts)
+		{
+			proj.deproject(v.x, v.y, rhole*cos(dx*i), rhole*sin(dx*i));
+			c.c.push_back(v);
+		}
+
+		// set the inside point
+		c.p.x = l; c.p.y = b;
+	}
+	return 1;	// the number of added polygons
+
+#if 0
+	// if the beam has a hole, fake it by constructing a polygon with a narrow cut along the x axis
+	const Radians offs = 10. * EPSILON_OF(r);
+	proj.deproject(v.x, v.y, r*cos(-offs), r*sin(-offs));
+	FOR(0, npts)
+	{
+		proj.deproject(v.x, v.y, rhole*cos(-offs-dx*i), rhole*sin(-offs-dx*i));
+		c.c.push_back(v);
+	}
+	proj.deproject(v.x, v.y, rhole*cos(0.), r*sin(0.));
+
+	// set the inside point
+	proj.deproject(c.p.x, c.p.y, 0.5*(r + rhole), 0.);
+
+	return 1;
+#endif
+}
+
+#if 0
+gpc_polygon makeBeamMap_ooold(Radians l, Radians b, Radians r, Radians rhole, const lambert &proj)
+{
 	ostringstream ss;
 	if(rhole) { ss << ", hole = " << deg(rhole) << "deg"; }
 	MLOG(verb1) << "Footprint: Beam towards (l, b) = " << deg(l) << " " << deg(b) << ", radius = " << deg(r) << "deg" << ss.str();
@@ -525,11 +1094,11 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 	}
 	else
 	{
-		pproj.convert(ctn::pi, ctn::pi/2. - r, x, r);
+		pproj.project(x, r, ctn::pi, ctn::pi/2. - r);
 	}
 	if(rhole)
 	{
-		pproj.convert(ctn::pi, ctn::pi/2. - rhole, x, rhole);
+		pproj.project(x, rhole, ctn::pi, ctn::pi/2. - rhole);
 	}
 
 	/* determine polygon sampling resolution */
@@ -544,15 +1113,15 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 
 		x = r * cos(phi);
 		y = r * sin(phi);
-		bproj.inverse(x, y, lp, bp);
-		proj.convert(lp, bp, x, y);
+		bproj.deproject(lp, bp, x, y);
+		proj.project(x, y, lp, bp);
 		lx.push_back(x);
 		ly.push_back(y);
 
 		x = rhole * cos(phi);
 		y = rhole * sin(phi);
-		bproj.inverse(x, y, lp, bp);
-		proj.convert(lp, bp, x, y);
+		bproj.deproject(lp, bp, x, y);
+		proj.project(x, y, lp, bp);
 		hx.push_back(x);
 		hy.push_back(y);
 	}
@@ -583,10 +1152,10 @@ gpc_polygon makeBeamMap(Radians l, Radians b, Radians r, Radians rhole, const la
 
 	return sky;
 }
-
+#endif
 #define CFG_THROW(str) THROW(EAny, str)
 
-gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
+int load_footprint_beam(std::list<sph_polygon> &foot, const peyton::system::Config &cfg)
 {
 	// coordinate system (default: galactic)
 	std::string coordsys;
@@ -596,33 +1165,23 @@ gpc_polygon makeBeamMap(const peyton::system::Config &cfg, lambert &proj)
 	peyton::coordinates::transform xxx2gal= peyton::coordinates::get_transform(coordsys, "gal");
 	if(xxx2gal == NULL) { THROW(EAny, "Don't know how to convert from coordinate system '" + coordsys + "' to galactic coordinates."); }
 
-	// projection
-	std::string pole; double l0, b0;
-	cfg.get(pole,	"projection",	std::string("90 90"));
-	std::istringstream ss(pole);
-	ss >> l0 >> b0;
-
 	// beam direction and radius
 	double l, b, r, rhole = 0;
 	if(!cfg.count("footprint_beam")) { CFG_THROW("Configuration key footprint_beam must be set"); }
 	std::istringstream ss2(cfg["footprint_beam"]);
 	ss2 >> l >> b >> r >> rhole;
 
-	DLOG(verb1) << "Projection pole (l, b) = " << l0 << " " << b0;
 	DLOG(verb1) << "Radius, hole radius    = " << r << " " << rhole;
+
+	// sampling resolution
+	Radians dx;
+	cfg.get(dx, "dx", 0.);
+	dx = rad(dx);
 
 	// transform to galactic coordinates (and radians)
 	xxx2gal(rad(l), rad(b), l, b);
-	xxx2gal(rad(l0), rad(b0), l0, b0);
 
-	proj = lambert(l0, b0);
-	return makeBeamMap(l, b, rad(r), rad(rhole), proj);
-
-}
-
-inline double polygon_area_deg(const gpc_polygon &sky)
-{
-	return polygon_area(sky)*sqr(180./ctn::pi);
+	return makeBeamMap(foot, l, b, rad(r), rad(rhole), dx);
 }
 
 gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj)
@@ -635,9 +1194,9 @@ gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::
 	// construct ZoA contours
 	std::vector<double> x(npts), y(npts);
 	gpc_polygon mask, contour1, contour2;
-	FOR(0, npts) { proj.convert(i*dx,  bmin, x[i], y[i]); }
+	FOR(0, npts) { proj.project(x[i], y[i], i*dx,  bmin); }
 	contour1 = make_polygon(x, y);
-	FOR(0, npts) { proj.convert(i*dx, -bmin, x[i], y[i]); }
+	FOR(0, npts) { proj.project(x[i], y[i], i*dx, -bmin); }
 	contour2 = make_polygon(x, y);
 
 	DLOG(verb2) << "A(contour1) = " << polygon_area_deg(contour1) << "\n";
@@ -689,7 +1248,7 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 	RunGeometryDB db;
 	double x, y;
 	gpc_polygon sky = {0, 0, NULL};
-	proj.convert(rad(0.), b0, x, y);
+	proj.project(x, y, rad(0.), b0);
 	double r = sqrt(x*x+y*y);
 	cerr << "Excluding r > " << r << " from the origin of lambert projection.\n";
 	gpc_polygon circle = make_circle(0., 0., r, dx);
@@ -726,6 +1285,7 @@ void makeSkyMap(std::set<int> &runs, const std::string &output, const lambert &p
 	gpc_free_polygon(&circle);
 }
 
+#if 0
 namespace footprints
 {
 	std::string output;
@@ -856,6 +1416,7 @@ namespace footprints
 #endif
 	}
 }
+#endif
 
 //void make_skymap(partitioned_skymap &m, Radians dx, const std::string &skypolyfn);
 void pdfinfo(std::ostream &out, const std::string &pdffile);
@@ -1124,9 +1685,9 @@ try
 	Options opts(argv[0], progdesc, version, Authorship::majuric);
 	opts.argument("cmd").bind(cmd).desc(
 		"What to make. Can be one of:\n"
-		"       foot - \tcalculate footprint given a config file\n"
-		"  footprint - \tcalculate footprint of a set of runs on the sky (deprecated)\n"
-		"       beam - \tcalculate footprint of a single conical beam (deprecated)\n"
+//		"       foot - \tcalculate footprint given a config file\n"
+//		"  footprint - \tcalculate footprint of a set of runs on the sky (deprecated)\n"
+//		"       beam - \tcalculate footprint of a single conical beam (deprecated)\n"
 		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
 		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
@@ -1139,6 +1700,7 @@ try
 
 	Radians dx = 4.;
 
+#if 0
 	sopts["footprint"].reset(new Options(argv0 + " footprint", progdesc + " Footprint polygon generation subcommand.", version, Authorship::majuric));
 	sopts["footprint"]->argument("conf").bind(input).desc("Footprint configuration file");
 	sopts["footprint"]->prolog = 
@@ -1158,6 +1720,7 @@ try
 	sopts["beam"]->option("s").bind(footprints::smOutput).addname("sm_out").value("true").desc("Generate SM-readable output instead of .xgpc format");
 	sopts["beam"]->prolog = "Deprecated (will be removed in future versions). Use '" + argv0 + " foot' instead";
 	sopts["beam"]->add_standard_options();
+#endif
 
 	std::string footfn, modelfn;
 	sopts["pdf"].reset(new Options(argv0 + " pdf", progdesc + " Cumulative probability density function (CPDF) generation subcommand.", version, Authorship::majuric));
@@ -1267,6 +1830,7 @@ try
 
 		return 0;
 	}
+#if 0
 	if(cmd == "beam")
 	{
 		Config cfg; cfg.load(in);
@@ -1283,6 +1847,7 @@ try
 
 		THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
 	}
+#endif
 	if(cmd == "pdf")
 	{
 		// ./simulate.x pdf north.conf north.pdf.bin

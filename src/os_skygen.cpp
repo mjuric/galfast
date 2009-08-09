@@ -21,10 +21,10 @@
 #include "config.h"
 
 #include "observe.h"
+#include "simulate.h"
 #include "io.h"
 #include "skygen.h"
 #include "analysis.h"
-#include "gpc_cpp.h"
 #include <iomanip>
 #include <fstream>
 #include <vector>
@@ -103,6 +103,7 @@ skyConfig<T>::skyConfig()
 	cpu_maxCount = NULL;
 	cpu_state = NULL;
 	rng = NULL;
+	cpurng = NULL;
 
 	this->pixels = 0;
 	this->lock = 0;
@@ -208,15 +209,46 @@ void skyConfig<expModel>::upload(bool draw)
 	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
 }
 
-gpc_polygon makeBeamMap(const peyton::system::Config &cfg, peyton::math::lambert &proj);
-gpc_polygon makeRectMap(const peyton::system::Config &cfg, peyton::math::lambert &proj);
+int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION);
+Radians clip_zone_of_avoidance(std::list<sph_polygon> &poly, int npoly, const Config &cfg)
+{
+	Radians bmin;
+	cfg.get(bmin,	"bmin", 0.);
+	bmin = rad(bmin);
 
-gpc_polygon make_footprint(const Config &cfg, peyton::math::lambert &proj)
+	if(bmin)
+	{
+		MLOG(verb1) << "Zone of avoidance: clipping |b| < " << deg(bmin) << " deg";
+
+		// add a "clip" contour to last npoly polygons
+		REVEACH(poly)
+		{
+			if(!npoly--) { break; }
+
+			const double dl = rad(.1);	// TODO: Make this user settable?
+			add_lonlat_rect(*i, 0, -bmin, 0, bmin, dl, GPC_DIFF);
+		}
+	}
+
+	return bmin;
+}
+
+int load_footprint_rect(std::list<sph_polygon> &foot, const peyton::system::Config &cfg);
+int load_footprint_beam(std::list<sph_polygon> &foot, const peyton::system::Config &cfg);
+
+int load_footprint(std::list<sph_polygon> &foot, const Config &cfg)
 {
 	if(!cfg.count("type")) { THROW(EAny, "The footprint configuration file must contain the 'type' keyword."); }
 
-	if(cfg["type"] == "beam") { return makeBeamMap(cfg, proj); }
-	if(cfg["type"] == "rect") { return makeRectMap(cfg, proj); }
+	int k = -1;
+	     if(cfg["type"] == "beam") { k = load_footprint_beam(foot, cfg); }
+	else if(cfg["type"] == "rect") { k = load_footprint_rect(foot, cfg); }
+
+	if(k >= 0)
+	{
+		clip_zone_of_avoidance(foot, k, cfg);
+		return k;
+	}
 
 	THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
 }
@@ -342,103 +374,28 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 
 template<typename T>
 bool skyConfig<T>::init(
-			const peyton::system::Config &cfg,
-			const peyton::system::Config &pdf_cfg,
-			const peyton::system::Config &foot_cfg,
-			const peyton::system::Config &model_cfg,
-			otable &t,
-			opipeline &pipe)
+		otable &t,
+		const peyton::system::Config &cfg,	// model cfg file
+		const skygenConfig &sc,
+		const skypixel *pixels
+)
 {
-	// maximum number of stars skygen is allowed to generate (0 for unlimited)
-	cfg.get(this->nstarLimit, "nstarlimit", (size_t)100*1000*1000);
-
 	// Galactic center distance (in pc)
 	Rg = 8000.;
 
-	pdf_cfg.get(this->dx,	"dx", 	1.f);
-	this->dx = rad(this->dx);
-	this->dA = sqr(this->dx);
+	// load the model
+	this->model.load(cfg);
 
-	// Setup footprint and clipper
-	boost::shared_ptr<opipeline_stage> foot( opipeline_stage::create("clipper") );
-	Config fcfg(foot_cfg);					// pixelization scale
-	fcfg.insert(std::make_pair("dx", pdf_cfg.get("dx")));
-	float bmin;						// Galactic plane zone of avoidance
-	foot_cfg.get(bmin, "bmin", 0.f);
-	fcfg.insert(std::make_pair("bmin", str(bmin)));
-	if(!foot->construct(fcfg, t, pipe))
-	{
-		return false;
-	}
-	pipe.add(foot);
-
-	// pixels to process
-	std::vector<os_clipper::pixel> pix;		// pixels
-	this->npixels = ((os_clipper*)foot.get())->getPixelCenters(pix);
+	// setup config & pixels
+	(skygenConfig &)*this = sc;
 	cpu_pixels = new skypixel[this->npixels];
-	int cnt = 0;
-	FOREACH(pix)
-	{
-		float coveredFraction = i->coveredArea / i->pixelArea;
-		cpu_pixels[cnt] = skypixel(i->l, i->b, i->projIdx, coveredFraction);
-		cnt++;
-	}
-
-	// projections the pixels are bound to
-	std::vector<std::pair<double, double> > lb0;	// projection poles
-	int nproj = ((os_clipper*)foot.get())->getProjections(lb0);
-	assert(nproj == 2);
-	for(int i=0; i != lb0.size(); i++)
-	{
-		this->proj[i].init(lb0[i].first, lb0[i].second);
-	}
-
-	// Density binning parameters
-	this->M0 = pdf_cfg.get_any_of("M0", "ri0");
-	this->M1 = pdf_cfg.get_any_of("M1", "ri1");
-	this->dM = pdf_cfg.get_any_of("dM", "dri");
-	this->m0 = pdf_cfg.get_any_of("m0", "r0");
-	this->m1 = pdf_cfg.get_any_of("m1", "r1");
-	this->dm = pdf_cfg.get("dm");
-	assert(this->dM == this->dm);
-
-	this->nM = (int)round((this->M1 - this->M0) / this->dM);
-	this->nm = (int)round((this->m1 - this->m0) / this->dm);
-	this->m0 += 0.5*this->dm;
-	this->M1 -= 0.5*this->dM;
-
-	// catalog generation results
-	t.use_column("lb");
-	t.use_column("projIdx");
-	t.use_column("XYZ");
-	t.use_column("comp");
-	static const int nabsmag = 2;
-
-	std::string 	colorName, absmagName, bandName;
-	colorName = model_cfg.get("color");
-	bandName = model_cfg.get("band");
-	absmagName = "abs" + bandName;
-	assert(colorName == absmagName);
-#if 0
-	std::string absmagNameV = absmagName + "[" + str(nabsmag) + "]"; // make absmag a vector to support unresolved multiple systems
-#else
-	std::string &absmagNameV = absmagName;
-#endif
-
-	t.use_column(colorName);   t.alias_column(colorName, "color");
-	t.use_column(absmagNameV); t.alias_column(absmagName, "absmag");
-				   t.alias_column(absmagName, "M1");
-				   t.set_column_property("absmag", "band", bandName);
-//	t.use_column(magName);	   t.alias_column(magName, "mag");
-	t.use_column("DM");
-
-	this->model.load(model_cfg);
+	FOR(0, this->npixels) { cpu_pixels[i] = pixels[i]; }
 
 	// For debugging/stats
 	this->lrho0 = -3.5f;
 	this->dlrho = 1.0f;
 
-	// GPU kernel execution setup
+	// GPU kernel execution setup (TODO: should I load this through skygenConfig?)
 	blockDim.x = 64; //256;
 	gridDim.x = 120; // 30;
 	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
@@ -480,18 +437,23 @@ struct star_comp
 };
 
 template<typename T>
-size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
+void skyConfig<T>::initRNG(rng_t &cpurng)	// initialize the random number generator from CPU RNG
 {
 	// initialize rng
+	this->cpurng = &cpurng;
 	rng = new gpu_rng_t(cpurng);
+}
 
+template<typename T>
+double skyConfig<T>::integrateCounts()
+{
 	//
 	// First pass: compute total expected starcounts
 	//
 	upload(false);
 	compute(false);
 	download(false);
-	
+
 	std::ostringstream ss;
 	ss << "Histogram:     log(rho) |";
 	for(int i=0; i != this->nhistbins; i++)
@@ -514,17 +476,12 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";
 	DLOG(verb1) << "Skygen kernel runtime: " << this->swatch.getAverageTime();
 
-	//
-	// Stop if the expected number of stars is more than the limit
-	//
-	if(this->nstarsExpected > this->nstarLimit && this->nstarLimit != 0)
-	{
-		THROW(EAny, "The expected number of generated stars (" + str(this->nstarsExpected) + ") "
-			"exceeds the configuration limit (" + str(this->nstarLimit) + "). Increase "
-			"nstarlimit or set to zero for unlimited."
-			);
-	}
+	return this->nstarsExpected;
+}
 
+template<typename T>
+size_t skyConfig<T>::run(otable &in, osink *nextlink)
+{
 	//
 	// Second pass: draw stars
 	//
@@ -584,7 +541,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 
 		if(in.size())
 		{
-			total += nextlink->process(in, 0, in.size(), cpurng);
+			total += nextlink->process(in, 0, in.size(), *cpurng);
 		}
 		
 		double pctdone = 100. * total / this->nstarsExpected;
@@ -636,103 +593,220 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink, rng_t &cpurng)
 
 ////////////////////////////////////////////////////////////////////////////
 
+//void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians dx, Radians margin);
+//gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj);
+std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_polygon> &foot, const peyton::math::lambert &proj, Radians dx);
+
+const os_clipper &os_skygen::load_footprints(const std::string &footprints, float dx, opipeline &pipe)
+{
+	// Load footprints. The result is the list of spherical polygons on the sky;
+	std::list<sph_polygon> foot;
+
+	std::vector<std::string> footstr;
+	split(footstr, footprints);
+	FOREACH(footstr)
+	{
+		Config cfg(*i);							// load footprint config
+		load_footprint(foot, cfg);
+	}
+
+	// Project the footprint onto north/south hemispheres
+	peyton::math::lambert proj(rad(90), rad(90));
+//	peyton::math::lambert proj(rad(33), rad(22));
+	std::pair<gpc_polygon, gpc_polygon> sky = project_to_hemispheres(foot, proj, dx);
+
+
+	// setup clipper for the footprint
+	boost::shared_ptr<opipeline_stage> clipper_s(opipeline_stage::create("clipper"));		// clipper for this footprint
+	os_clipper &clipper = *static_cast<os_clipper*>(clipper_s.get());
+	clipper.construct_from_hemispheres(dx, proj, sky);
+	pipe.add(clipper_s);
+
+	gpc_free_polygon(&sky.first);
+	gpc_free_polygon(&sky.second);
+
+	return clipper;
+}
+
+skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
+{
+	if(model == "BahcallSoneira")
+		return new skyConfig<expModel>();
+
+	THROW(EAny, "Unknow density model '" + model + "'");
+	return NULL;
+}
+
+int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper)
+{
+	// prepare the skypixels to be processed by subsequently loaded models
+	std::vector<os_clipper::pixel> pix;
+	sc.npixels = clipper.getPixelCenters(pix);
+	std::vector<skypixel> skypixels(sc.npixels);
+	FOR(0, sc.npixels)
+	{
+		os_clipper::pixel &p = pix[i];
+		float coveredFraction = p.coveredArea / p.pixelArea;
+		skypixels[i] = skypixel(p.l, p.b, p.projIdx, sqrt(p.pixelArea), coveredFraction);
+	}
+
+	// projections the pixels are bound to
+	std::vector<std::pair<double, double> > lb0;	// projection poles
+	int nproj = clipper.getProjections(lb0);
+	assert(nproj == 2);
+	for(int i=0; i != lb0.size(); i++)
+	{
+		sc.proj[i].init(lb0[i].first, lb0[i].second);
+	}
+
+	// Load density model configurations, instantiate
+	// and configure the correct skyConfig kernels
+	std::vector<std::string> models;
+	split(models, model_cfg_list);
+	FOREACH(models)
+	{
+		Config cfg(*i);		// model configuration file
+		boost::shared_ptr<skyConfigInterface> kernel(create_kernel_for_model(cfg.get("model")));
+
+		// setup the sky pixels to be processed by this model
+		kernel->init(t, cfg, sc, &skypixels[0]);
+
+		kernels.push_back(kernel);
+	}
+}
+
+void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn)
+{
+	// load PDF config
+	Config cfg(cfgfn);
+
+	// sky binning scale
+	cfg.get(dx,	"dx", 1.f);
+	dx = rad(dx);
+
+	// Density binning parameters
+	sc.M0 = cfg.get_any_of("M0", "ri0");
+	sc.M1 = cfg.get_any_of("M1", "ri1");
+	sc.dM = cfg.get_any_of("dM", "dri");
+	sc.m0 = cfg.get_any_of("m0", "r0");
+	sc.m1 = cfg.get_any_of("m1", "r1");
+	sc.dm = cfg.get("dm");
+	assert(sc.dM == sc.dm);
+
+	sc.nM = (int)round((sc.M1 - sc.M0) / sc.dM);
+	sc.nm = (int)round((sc.m1 - sc.m0) / sc.dm);
+	sc.m0 += 0.5*sc.dm;
+	sc.M1 -= 0.5*sc.dM;
+
+	// prepare the table for output
+	t.use_column("lb");
+	t.use_column("projIdx");
+	t.use_column("XYZ");
+	t.use_column("comp");
+
+	// prepare the PDF-related table columns for output
+	std::string 	absmagName, bandName;
+	bandName = cfg.get("band");
+	absmagName = "abs" + bandName;
+
+	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
+				  t.alias_column(absmagName, "M1");
+				  t.set_column_property("absmag", "band", bandName);
+	t.use_column("DM");
+}
+
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	// Load density model configuration and instantiate
-	// the correct skyConfig kernel
-	std::string modelfn = cfg.get("model");
-	Config cfgModel(modelfn);
-	std::string model = cfgModel.get("model");
-	if(model == "BahcallSoneira")
-	{
-		skygen = new skyConfig<expModel>();
-	}
-	else
-	{
-		THROW(EAny, "Unknow density model '" + model + "'");
-	}
+	// maximum number of stars skygen is allowed to generate (0 for unlimited)
+	cfg.get(nstarLimit, "nstarlimit", (size_t)100*1000*1000);
 
-	// Load footprint configuration
-	std::string footfn = cfg.get("foot");
-	Config cfgFoot(footfn);
+	// load PDF/sky pixelization config and prepare the table for output
+	skygenConfig sc;
+	float dx;
+	load_pdf(dx, sc, t, cfg.get("pdf"));
 
-	if(cfg.count("pdf"))
-	{
-		Config cfgPDF(cfg["pdf"]);
-		return skygen->init(cfg, cfgPDF, cfgFoot, cfgModel, t, pipe);
-	}
-	else
-	{
-		return skygen->init(cfg, cfg, cfgFoot, cfgModel, t, pipe);
-	}
+	// load footprints and construct the clipper
+	const os_clipper &clipper = load_footprints(cfg.get("foot"), dx, pipe);
+
+	// load models
+	load_models(t, sc, cfg.get("model"), clipper);
 }
 
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
-	return skygen->run(in, nextlink, rng);
+	size_t nstarsExpected = 0;
+	FOREACH(kernels)
+	{
+		(*i)->initRNG(rng);
+		nstarsExpected += (*i)->integrateCounts();
+	}
+
+	//
+	// Stop if the expected number of stars is more than the limit
+	//
+	if(nstarsExpected > nstarLimit && nstarLimit != 0)
+	{
+		THROW(EAny, "The expected number of generated stars (" + str(nstarsExpected) + ") "
+			"exceeds the configuration limit (" + str(nstarLimit) + "). Increase "
+			"nstarlimit or set to zero for unlimited."
+			);
+	}
+
+	size_t starsGenerated = 0;
+	FOREACH(kernels)
+	{
+		starsGenerated += (*i)->run(in, nextlink);
+	}
+	return starsGenerated;
 }
 
 ////////////////////////////////////////////////////////////////////////////
 
-void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians dx, Radians margin);
-gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj);
-
 bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	cfg.get(this->dx,	"dx", 	1.f);
-	cfg.get(this->bmin,	"bmin", 0.f);
-	this->bmin = rad(this->bmin);
-	this->dx = rad(this->dx);
-	this->dA = sqr(this->dx);
-
-	gpc_polygon allsky, nsky, ssky, tmp;
-	allsky = make_footprint(cfg, proj[0]);
-	if(this->bmin)
-	{
-		MLOG(verb1) << "Zone of avoidance: clipping |b| < " << deg(this->bmin) << " deg";
-		tmp = clip_zone_of_avoidance(allsky, this->bmin, proj[0]);
-		gpc_free_polygon(&allsky);
-		allsky = tmp;
-	}
-	Radians hdx = rad(0.1);			// polygonization of the circle
-	double margin = 1./cos(0.5*hdx) - 1.;	// Ensure the polygon makeHemisphereMaps will create 
-						// will be superscribed, not inscribed, in the unit circle
-	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
-	makeHemisphereMaps(nsky, ssky, proj[1], proj[0], allsky, hdx, margin);
-	gpc_free_polygon(&allsky);
-
-	this->sky[0] = make_skymap(this->dx, nsky);
-	this->sky[1] = make_skymap(this->dx, ssky);
-
-	DLOG(verb1) << "Sky pixels, north = " << this->sky[0]->skymap.size();
-	DLOG(verb1) << "Sky pixels, south = " << this->sky[1]->skymap.size();
+	THROW(EAny, "Module 'clipper' must never be instantiated directly.");
 
 	return true;
 }
 
-int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles)	// returns the poles of all used projections
+void os_clipper::construct_from_hemispheres(float dx, const peyton::math::lambert &proj, const std::pair<gpc_polygon, gpc_polygon> &sky)
+{
+	// set the north hemisphere projection to input map projection
+	hemispheres[0].proj = proj;
+	hemispheres[1].proj = peyton::math::lambert(modulo(proj.l0 + ctn::pi, ctn::twopi), -proj.phi1);
+
+	// construct north/south skymaps
+	hemispheres[0].sky = make_skymap(dx, sky.first);
+	hemispheres[1].sky = make_skymap(dx, sky.second);
+
+	DLOG(verb1) << "Sky pixels in the north: " << hemispheres[0].sky->skymap.size();
+	DLOG(verb1) << "Sky pixels in the south: " << hemispheres[1].sky->skymap.size();
+}
+
+int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles) const	// returns the poles of all used projections
 {
 	ppoles.clear();
 	for(int i = 0; i != 2; i++)
 	{
-		ppoles.push_back(std::make_pair(proj[i].l0, proj[i].phi1));
+		const peyton::math::lambert &proj = hemispheres[i].proj;
+		ppoles.push_back(std::make_pair(proj.l0, proj.phi1));
 	}
 	return ppoles.size();
 }
 
-int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix)		// returns the centers of all pixels
+int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const		// returns the centers of all pixels
 {
 	pix.clear();
 
 	FORj(projIdx, 0, 2)
 	{
-		partitioned_skymap *skymap = sky[projIdx];
+		partitioned_skymap *skymap = hemispheres[projIdx].sky;
 		FOREACH(skymap->skymap)
 		{
 			Radians x, y, l, b;
 			x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
 			y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
-			proj[projIdx].inverse(x, y, l, b);
+			hemispheres[projIdx].proj.deproject(l, b, x, y);
 			pix.push_back(pixel(l, b, projIdx, i->second.pixelArea, i->second.coveredArea));
 		}
 	}
@@ -758,15 +832,15 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		int projIdx = pIdx[row];
 		nstars[projIdx]++;
 
-		// Galactic plane zone of avoidance
-		if(bmin && fabs(b) <= bmin)
-		{
-			hidden[row] = 1;
-			continue;
-		}
+// 		// Galactic plane zone of avoidance
+// 		if(bmin && fabs(b) <= bmin)
+// 		{
+// 			hidden[row] = 1;
+// 			continue;
+// 		}
 
 		Radians x, y;
-		proj[projIdx].convert(l, b, x, y);
+		hemispheres[projIdx].proj.project(x, y, l, b);
 		
 		// immediately reject if in the southern hemisphere (for this projection)
 		if(sqr(x) + sqr(y) > 2.)
@@ -775,7 +849,7 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 			continue;
 		}
 
-		partitioned_skymap *skymap = sky[projIdx];
+		partitioned_skymap *skymap = hemispheres[projIdx].sky;
 		std::pair<int, int> XY;
 		XY.first = (int)((x - skymap->x0) / skymap->dx);
 		XY.second = (int)((y - skymap->y0) / skymap->dx);

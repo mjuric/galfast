@@ -121,16 +121,16 @@ gpc_polygon poly_rect(double x0, double x1, double y0, double y1)
 
 // calculate and return the area of a gpc_polygon
 #if 1
-double polygon_area(const gpc_polygon &p)
+double polygon_area(const gpc_polygon &p, bool keepSign)
 {
 	double A = 0;
 	FOR(0, p.num_contours)
 	{
-		double cA = contour_area(p.contour[i]);
+		double cA = contour_area(p.contour[i], keepSign);
 		if(p.hole[i]) cA *= -1;
 		A += cA;
 	}
-	return fabs(A);
+	return keepSign ? A : fabs(A);
 }
 #else
 double polygon_area(const gpc_polygon &p)
@@ -157,7 +157,7 @@ double polygon_area(const gpc_polygon &p)
 #endif
 
 // calculate and return the area of a gpc_vertex_list
-double contour_area(const gpc_vertex_list &c)
+double contour_area(const gpc_vertex_list &c, bool keepSign)
 {
 	gpc_vertex *v = c.vertex;
 	double cA = 0;
@@ -168,7 +168,8 @@ double contour_area(const gpc_vertex_list &c)
 
 		cA += a.x*b.y - b.x*a.y;
 	}
-	return 0.5*fabs(cA);
+	cA *= 0.5;
+	return keepSign ? cA : fabs(cA);
 }
 
 

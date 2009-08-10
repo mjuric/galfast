@@ -26,6 +26,7 @@
 
 #include <float.h>
 #include <fstream>
+#include <iomanip>
 #include <sys/time.h>
 
 #include "gpc_cpp.h"
@@ -463,7 +464,7 @@ struct great_circle
 		return d;
 	}
 
-	great_circle &intermediate(Radians &lon, Radians &lat, const double f)
+	const great_circle &intermediate(Radians &lon, Radians &lat, const double f) const
 	{
 		/*
 			Return an intermediate point along the great circle.
@@ -500,6 +501,231 @@ void safe_project(Radians &x, Radians &y, const lambert &proj, const Radians l, 
 	}
 }
 
+void add_vertex_unless_southpole(std::vector<gpc_vertex> &vv, const lambert proj, gpc_vertex &p, size_t &pole_hit, size_t &end_hit)
+{
+	if(!proj.project(p.x, p.y, p.x, p.y))
+	{
+		// we hit the south pole, the singular point. Now use the direction
+		// in which we entered the pole, and the direction in which we'll exit
+		// to regularize the behavior at the pole
+
+		// Do the actual regularization later, now just remember where the problem
+		// occurred
+		if(pole_hit != -1)
+		{
+			if(pole_hit != vv.size()) // silently ignore adjacent points identified with the pole (this can happen if the polygon's been densly sampled)
+			{
+				if(pole_hit == 0 && (end_hit == -1 || end_hit == vv.size())) // case where there are points at the beginning and the end of the contour that belong to the pole
+				{
+					end_hit = vv.size();
+				}
+				else
+				{
+					THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
+				}
+			}
+		}
+		else
+		{
+			pole_hit = vv.size();
+		}
+	}
+	else
+	{
+		if(end_hit == -1)
+		{
+			vv.push_back(p);
+		}
+		else
+		{
+			THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
+		}
+	}
+}
+
+void project_geodesic_aux(std::map<Radians, gpc_vertex> &out, const great_circle &gc, const lambert &proj, gpc_vertex a, gpc_vertex b, Radians fa, Radians fb, Radians dxmin)
+{
+	// this can happen if both ends of the interval have hit the pole
+	if(a.x == b.x && a.y == b.y) { return; }
+
+	// check if we've reached the desired precision in lambert plane
+	Radians dlam = sqrt(sqr(a.x - b.x) + sqr(a.y - b.y));
+	bool lam_done = dlam < dxmin;
+	
+	// check if we reached the desired precision in sky coordinates
+	Radians dsky = (fb - fa)*gc.dist();
+	bool sky_done = dsky < dxmin;
+
+	// exit if precision reached, or we've reached the maximum resolution
+	if(lam_done && sky_done) { return; }
+	if(dsky < rad(1./3600.))
+	{
+		// we pass through here when subdividing an interval with one
+		// end being the pole
+		if(a.x != -10 && b.x != -10 || !sky_done)
+		{
+			MLOG(verb1) << "WARNING: Could not reach the desired precision when projecting sky polygon.";
+		}
+		return;
+	}
+
+	// compute the geodesic midpoint
+	double fm = 0.5*(fa + fb);
+	gpc_vertex p;
+	gc.intermediate(p.x, p.y, fm);
+	bool polem = !proj.project(p.x, p.y, p.x, p.y);
+	if(polem)
+	{
+		 // signal we've hit the pole here
+		p.x = p.y = -10;
+	}
+	out[fm] = p;
+
+	// sample subintervals
+	project_geodesic_aux(out, gc, proj, a, p, fa, fm, dxmin);
+	project_geodesic_aux(out, gc, proj, p, b, fm, fb, dxmin);
+}
+
+void project_geodesic(std::vector<gpc_vertex> &vv, size_t &pole_at, gpc_vertex a, gpc_vertex b, const lambert proj, double dxmin)
+{
+	great_circle gc(a.x, a.y, b.x, b.y);
+
+	// if this is a long geodesic, subdivide to 1deg scale before recursive refinment
+	int nsamp = (int)ceil(gc.dist() / rad(1.));
+	ASSERT(nsamp > 0);
+	Radians df = 1. / nsamp;
+
+	static const gpc_vertex polemarker = { -10, -10 };
+
+	std::map<Radians, gpc_vertex> out;
+	gpc_vertex pprev = a, pa, pb;
+	FOR(1, nsamp+1)
+	{
+		out.clear();
+
+		double f = i*df;
+		gc.intermediate(pb.x, pb.y, f);
+		great_circle gc2(pprev.x, pprev.y, pb.x, pb.y);
+
+		// project and refine the geodesic
+		bool polea = !proj.project(pa.x, pa.y, pprev.x, pprev.y);
+		if(polea) { pa = polemarker; }
+		pprev = pb;
+		bool poleb = !proj.project(pb.x, pb.y, pb.x, pb.y);
+		if(poleb) { pb = polemarker; }
+
+		out[0.] = pa;
+		if(!polea || !poleb)
+		{
+			project_geodesic_aux(out, gc2, proj, pa, pb, 0., 1., dxmin);
+		}
+
+		// add sampled vertices, and set a flag if we detected a pole
+		vv.reserve(vv.size() + out.size());
+		FOREACH(out)
+		{
+			if(i->second.x != -10)
+			{
+				vv.push_back(i->second);
+			}
+			else
+			{
+				if(pole_at == -1)
+				{
+					pole_at = vv.size();
+				}
+				else
+				{
+					if(pole_at != 0 && pole_at != vv.size())
+					{
+						THROW(EAny, "Multiple south pole crossings not allowed (self-intersecting polygon!).");
+					}
+				}
+			}
+		}
+	}
+}
+
+Radians sph_distance(const gpc_vertex &a, const gpc_vertex &b)
+{
+	Radians lon1 = a.x, lat1 = a.y;
+	Radians lon2 = b.x, lat2 = b.y;
+
+	return 2*asin(sqrt(sqr(sin((lat1-lat2)/2)) + cos(lat1)*cos(lat2)*sqr(sin((lon1-lon2)/2))));
+}
+
+Radians sph_triangle_area(const gpc_vertex &A, const gpc_vertex &B, const gpc_vertex &C)
+{
+	Radians
+		b = sph_distance(A, C),
+		a = sph_distance(C, B),
+		c = sph_distance(B, A),
+		s = (a+b+c)/2;
+
+	
+	Radians E = 4*atan(sqrt(tan(s/2)*tan((s-a)/2)*tan((s-b)/2)*tan((s-c)/2)));
+
+	return E;
+}
+
+Radians sph_contour_area2(int nvert, const gpc_vertex *v)
+{
+	ASSERT(0); // DOESN'T WORK AS GPC LIBRARY TRIES TO MERGE EDGES LYING NEARLY ALONG LINES
+
+	gpc_polygon poly = {0, NULL, NULL};
+	gpc_vertex_list vl = { nvert, (gpc_vertex*)v };
+	gpc_add_contour(&poly, &vl, 0);
+
+	gpc_tristrip tri = {0, NULL};
+	gpc_polygon_to_tristrip(&poly, &tri);
+
+	Radians area = 0;
+	FORj(k, 0, tri.num_strips)
+	{
+		gpc_vertex_list &v = tri.strip[k];
+		FOR(2, v.num_vertices)
+		{
+			gpc_vertex
+				A = v.vertex[i-2],
+				C = v.vertex[i-1],
+				B = v.vertex[i];
+
+			Radians da = sph_triangle_area(A, B, C);
+			area += da;
+		}
+	}
+
+	gpc_free_polygon(&poly);
+	gpc_free_tristrip(&tri);
+
+	return area;
+}
+
+Radians sph_contour_area(int nvert, const gpc_vertex *v)
+{
+	ASSERT(0); // DOESN'T WORK WHEN MOST OF POINTS LIE ON GEODESICS (numerical issues)
+
+	ASSERT(nvert > 2);
+
+	Radians theta = 0.;
+	FOR(0, nvert)
+	{
+		gpc_vertex
+			A = v[i],
+			C = v[(i+1) % nvert],
+			B = v[(i+2) % nvert];
+		Radians
+			b = sph_distance(A, C),
+			a = sph_distance(C, B),
+			c = sph_distance(B, A);
+		Radians th = acos((cos(c) - cos(a)*cos(b))/(sin(a)*sin(b)));
+		theta += th;
+	}
+
+	Radians area = theta - (nvert-2)*ctn::pi;
+	return area;
+}
+
 gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_vertex &inptsph, const lambert &proj, Radians dx)
 {
 	// Algorithm:
@@ -530,19 +756,20 @@ gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_ve
 	}
 
 	// 1.
-	size_t pole_hit = -1;
+	size_t pole_hit = (size_t)-1;
+//	size_t end_hit = -1;
 	std::vector<gpc_vertex> vv;
 	FOR(0, nvert)
 	{
-		size_t end_hit = -1;
-
 		int j = (i+1) % nvert;
 		const gpc_vertex &a = vsph[i], &b = vsph[j];
-		great_circle gc(a.x, a.y, b.x, b.y);
+//		great_circle gc(a.x, a.y, b.x, b.y);
 
-		// number of samples along the great circle, ensuring the distance between adjacent
-		// samples is not greater than dx
+		project_geodesic(vv, pole_hit, a, b, proj, dx);
 #if 0
+#if 1
+		// number of samples along the great circle, ensuring the distance between adjacent
+		// samples is not greater than dx, both on the sky, and in the projection plane
 		int nsamp = (int)ceil(gc.dist() / dx);
 		Radians ddx = 1. / nsamp;
 
@@ -591,45 +818,9 @@ gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_ve
 		{
 			double f = i*df;
 			gc.intermediate(p.x, p.y, f);
-			if(!proj.project(p.x, p.y, p.x, p.y))
-			{
-				// we hit the south pole, the singular point. Now use the direction
-				// in which we entered the pole, and the direction in which we'll exit
-				// to regularize the behavior at the pole
-
-				// Do the actual regularization later, now just remember where the problem
-				// occurred
-				if(pole_hit != -1)
-				{
-					if(pole_hit != vv.size()) // silently ignore adjacent points identified with the pole (this can happen if the polygon's been densly sampled)
-					{
-						if(pole_hit == 0 && (end_hit == -1 || end_hit == vv.size())) // case where there are points at the beginning and the end of the contour that belong to the pole
-						{
-							end_hit = vv.size();
-						}
-						else
-						{
-							THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
-						}
-					}
-				}
-				else
-				{
-					pole_hit = vv.size();
-				}
-			}
-			else
-			{
-				if(end_hit == -1)
-				{
-					vv.push_back(p);
-				}
-				else
-				{
-					THROW(EAny, "ERROR: The contour appears to pass through the south multiple times.");
-				}
-			}
+			add_vertex_unless_southpole(vv, proj, p, pole_hit, end_hit);
 		}
+#endif
 #endif
 	}
 
@@ -668,9 +859,17 @@ gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_ve
 
 	// 2.
 	gpc_vertex inpt;
-	proj.project(inpt.x, inpt.y, inptsph.x, inptsph.y);
-	if(!in_polygon(inpt, foot))
+	if(!proj.project(inpt.x, inpt.y, inptsph.x, inptsph.y))
 	{
+		inpt.x = inpt.y = -10;
+	}
+	Radians A = polygon_area(foot, true);
+	if(A < 0)
+	{
+		// TODO: Once I'm convinced that the sign of area always changes if the south is
+		// included in the footprint, inpt mechanism will be removed
+		ASSERT(!in_polygon(inpt, foot));
+
 		// 2b
 		Radians dx = rad(0.05);
 		gpc_polygon southpole = make_circle(0, 0, 2., dx);
@@ -679,7 +878,42 @@ gpc_polygon spherical_to_lambert(int nvert, const gpc_vertex *vsph, const gpc_ve
 		gpc_free_polygon(&southpole);
 	}
 
-	DLOG(verb2) << "Area of constructed polygon: " << polygon_area_deg(foot) << "\n";
+	size_t nv = 0;
+	for(int i=0; i != foot.num_contours; i++)
+	{
+		nv += foot.contour[i].num_vertices;
+	}
+
+// 	gpc_vertex A = {rad(0), rad(90)}, B = {rad(30), rad(0)}, C = {rad(0), rad(0)};
+// 	DLOG(verb2) << "Tri Area = " << sph_triangle_area(A, B, C)/sqr(ctn::d2r) << "\n";
+// 	DLOG(verb2) << "Area of the sph. contour: " << sph_contour_area(nvert, vsph)/sqr(ctn::d2r) << "\n";
+
+	DLOG(verb2) << "Area of projected contour: " << polygon_area_deg(foot) << "\n";
+	DLOG(verb2) << "     [Contours, vertices]: " << foot.num_contours << ", " << nv << "\n";
+
+// 	{
+// 		Radians dummy, r = rad(1);
+// 		lambert pproj(rad(90.), rad(90.));
+// 		pproj.project(r,     dummy, ctn::pi, ctn::pi/2. - r);
+// 		DLOG(verb2) << "Area from lambert: " << sqr(r)*ctn::pi/sqr(ctn::d2r)*30./360.;
+// 	}
+// 
+// 	{
+// 		Radians r = rad(10.);
+// 		Radians area = ctn::twopi*(1. - cos(r));
+// 		DLOG(verb2) << "Area from cap: " << area/sqr(ctn::d2r)*30./360.;
+// 	}
+
+// 	{
+// 		std::ofstream ttt("res.txt");
+// 		FORj(k, 0, foot.num_contours)
+// 		{
+// 			FOR(0, foot.contour[k].num_vertices)
+// 			{
+// 				ttt << std::setprecision(10) << foot.contour[k].vertex[i].x << " " << std::setprecision(10) << foot.contour[k].vertex[i].y << " " << k << "\n";
+// 			}
+// 		}
+// 	}
 
 	return foot;
 }
@@ -689,45 +923,22 @@ gpc_polygon sph_contourX::project(const peyton::math::lambert &proj) const
 	return spherical_to_lambert(c.size(), &c[0], p, proj, dx);
 }
 
-std::pair<gpc_polygon, gpc_polygon> sph_polygon::project_to_hemispheres(const peyton::math::lambert &proj, Radians dx) const
+gpc_polygon sph_polygon::project(const peyton::math::lambert &proj) const
 {
-	lambert sproj(modulo(proj.l0 + ctn::pi, ctn::twopi), -proj.phi1);
-
-	std::pair<gpc_polygon, gpc_polygon> ns;	// ns.first == northern hemisphere, ns.second == southern hemisphere
-	memzero(ns);
+	gpc_polygon sky;
+	memzero(sky);
 
 	//
 	// Project the spherical polygons onto north/south hemispheres
 	//
 	FOREACH(contours)
 	{
-		gpc_polygon tmp;
-
-		tmp = i->second.project(proj);
-		gpc_polygon_clip(i->first, &ns.first, &tmp, &ns.first);
-		gpc_free_polygon(&tmp);
-
-		tmp = i->second.project(sproj);
-		gpc_polygon_clip(i->first, &ns.second, &tmp, &ns.second);
+		gpc_polygon tmp = i->second.project(proj);
+		gpc_polygon_clip(i->first, &sky, &tmp, &sky);
 		gpc_free_polygon(&tmp);
 	}
 
-	//
-	// Cut north/south
-	//
-	Radians margin = 1./cos(0.5*dx) - 1.;	// Ensure the polygon makeHemisphereMaps will create
-						// will be superscribed, not inscribed, in the unit circle
-	gpc_polygon boundary = make_circle(0, 0, sqrt(2.) + margin, dx);
-
-	gpc_polygon_clip(GPC_INT, &ns.first, &boundary, &ns.first);
-	gpc_polygon_clip(GPC_INT, &ns.second, &boundary, &ns.second);
-
-	gpc_free_polygon(&boundary);
-
-	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
-	DLOG(verb2) << "Polygon areas (north, south) = (" << polygon_area_deg(ns.first) << ", " << polygon_area_deg(ns.second) << ")\n";
-
-	return ns;
+	return sky;
 }
 
 // Project and resample the list of contours onto two hemispheres defined by the projection proj (north), using
@@ -737,9 +948,12 @@ std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_p
 	std::pair<gpc_polygon, gpc_polygon> sky, ns;
 	memzero(sky);
 
+	lambert sproj(modulo(proj.l0 + ctn::pi, ctn::twopi), -proj.phi1);
+
 	FOREACH(foot)
 	{
-		ns = i->project_to_hemispheres(proj, dx);
+		ns.first  = i->project(proj);
+		ns.second = i->project(sproj);
 
 		gpc_polygon_clip(GPC_UNION, &sky.first,  &ns.first,  &sky.first);
 		gpc_polygon_clip(GPC_UNION, &sky.second, &ns.second, &sky.second);
@@ -747,6 +961,26 @@ std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_p
 		gpc_free_polygon(&ns.first);
 		gpc_free_polygon(&ns.second);
 	}
+	DLOG(verb2) << "Hemisphere areas, preclip (north, south) = (" << polygon_area_deg(sky.first) << ", " << polygon_area_deg(sky.second) << ")\n";
+
+	// DEBUGGING
+	writeGPCPolygon("north.foot.txt", sky.first,  proj,  true);
+	writeGPCPolygon("south.foot.txt", sky.second, sproj, true);
+
+	//
+	// Clip north/south along the equator
+	//
+	Radians margin = 1./cos(0.5*dx) - 1.;	// Ensure the polygon makeHemisphereMaps will create
+						// will be superscribed, not inscribed, in the unit circle
+	gpc_polygon boundary = make_circle(0, 0, sqrt(2.) + margin, dx);
+
+	gpc_polygon_clip(GPC_INT, &sky.first, &boundary, &sky.first);
+	gpc_polygon_clip(GPC_INT, &sky.second, &boundary, &sky.second);
+
+	gpc_free_polygon(&boundary);
+
+	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
+	DLOG(verb2) << "Hemisphere areas (north, south) = (" << polygon_area_deg(sky.first) << ", " << polygon_area_deg(sky.second) << ")\n";
 
 	return sky;
 }
@@ -787,8 +1021,8 @@ int load_footprint_rect(std::list<sph_polygon> &out, const peyton::system::Confi
 	{
 		// ring -- delegate to beam
 		Radians lon0, lat0;
-		xxx2gal(0, ctn::pi, lon0, lat0);
-		return makeBeamMap(out, lon0, lat0, ctn::pi - b1, ctn::pi - b0, dx);
+		xxx2gal(0, ctn::halfpi, lon0, lat0);
+		return makeBeamMap(out, lon0, lat0, ctn::halfpi - b0, ctn::halfpi - b1, dx);
 	}
 	MLOG(verb1) << "Footprint: lon=(" << deg(l0) << " to " << deg(l1) << ") lat=(" << deg(b0) << " to " << deg(b1) << "), coordsys=" << coordsys;
 
@@ -821,6 +1055,7 @@ int load_footprint_rect(std::list<sph_polygon> &out, const peyton::system::Confi
 	else
 	{
 		gpc_vertex vv = { l0, b0 }; c.c.push_back(vv);
+//		gpc_vertex vv = { rad(180+15), rad(-20) }; c.c.push_back(vv);
 	}
 
 	// Upper edge
@@ -830,7 +1065,7 @@ int load_footprint_rect(std::list<sph_polygon> &out, const peyton::system::Confi
 	}
 	else
 	{
-		if(northpole)
+		if(southpole)
 		{
 			// a case such as l0=30,b0=-90 l1=60,b1=90
 			{ gpc_vertex vv = { l1, 0. }; c.c.push_back(vv); }
@@ -982,8 +1217,8 @@ int makeBeamMap(std::list<sph_polygon> &out, Radians l, Radians b, Radians r, Ra
 	if(dx == 0.)
 	{
 		// Set polygon sampling as 1/1000th of 2*pi*min(r, hole)
-		int npts = 3600; // == 0.1 deg longitudinal resolution
-		Radians dx = ctn::twopi / npts;
+		npts = 3600; // == 0.1 deg longitudinal resolution
+		dx = ctn::twopi / npts;
 		MLOG(verb2) << "Autosetting dx (beam): " << deg(dx) << "\n";
 	}
 	else
@@ -1013,6 +1248,7 @@ int makeBeamMap(std::list<sph_polygon> &out, Radians l, Radians b, Radians r, Ra
 		{
 			// full sky
 			c.reset(true);
+			c.dx = dx;
 			return 1;
 		}
 	}
@@ -1039,6 +1275,7 @@ int makeBeamMap(std::list<sph_polygon> &out, Radians l, Radians b, Radians r, Ra
 	{
 		// add the hole contour
 		sph_contourX &c = out.back().add_contour(GPC_DIFF);
+		c.dx = dx;
 		FOR(0, npts)
 		{
 			proj.deproject(v.x, v.y, rhole*cos(dx*i), rhole*sin(dx*i));

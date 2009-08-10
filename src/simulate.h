@@ -238,9 +238,9 @@ class sph_polygon
 public:
 	std::list<std::pair<gpc_op, sph_contourX> > contours;
 public:
-	// Project and resample the contour onto two hemispheres defined by the projection proj (north), using
-	// project() to do the sampling, and dx to determine the sampling resolution for the equator (and margin)
-	std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const peyton::math::lambert &proj, peyton::Radians dx) const;
+	// Project the polygon onto the requested projection
+	gpc_polygon project(const peyton::math::lambert &proj) const;
+
 	sph_contourX &add_contour(gpc_op op = GPC_UNION)
 	{
 		contours.push_back(std::make_pair(op, sph_contourX()));

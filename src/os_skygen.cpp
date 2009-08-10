@@ -578,6 +578,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 		fclose(fp);
 #endif
 	} while(this->stars_generated >= this->stopstars);
+
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
 	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
@@ -614,7 +615,6 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	peyton::math::lambert proj(rad(90), rad(90));
 //	peyton::math::lambert proj(rad(33), rad(22));
 	std::pair<gpc_polygon, gpc_polygon> sky = project_to_hemispheres(foot, proj, dx);
-
 
 	// setup clipper for the footprint
 	boost::shared_ptr<opipeline_stage> clipper_s(opipeline_stage::create("clipper"));		// clipper for this footprint
@@ -730,6 +730,8 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 	// load models
 	load_models(t, sc, cfg.get("model"), clipper);
+
+	return true;
 }
 
 size_t os_skygen::run(otable &in, rng_t &rng)

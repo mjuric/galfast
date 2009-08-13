@@ -39,8 +39,10 @@
 
 __device__ __constant__ gpuRng::constant rng;
 __device__ __constant__ skyConfigGPU<expModel> expModelSky;
+__device__ __constant__ skyConfigGPU<expDisk> expDiskSky;
 __device__ __constant__ lambert proj[2];
 
+#if 0
 lfTextureManager texLFMgr(texLF);
 lfParams lfTextureManager::set(float *cpu_lf, int lfLen, float M0, float M1, float dM)
 {
@@ -70,6 +72,41 @@ void lfTextureManager::free()
 		cudaFreeArray(lfArray);
 		lfArray = NULL;
 	}
+}
+#endif
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	inline void texture_bind(texture<T, dim, mode> &texref, xptrng::tptr<T> &ptr)
+	{
+		cudaArray *arr = ptr.getCUDAArray(texref.channelDesc);
+		cuxErrCheck( cudaBindTextureToArray(&texref, arr, &texref.channelDesc) );
+	}
+
+void expModel::prerun(host_state_t &hstate, bool draw)
+{
+	// bind the luminosity function texture to texture reference
+	texture_bind(expModelLF, hstate.lf);
+}
+
+void expDisk::prerun(host_state_t &hstate, bool draw)
+{
+	// bind the luminosity function texture to texture reference
+	texture_bind(expDiskLF, hstate.lf);
+}
+
+void expModel::postrun(host_state_t &hstate, bool draw)
+{
+	if(draw)
+	{
+		cudaUnbindTexture(expModelLF);
+		hstate.lf.release_device_arrays();
+	}
+}
+
+void expDisk::postrun(host_state_t &hstate, bool draw)
+{
+	// bind the luminosity function texture to texture reference
+	texture_bind(expDiskLF, hstate.lf);
 }
 
 template<typename T>
@@ -394,6 +431,8 @@ __device__ void skyConfigGPU<T>::kernel() const
 			model.setpos(ms, pos.x, pos.y, pos.z);
 		}
 
+		// TODO: test for extinction here
+
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
 #if __DEVICE_EMULATION__
@@ -515,6 +554,10 @@ template<typename T> __global__ void draw_sky() { }
 template<> __global__ void compute_sky<expModel>() { expModelSky.kernel<0>(); }
 template<> __global__ void draw_sky<expModel>() { expModelSky.kernel<1>(); }
 
+// expModel overriden kernels
+template<> __global__ void compute_sky<expDisk>() { expDiskSky.kernel<0>(); }
+template<> __global__ void draw_sky<expDisk>() { expDiskSky.kernel<1>(); }
+
 template<typename T>
 void skyConfig<T>::compute(bool draw)
 {
@@ -536,3 +579,4 @@ void skyConfig<T>::compute(bool draw)
 
 // Explicit instantiations
 template class skyConfig<expModel>;
+template class skyConfig<expDisk>;

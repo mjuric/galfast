@@ -41,6 +41,7 @@ using peyton::Radians;
 	#include "paralax.h"
 #endif
 
+#if 0
 struct ALIGN(16) lfParams
 {
 	float M0, M1, inv_dM;
@@ -91,23 +92,124 @@ texture<float, 1, cudaReadModeElementType> texLF(false, cudaFilterModeLinear, cu
 #else
 extern lfTextureManager texLFMgr;
 #endif
+#endif
 
-// exponential model
+
+	////////////////////////////////////////////////
+	//  Texturing support, next generation
+	////////////////////////////////////////////////
+
+	// host interface
+	template<typename T, int dim = 1>
+	class cuxTexture
+	{
+	public:
+		xptrng::tptr<T> m_data;
+		float x0[dim], dx[dim];
+
+		void init(T *data, int n0, float x0, float dx0, int n1 = 0, float x1 = 0, float dx1 = 0, int n2 = 0, float x2 = 0, float dx2 = 0);
+	};
+
+	template<typename T, int dim>
+	void cuxTexture<T, dim>::init(T *data, int n0, float x0a, float dx0, int n1, float x1, float dx1, int n2, float x2, float dx2)
+	{
+		if(dim >= 1) { x0[0] = x0a; dx[0] = dx0; }
+		if(dim >= 2) { x0[1] = x1;  dx[1] = dx1; }
+		if(dim >= 3) { x0[2] = x2;  dx[2] = dx2; }
+
+		dim3 d = {n0, n1, n2};
+		m_data = xptrng::tptr<T>(d);
+		m_data.copyFrom(data);
+	};
+
+#if !__CUDACC__
+	template<typename T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
+	class texture
+	{
+	};
+#endif
+
+/*
+	// GPU interface
+	template<typename T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
+	class cuxTextureReference
+	{
+	public:
+		typedef texture<T, dim, mode> gpu_t;
+
+	protected:
+		float x0[dim], dx[dim];
+
+	public:
+		// binds the texture, uploads texture coordinate offset and dx parameters
+		bool bind(cuxTexture<T, dim> &texref);
+
+		__device__ T sample(reference &r, float x)
+		{
+			float xx = x0[0] + dx[0]*x;
+			return tex1D(r, xx);
+		}
+	};
+*/
+
+/*
+	Work around CUDA defficiency with some built-in struct alignments.
+
+	CUDA header files declare some structs (float2 being an example) with
+	__builtin_align() attribute that resolves to __align__ only when using
+	CUDACC. This makes those structure's alignments different in nvcc compiled
+	object code, compared to GCC's. Example: with nvcc, float2 is 8-byte
+	aligned; on gcc, it's 4-byte aligned (given its members are all 4-byte
+	aligned floats). Therefore, a struct that has a float2 member may be
+	packed differently on gcc and nvcc. Example: struct { float a; float2 b; };
+	On nvcc, &b = &a + 8 (in bytes). On gcc, &b = &a + 4 (bytes).
+
+	This cludge works around the problem by deriving an aligned type from
+	the problematic CUDA type. It should be used instead of the CUDA type
+	in structures where this problem may occur.
+*/
+struct ALIGN(8) afloat2 : public float2 {};
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	static inline __device__ T sample(texture<T, dim, mode> &r, float x, float2 xx)
+	{
+		float xi = (x - xx.x) * xx.y;
+		T y = tex1D(r, xi);
+#if __DEVICE_EMULATION__
+		printf("phi=%f\n", y);
+#endif
+		return y;
+	}
+
+
+
+#ifdef __CUDACC__
+texture<float, 1, cudaReadModeElementType> expModelLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
+#endif
+
+// double-exponential+powerlaw Halo model
 struct ALIGN(16) expModel
 {
-	struct state {
+	struct ALIGN(16) host_state_t
+	{
+		xptrng::tptr<float> lf;
+	};
+	struct state
+	{
 		float rho;
 	};
 	float rho0, l, h, z0, f, lt, ht, fh, q, n;
 	float r_cut2;
-	lfParams lf;
+	afloat2 lf;
 
 	// Management functions
 /*	void setmodel(float l_, float h_, float z0_, float f_, float lt_, float ht_, float fh_, float q_, float n_)
 	{
 		l = l_; h = h_; z0 = z0_; f = f_; lt = lt_; ht = ht_; fh = fh_; q = q_; n = n_;
 	}*/
-	void load(const peyton::system::Config &cfg);
+	void load(host_state_t &hstate, const peyton::system::Config &cfg);
+	void prerun(host_state_t &hstate, bool draw);
+	void postrun(host_state_t &hstate, bool draw);
 
 protected:
  	// Model functions
@@ -150,7 +252,7 @@ public:
 	}
 
 #ifdef __CUDACC__
-	__device__ void setpos(expModel::state &s, float x, float y, float z) const
+	__device__ void setpos(state &s, float x, float y, float z) const
 	{
 //		x = 7720.f; y= -770.1f; z = 2252.f;
 //		((float*)shmem)[threadIdx.x] = rho(x, y, z, 0.f);
@@ -160,15 +262,15 @@ public:
 #endif
 	}
 
-	__device__ float rho(expModel::state &s, float M) const
+	__device__ float rho(state &s, float M) const
 	{
 //		return 1.f;
 //		return 1.f * ((float*)shmem)[threadIdx.x];
 //		return 0.05f * s.rho;
 //		M = 5.80;
-		float phi = lf.sample(texLF, M);
+		float phi = sample(expModelLF, M, lf);
 #if __DEVICE_EMULATION__
-//		printf("phi=%f rho=%f\n", phi, phi*s.rho);
+		printf("phi=%f rho=%f\n", phi, phi*s.rho);
 #endif
 		return phi * s.rho;
 	}
@@ -192,6 +294,70 @@ public:
 		if(u < pthin) { return THIN; }
 		else if(u < pthick) { return THICK; }
 		else { return HALO; }
+	}
+#endif
+};
+
+
+// exponential disk model
+#ifdef __CUDACC__
+texture<float, 1, cudaReadModeElementType> expDiskLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
+#endif
+
+struct ALIGN(16) expDisk
+{
+public:
+	struct ALIGN(16) host_state_t
+	{
+		xptrng::tptr<float> lf;
+	};
+
+protected:
+	float f, l, h, z0;
+	float r_cut2;
+
+	// luminosity function
+	afloat2 lf;
+
+	int comp;
+
+public:
+	struct state
+	{
+		float rho;
+	};
+	void load(host_state_t &hstate, const peyton::system::Config &cfg);
+	void prerun(host_state_t &hstate, bool draw);
+	void postrun(host_state_t &hstate, bool draw);
+
+protected:
+	__device__ float rho(float x, float y, float z, float M) const
+	{
+		float r2 = x*x + y*y;
+		if(r2 + z*z > r_cut2) { return 0.f; }
+
+		float r = sqrtf(r2);
+		float rho = f * expf((Rg()-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
+
+		return rho;
+	}
+
+public:
+#ifdef __CUDACC__
+	__device__ void setpos(state &s, float x, float y, float z) const
+	{
+		s.rho = rho(x, y, z, 0.f);
+	}
+
+	__device__ float rho(state &s, float M) const
+	{
+		float phi = sample(expDiskLF, M, lf);
+		return phi * s.rho;
+	}
+
+	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
+	{
+		return comp;
 	}
 #endif
 };
@@ -359,7 +525,7 @@ struct ALIGN(16) runtime_state
 	bool continuing(int tid) const { return this->cont[tid]; }
 };
 
-struct skygenConfig
+struct ALIGN(16) skygenConfig
 {
 	float m0, m1, dm;		// apparent magnitude range
 	float M0, M1, dM;		// absolute magnitude range
@@ -402,6 +568,9 @@ class opipeline;
 template<typename Model>
 struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
 {
+	// Any state the model needs to maintain on the host (e.g., loaded textures)
+	typename Model::host_state_t	model_host_state;
+
 	float Rg;		// distance to the galactic center
 
 	gpuRng *rng;

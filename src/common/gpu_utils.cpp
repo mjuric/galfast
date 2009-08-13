@@ -42,13 +42,15 @@
 
 xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
 
-xptrng::ptr_desc::ptr_desc(size_t es, size_t width, size_t height, size_t pitch)
-	: m_elementSize(es), m_dim(width, height, 1), m_pitch(pitch), m_data(NULL)
+xptrng::ptr_desc::ptr_desc(size_t es, size_t width, size_t height, size_t pitch, size_t depth)
+	: m_elementSize(es), m_dim(width, height, depth), m_pitch(pitch), m_data(NULL)
 {
 	refcnt = 1;
 	masterDevice = -1;
-	deviceDataPointers[-1] = m_data = new char[memsize()];
+	uint32_t size = memsize();
+	deviceDataPointers[-1] = m_data = new char[size];
 }
+
 xptrng::ptr_desc::~ptr_desc()
 {
 	delete [] ((char*)m_data);
@@ -63,6 +65,7 @@ xptrng::ptr_desc::~ptr_desc()
 		cuxErrCheck( cudaFreeArray(i->second) );
 	}
 }
+
 void *xptrng::ptr_desc::syncToDevice(int dev)
 {
 	if(dev == -2)
@@ -104,6 +107,7 @@ void *xptrng::ptr_desc::syncToDevice(int dev)
 	}
 	return deviceDataPointers[masterDevice];
 }
+
 cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev, bool forceUpload)
 {
 	syncToDevice(-1);	// ensure the data is on the host
@@ -114,6 +118,8 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 		assert(dev >= 0);
 	}
 
+	// array size (we're going to need this later)
+	cudaExtent ex = make_cudaExtent(m_dim.x, m_dim.y, m_dim.z);
 	cudaArray* cu_array;
 	cudaError err;
 
@@ -123,8 +129,13 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 	}
 	else
 	{
-		// autocreate
-		cuxErrCheck( cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y) );
+		// autocreate the array of correct size and dimensionallity
+
+		// CUDA 2.2 bug workaround: Although the documentation claims that setting ex.height=0
+		// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
+		if(ex.height == 0) { ex.height = 1; }
+		cuxErrCheck(  cudaMalloc3DArray(&cu_array, &channelDesc, ex)  );
+		//cuxErrCheck( cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y) );
 
 		cudaArrayPointers[dev] = cu_array;
 		forceUpload = true;
@@ -132,7 +143,23 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 
 	if(forceUpload)
 	{
-		cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice) );
+		// Apparent CUDA 2.2 bug workaround: cudaMemcpy3D (silently) fails to copy
+		// data for arrays with depth=0
+
+		if(ex.depth != 0)
+		{
+			cudaMemcpy3DParms par = { 0 };
+			par.srcPtr = make_cudaPitchedPtr(m_data, m_pitch, m_dim.x, std::max(1U, m_dim.y));
+			par.dstArray = cu_array;
+			par.extent = ex;
+			par.kind = cudaMemcpyHostToDevice;
+			cuxErrCheck( cudaMemcpy3D(&par) );
+		}
+		else
+		{
+			//cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice) );
+			cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, std::max(1U, m_dim.y), cudaMemcpyHostToDevice) );
+		}
 	}
 
 	return cu_array;
@@ -613,15 +640,15 @@ void test_cuda_caller()
 	callKernel3(nv::kernel("test_kernel", nthreads), var1, var2, var3);
 }
 
+////////////////////////////////////////////////
+//  Texturing support
+////////////////////////////////////////////////
+
 void cuxTextureManager::bind()
 {
 	assert(texdata);
 	cuxErrCheck( cudaBindTextureToArray(&texref, texdata, &texref.channelDesc) );
 }
-
-////////////////////////////////////////////////
-//  Texturing support
-////////////////////////////////////////////////
 
 void cuxTextureManager::load(const char *fn, int nsamples)
 {
@@ -684,5 +711,6 @@ void cuxTextureManager::set(float *cpudata, int len, float x0, float dx)
 	cuxErrCheck( cudaMemcpyToArray( texdata, 0, 0, cpudata, len*sizeof(float), cudaMemcpyHostToDevice));
 	bind();
 }
+
 
 #endif

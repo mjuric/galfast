@@ -24,6 +24,7 @@
 //#include "gpu.h"
 #include <assert.h>
 #include <map>
+#include <algorithm>
 
 // CUDA API wrappers
 struct cuxException
@@ -188,7 +189,7 @@ protected:
 		extern cuxTextureManager name##Manager; \
 		cuxTextureManager &name = name##Manager;
 #else
-	#define DEFINE_TEXTURE(name) \
+	#define DEFINE_TEXTURE_REFERENCE(name) \
 		texture<float, 1, cudaReadModeElementType>       tex_##name(false, cudaFilterModeLinear, cudaAddressModeClamp); \
 		struct textureSampler_##name : public cuxTextureManager::textureParameters \
 		{ \
@@ -200,8 +201,21 @@ protected:
 				return val; \
 			} \
 		}; \
-		__device__ __constant__ textureSampler_##name name; \
-		cuxTextureManager name##Manager(tex_##name, #name);
+		__device__ __constant__ textureSampler_##name name
+
+	#define DEFINE_TEXTURE_MANAGER(name) \
+		cuxTextureManager name##Manager(tex_##name, #name)
+
+	#define DEFINE_TEXTURE(name) \
+		DEFINE_TEXTURE_REFERENCE(name); \
+		DEFINE_TEXTURE_MANAGER(name);
+
+	// support for textureManagers as class members
+	#define DECLARE_MEMBER_TEXTURE_MANAGER(name) \
+		cuxTextureManager name##Manager(tex_##name, #name)
+
+	#define INIT_MEMBER_TEXTURE_MANAGER(name) \
+		name##Manager(tex_##name, #name)
 #endif
 
 #define DECLARE_TEXTURE(name) \
@@ -217,23 +231,25 @@ namespace xptrng
 	// Pointer to 2D array, GPU interface.
 	//     - Used to point to device memory, in kernels
 	//     - May be obtained from tptr<>
-	template<typename T>
+	template<typename T, int dim = 2>
 	struct gptr
 	{
 		typedef T value_type;
 
-		union {
-			char *data;
-			T *tdata;
-		};
-		uint32_t pitch;
+		char *data;
+		uint32_t pitch[dim-1];	// pitch[0] == width of a row of data, in bytes
+					// pitch[1] == number of rows of data in a slice of a 3D data cube
 
 		// Access
-		__device__ T &operator()(const size_t x, const size_t y) const	// 2D accessor
+		__device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 		{
-			return *((T*)(data + y * pitch) + x);
+			return *((T*)(data + y * (pitch[0] + z * pitch[1])) + x);
 		}
-		__device__ T &operator[](const size_t i) const			// 1D accessor
+		__device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
+		{
+			return *((T*)(data + y * pitch[0]) + x);
+		}
+		__device__ T &operator[](const uint32_t i) const			// 1D accessor (valid only if dim >= 2)
 		{
 			return ((T*)data)[i];
 		}
@@ -243,27 +259,45 @@ namespace xptrng
 		}
 	};
 	template<typename T>
-	inline gptr<T> make_gptr(void *data, uint32_t pitch)
+	inline gptr<T, 2> make_gptr2D(void *data, uint32_t pitch)
 	{
 		gptr<T> ptr;
 		ptr.data = (char*)data;
-		ptr.pitch = pitch;
+		ptr.pitch[0] = pitch;
+		return ptr;
+	}
+	template<typename T>
+	inline gptr<T, 3> make_gptr3D(void *data, uint32_t pitch, uint32_t height)
+	{
+		gptr<T> ptr;
+		ptr.data = (char*)data;
+		ptr.pitch[0] = pitch;
+		ptr.pitch[1] = height;
 		return ptr;
 	}
 
 	// Pointer to 2D array, CPU interface.
 	//     - Used to access host memory, on the host
 	//     - May be obtained from tptr<>
-	template<typename T>
+	template<typename T, int dim = 2>
 	struct hptr : public gptr<T>
 	{
 	};
 	template<typename T>
-	inline hptr<T> make_hptr(void *data, uint32_t pitch)
+	inline hptr<T, 2> make_hptr2D(void *data, uint32_t pitch)
 	{
 		hptr<T> ptr;
 		ptr.data = (char*)data;
-		ptr.pitch = pitch;
+		ptr.pitch[0] = pitch;
+		return ptr;
+	}
+	template<typename T>
+	inline hptr<T, 2> make_hptr3D(void *data, uint32_t pitch, uint32_t height)
+	{
+		hptr<T> ptr;
+		ptr.data = (char*)data;
+		ptr.pitch[0] = pitch;
+		ptr.pitch[1] = height;
 		return ptr;
 	}
 
@@ -279,19 +313,20 @@ namespace xptrng
 		static ptr_desc *null;
 
 		const uint32_t m_elementSize;	// size of array element (bytes)
-		const dim3     m_dim;		// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height
-		const uint32_t m_pitch;		// array pitch (in bytes). pitch[1] == width of the (padded) row (in bytes)
+		const dim3     m_dim;		// array dimensions (in elements). dim[0] == ncolumns == width, dim[1] == nrows == height, dim[2] == depth
+		const uint32_t m_pitch;		// array pitch (in bytes). pitch == width of the (padded) row (in bytes)
 
 		int refcnt;		// number of xptrs pointing to this desc
 		int masterDevice;	// the device holding the master copy of the data (-1 is the host)
 
-		void *m_data;					// pointer to actual host-allocated data
-		std::map<int, void*> deviceDataPointers;	// map of device<->device pointer
-		std::map<int, cudaArray*> cudaArrayPointers;	// map of device<->device pointer
+		void *m_data;						// pointer to actual host-allocated data
+		std::map<int, void*> deviceDataPointers;		// map of device<->device pointer
+		std::map<int, cudaArray*> cudaArrayPointers;		// map of device<->device pointer
+// 		std::map<cudaArray, textureReference*> boundTextures;	// map of device<->device pointer
 
-		uint32_t memsize() const { return m_dim.y * m_pitch; }	// number of bytes allocated
+		uint32_t memsize() const { return std::max(m_dim.y, 1U) * std::max(m_dim.z, 1U) * m_pitch; }	// number of bytes allocated
 
-		ptr_desc(size_t es, size_t width, size_t height, size_t pitch);
+		ptr_desc(size_t es, size_t width, size_t height, size_t pitch, size_t depth = 1);
 		~ptr_desc();
 
 		static ptr_desc *getnullptr()
@@ -314,6 +349,11 @@ namespace xptrng
 
 		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2, bool forceUpload = false);
 
+// 		void unbind_texture(textureReference *texref)
+// 		{
+// 			cudaUnbindTexture(texref);
+// 		}
+
 	private:
 		// ensure no shenanigans (no copy constructor & operator)
 		ptr_desc(const ptr_desc &);
@@ -331,19 +371,36 @@ namespace xptrng
 		uint32_t elementSize() const { return desc->m_elementSize; }
 		uint32_t width()   const { return desc->m_dim.x; }
 		uint32_t height()  const { return desc->m_dim.y; }
+		uint32_t depth()   const { return desc->m_dim.z; }
 		uint32_t ncols()   const { return width(); }
 		uint32_t nrows()   const { return height(); }
 		uint32_t pitch()   const { return desc->m_pitch; }
-		size_t size() const { return width()*height(); }
+		size_t size() const
+		{
+			size_t s = width();
+
+			if(!height()) return s;
+			s *= height();
+
+			if(!depth()) return s;
+			s *= depth();
+
+			return s;
+		}
 
 		tptr()
 		{
 			desc = ptr_desc::getnullptr()->addref();
 		}
-		tptr(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
+		tptr(uint32_t width, uint32_t height = 0, uint32_t depth = 0, int elemSize = sizeof(T), uint32_t align = 128)
 		{
-			desc = new ptr_desc(elemSize, width, height, roundUpModulo(elemSize*width, align));
+			desc = new ptr_desc(elemSize, width, height, roundUpModulo(elemSize*width, align), depth);
 		}
+/*		tptr(const dim3 &dim, int elemSize = sizeof(T), uint32_t align = 128)
+		{
+			const uint32_t width = dim.x, height = dim.y, depth = dim.z;
+			desc = new ptr_desc(elemSize, width, height, roundUpModulo(elemSize*width, align), depth);
+		}*/
 		tptr(const tptr& t)
 		{
 			desc = t.desc->addref();
@@ -363,19 +420,36 @@ namespace xptrng
  		}
 
 		// memory allocation
-		void realloc(uint32_t width, uint32_t height, int elemSize = sizeof(T), uint32_t align = 128)
+		void realloc(const dim3 &dim, int elemSize = sizeof(T), uint32_t align = 128)
 		{
-			*this = tptr<T>(width, height, elemSize, align);
+			*this = tptr<T>(dim.x, dim.y, dim.z, elemSize, align);
 		}
 		tptr<T> clone(bool copyData = false) const
 		{
-			tptr<T> ret(new ptr_desc(elementSize(), width(), height(), pitch()));
+			tptr<T> ret(new ptr_desc(elementSize(), width(), height(), pitch(), depth()));
 			if(copyData)
 			{
 				syncToHost();
 				memcpy(ret.desc->m_data, desc->m_data, desc->memsize());
 			}
 			return ret;
+		}
+
+		void copyFrom(const T*data)
+		{
+			if(data == NULL) { return; }
+
+			for(int i = 0; i != width(); i++)
+			{
+				for(int j = 0; j != height(); j++)
+				{
+					for(int k = 0; k != depth(); k++)
+					{
+						elem(i, j, k) = *data;
+						data++;
+					}
+				}
+			}
 		}
 
 		// comparisons/tests
@@ -391,17 +465,17 @@ namespace xptrng
 		}
 
 		// host data accessors -- deprecated in favor of hptr<> interface
-		T &elem(const size_t x, const size_t y)	// 2D accessor
+		T &elem(const size_t x, const size_t y, const size_t z = 1)	// 2D accessor
 		{
 			assert_synced(-1);
-			size_t offs = y * pitch() + elementSize()*x;
+			size_t offs = (z * height() + y * pitch()) + elementSize()*x;
 			assert(offs < desc->memsize());
 			return *(T*)((char*)desc->m_data + offs);
 		}
 		T &elem(const size_t i)			// 1D accessor
 		{
 			assert_synced(-1);
-			assert(i > 0 && i < size());
+			assert(i >= 0 && i < size());
 			return ((T*)desc->m_data)[i];
 		}
 
@@ -411,13 +485,13 @@ namespace xptrng
 		}
 
 	public:
-		operator hptr<T>()
+		operator hptr<T, 2>()
 		{
-			return make_hptr<T>(syncToHost(), pitch());
+			return make_hptr2D<T>(syncToHost(), pitch());
 		}
-		operator gptr<T>()
+		operator gptr<T, 2>()
 		{
-			return make_gptr<T>(syncToDevice(), pitch());
+			return make_gptr2D<T>(syncToDevice(), pitch());
 		}
 		operator cux_ptr<T>()
 		{

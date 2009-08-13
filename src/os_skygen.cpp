@@ -34,6 +34,7 @@
 
 /***********************************************************************/
 
+#if 0
 lfParams lfTextureManager::loadConstant(float val)
 {
 	const int nlf = 2;
@@ -63,8 +64,44 @@ lfParams lfTextureManager::load(const char *fn)
 	}
 	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
 }
+#endif
 
-void expModel::load(const peyton::system::Config &cfg)
+xptrng::tptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
+{
+	xptrng::tptr<float> tex(2, 0, 0);
+	MLOG(verb2) << tex.desc->memsize() << "\n";
+	tex.elem(0) = val;
+	tex.elem(1) = val;
+	texCoords.x = X0;
+	texCoords.y = 1./(X1 - X0);
+	return tex;
+}
+
+xptrng::tptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
+{
+	// load the points from the file, and construct
+	// a spline to resample from
+	text_input_or_die(txin, fn);
+	std::vector<double> X, phi;
+	::load(txin, X, 0, phi, 1);
+	spline tx;
+	tx.construct(X, phi);
+
+	// resample to texture
+	xptrng::tptr<float> tex(nsamp, 0, 0);
+	float X0 = X.front(), X1 = X.back(), dX = (X1 - X0) / (nsamp-1);
+	for(int i=0; i != nsamp; i++)
+	{
+		tex.elem(i) = tx(X0 + i*dX);
+	}
+
+	// construct 
+	texCoords.x = X0;
+	texCoords.y = 1./dX;
+	return tex;
+}
+
+void expModel::load(host_state_t &hstate, const peyton::system::Config &cfg)
 {
 	// density distribution parameters
 	rho0  = cfg.get("rho0");
@@ -81,11 +118,35 @@ void expModel::load(const peyton::system::Config &cfg)
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		lf = texLFMgr.load(cfg["lumfunc"].c_str());
+		hstate.lf = load_and_resample_1D_texture(lf, cfg["lumfunc"].c_str());
 	}
 	else
 	{
-		lf = texLFMgr.loadConstant(1.f);
+		hstate.lf = load_constant_texture(lf, 1.f);
+	}
+
+	// cutoff radius (default: 1Mpc)
+	cfg.get(r_cut2,  "rcut",   1e6f);
+	r_cut2 *= r_cut2;
+}
+
+void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
+{
+	// density distribution parameters
+	l     = cfg.get("l");
+	h     = cfg.get("h");
+	z0    = cfg.get("z0");
+	f     = cfg.get("f");
+	comp  = cfg.get("comp");
+
+	// luminosity function
+	if(cfg.count("lumfunc"))
+	{
+		hstate.lf = load_and_resample_1D_texture(lf, cfg["lumfunc"].c_str());
+	}
+	else
+	{
+		hstate.lf = load_constant_texture(lf, 1.f);
 	}
 
 	// cutoff radius (default: 1Mpc)
@@ -193,6 +254,8 @@ void skyConfig<T>::upload_generic(bool draw)
 	cuxUploadConst("Rg_gpu", this->Rg);
 	cuxUploadConst("rng", *this->rng);
 	cuxUploadConst("proj", this->proj);
+
+	this->model.prerun(model_host_state, draw);
 }
 
 template<typename T>
@@ -205,8 +268,16 @@ template<>
 void skyConfig<expModel>::upload(bool draw)
 {
 	this->upload_generic(draw);
-	texLFMgr.bind();
+
 	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
+}
+
+template<>
+void skyConfig<expDisk>::upload(bool draw)
+{
+	this->upload_generic(draw);
+
+	cuxUploadConst("expDiskSky", (skyConfigGPU<expDisk>&)*this); // upload thyself (note: this MUST come last)
 }
 
 int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION);
@@ -384,7 +455,7 @@ bool skyConfig<T>::init(
 	Rg = 8000.;
 
 	// load the model
-	this->model.load(cfg);
+	this->model.load(model_host_state, cfg);
 
 	// setup config & pixels
 	(skygenConfig &)*this = sc;
@@ -632,6 +703,8 @@ skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 {
 	if(model == "BahcallSoneira")
 		return new skyConfig<expModel>();
+	if(model == "ExponentialDisk")
+		return new skyConfig<expDisk>();
 
 	THROW(EAny, "Unknow density model '" + model + "'");
 	return NULL;

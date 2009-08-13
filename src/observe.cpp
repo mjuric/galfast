@@ -1430,7 +1430,7 @@ struct write_fits_rows_state
 
 	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
 	{
-		hidden = xptrng::make_hptr<int>(NULL, 0);
+		hidden = xptrng::make_hptr2D<int>(NULL, 0);
 		rowswritten = 0;
 
 		columns = columns_;

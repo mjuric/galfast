@@ -75,38 +75,32 @@ void lfTextureManager::free()
 }
 #endif
 
-template<typename T, int dim, enum cudaTextureReadMode mode>
-	inline void texture_bind(texture<T, dim, mode> &texref, xptrng::tptr<T> &ptr)
-	{
-		cudaArray *arr = ptr.getCUDAArray(texref.channelDesc);
-		cuxErrCheck( cudaBindTextureToArray(&texref, arr, &texref.channelDesc) );
-	}
-
 void expModel::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-	texture_bind(expModelLF, hstate.lf);
+	hstate.lf.bind_texture(expModelLF);
 }
 
 void expDisk::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-	texture_bind(expDiskLF, hstate.lf);
+	hstate.lf.bind_texture(expDiskLF);
 }
 
 void expModel::postrun(host_state_t &hstate, bool draw)
 {
 	if(draw)
 	{
-		cudaUnbindTexture(expModelLF);
-		//hstate.lf.release_device_arrays();
+		hstate.lf.unbind_texture(expModelLF);
 	}
 }
 
 void expDisk::postrun(host_state_t &hstate, bool draw)
 {
-	// bind the luminosity function texture to texture reference
-	texture_bind(expDiskLF, hstate.lf);
+	if(draw)
+	{
+		hstate.lf.unbind_texture(expDiskLF);
+	}
 }
 
 template<typename T>
@@ -314,7 +308,7 @@ __device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir
 			ilb++;
 			if(ilb != npixels)
 			{
-				dir = pixels[ilb];
+				dir = pixels(ilb);
 			}
 		}
 	}
@@ -374,7 +368,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 			diagIndexToIJ(ilb, im, iM, k, nm, nM);
 			if(ilb >= npixels) { break; }
 
-			pix = pixels[ilb];
+			pix = pixels(ilb);
 			moved = true;
 		}
 		else
@@ -454,15 +448,15 @@ __device__ void skyConfigGPU<T>::kernel() const
 				do
 				{
 					float Mtmp, mtmp, DMtmp;
-					stars.M[idx] = Mtmp = M + dM*(rng.uniform() - 0.5f);
+					stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
 //					stars.m[idx] = mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
 					mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
 					DMtmp = mtmp - Mtmp;
-					stars.DM[idx] = DMtmp;
+					stars.DM(idx) = DMtmp;
 					float D = powf(10, 0.2f*DMtmp + 1.f);
 
 					float x, y;
-					stars.projIdx[idx] = pix.projIdx;
+					stars.projIdx(idx) = pix.projIdx;
 					proj[pix.projIdx].convert(pix, x, y);
 					x += pix.dx*(rng.uniform() - 0.5f);
 					y += pix.dx*(rng.uniform() - 0.5f);
@@ -482,7 +476,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 					stars.XYZ(idx, 0) = pos.x;
 					stars.XYZ(idx, 1) = pos.y;
 					stars.XYZ(idx, 2) = pos.z;
-					stars.comp[idx] = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
+					stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
 
 // 					printf("%3d %5d %13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
 // 						sizeof(s), idx, deg(s.l), deg(s.b), s.M, s.m, s.pos.x, s.pos.y, s.pos.z, s.comp);
@@ -508,7 +502,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 			int rhoBin = round((log10f(rho) - lrho0) / dlrho);
 			if(rhoBin < 0) { rhoBin = 0; }
 			if(rhoBin >= nhistbins) { rhoBin = (nhistbins-1); }
-			rhoHistograms[nthreads*rhoBin + tid]++;
+			rhoHistograms(nthreads*rhoBin + tid)++;
 			//if(rho > 1e-2f) { printf("%g (D=%f) -> bin %d\n", rho, D, rhoBin); }
 #endif
 		}
@@ -517,9 +511,9 @@ __device__ void skyConfigGPU<T>::kernel() const
 	tid = threadID();
 	if(!draw)
 	{
-		counts[tid] = count;
-		countsCovered[tid] = countCovered;
-		maxCount[tid] = maxCount1;
+		counts(tid) = count;
+		countsCovered(tid) = countCovered;
+		maxCount(tid) = maxCount1;
 	}
 	else
 	{

@@ -42,28 +42,63 @@
 
 xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
 
-xptrng::ptr_desc::ptr_desc(size_t es, size_t width, size_t height, size_t pitch, size_t depth)
-	: m_elementSize(es), m_dim(width, height, depth), m_pitch(pitch), m_data(NULL)
+xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
 {
+	ASSERT(pitch >= width*es);
+
+	extent[0] = pitch;
+	extent[1] = height;
+	extent[2] = depth;
+	m_width = width;
+	m_elementSize = es;
+
 	refcnt = 1;
 	masterDevice = -1;
+	cleanArray = -1;
+	FOR(i, MAXDEV)
+	{
+		cudaArrayPointers[i] = NULL;
+		deviceDataPointers[i] = NULL;
+	}
+
 	uint32_t size = memsize();
-	deviceDataPointers[-1] = m_data = new char[size];
+	deviceDataPointers[-1] = ptr = new char[size];
+}
+
+void xptrng::ptr_desc::gc()
+{
+	// delete the host copy if master copy resides on one of the devices
+	if(masterDevice != -1)
+	{
+		delete [] ((char*)ptr);
+	}
+
+	// delete the device copy if it's not the master copy
+	FOR(0, MAXDEV)
+	{
+		// FIXME: None of this would actually work if we had more than one
+		// device, as each device has to be worked with from its own thread.
+
+		// delete unused device copies
+		if(masterDevice != i)
+		{
+			cuxErrCheck( cudaFree(deviceDataPointers[i]) );
+			deviceDataPointers[i] = NULL;
+		}
+
+		// delete unused CUDA Array copies
+		if(cleanArray != i)
+		{
+			cuxErrCheck( cudaFreeArray(cudaArrayPointers[i]) );
+		}
+	}
 }
 
 xptrng::ptr_desc::~ptr_desc()
 {
-	delete [] ((char*)m_data);
-	FOREACH(deviceDataPointers)
-	{
-		if(i->first < 0) { continue; }
-
-		cuxErrCheck( cudaFree(i->second) );
-	}
-	FOREACH(cudaArrayPointers)
-	{
-		cuxErrCheck( cudaFreeArray(i->second) );
-	}
+	masterDevice = -10;
+	cleanArray = -1;
+	gc();
 }
 
 void *xptrng::ptr_desc::syncToDevice(int dev)
@@ -91,7 +126,7 @@ void *xptrng::ptr_desc::syncToDevice(int dev)
 			dir = cudaMemcpyHostToDevice;
 
 			// allocate device space (if unallocated)
-			if(!deviceDataPointers.count(dev))
+			if(!deviceDataPointers[dev])
 			{
 				cuxErrCheck( cudaMalloc(&deviceDataPointers[dev], memsize()) );
 			}
@@ -105,25 +140,38 @@ void *xptrng::ptr_desc::syncToDevice(int dev)
 		// record new master device
 		masterDevice = dev;
 	}
+
+	// assume the sync dirtied up the textures
+	cleanArray = -1;
+
+	gc(); // agressive garbage collection while debugging
+
 	return deviceDataPointers[masterDevice];
 }
 
-cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev, bool forceUpload)
+cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev/*, bool forceUpload*/)
 {
-	syncToDevice(-1);	// ensure the data is on the host
-
 	if(dev == -2)
 	{
 		dev = gpuGetActiveDevice();
 		assert(dev >= 0);
 	}
 
+	if(cleanArray == dev)
+	{
+		ASSERT(cudaArrayPointers[dev]);
+		return cudaArrayPointers[dev];
+	}
+
+	bool needUpload = cleanArray == -1;
+	syncToDevice(-1);	// ensure the data is on the host
+
 	// array size (we're going to need this later)
-	cudaExtent ex = make_cudaExtent(m_dim.x, m_dim.y, m_dim.z);
+	cudaExtent ex = make_cudaExtent(extent[0], extent[1], extent[2]);
 	cudaArray* cu_array;
 	cudaError err;
 
-	if(cudaArrayPointers.count(dev))
+	if(!cudaArrayPointers[dev])
 	{
 		cu_array = cudaArrayPointers[dev];
 	}
@@ -138,18 +186,16 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 		//cuxErrCheck( cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y) );
 
 		cudaArrayPointers[dev] = cu_array;
-		forceUpload = true;
 	}
 
-	if(forceUpload)
+	if(needUpload)
 	{
 		// Apparent CUDA 2.2 bug workaround: cudaMemcpy3D (silently) fails to copy
 		// data for arrays with depth=0
-
 		if(ex.depth != 0)
 		{
 			cudaMemcpy3DParms par = { 0 };
-			par.srcPtr = make_cudaPitchedPtr(m_data, m_pitch, m_dim.x, std::max(1U, m_dim.y));
+			par.srcPtr = make_cudaPitchedPtr(ptr, extent[0], m_width, std::max(1U, extent[1]));
 			par.dstArray = cu_array;
 			par.extent = ex;
 			par.kind = cudaMemcpyHostToDevice;
@@ -157,10 +203,13 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, in
 		}
 		else
 		{
-			//cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, m_dim.y, cudaMemcpyHostToDevice) );
-			cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, m_data, m_pitch, m_dim.x*m_elementSize, std::max(1U, m_dim.y), cudaMemcpyHostToDevice) );
+			cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, ptr, extent[0], m_width*m_elementSize, std::max(1U, extent[1]), cudaMemcpyHostToDevice) );
 		}
 	}
+
+	cleanArray = dev;
+
+	gc(); // agressive garbage collection while debugging
 
 	return cu_array;
 }

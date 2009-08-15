@@ -70,8 +70,8 @@ xptrng::tptr<float> load_constant_texture(float2 &texCoords, float val, float X0
 {
 	xptrng::tptr<float> tex(2, 0, 0);
 	MLOG(verb2) << tex.desc->memsize() << "\n";
-	tex.elem(0) = val;
-	tex.elem(1) = val;
+	tex(0U) = val;
+	tex(1U) = val;
 	texCoords.x = X0;
 	texCoords.y = 1./(X1 - X0);
 	return tex;
@@ -92,7 +92,7 @@ xptrng::tptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *
 	float X0 = X.front(), X1 = X.back(), dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
-		tex.elem(i) = tx(X0 + i*dX);
+		tex(i) = tx(X0 + i*dX);
 	}
 
 	// construct 
@@ -501,8 +501,8 @@ struct star_comp
 	{
 		return	lb(a, 0) <  lb(b, 0)	||	lb(a, 0) == lb(b, 0) && (
 			lb(a, 1) <  lb(b, 1)	||	lb(a, 1) == lb(b, 1) && (
-			DM[a]    <  DM[b]	||	DM[a]    == DM[b] && (
-			M[a]     < M[b]
+			DM(a)    <  DM(b)	||	DM(a)    == DM(b) && (
+			M(a)     <  M(b)
 			)));
 	}
 };
@@ -585,7 +585,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 			
 			FOR(0, s.size())
 			{
-				#define  SWAP(arr)    std::swap(sc.arr[i],    sc.arr[j])
+				#define  SWAP(arr)    std::swap(sc.arr(i),    sc.arr(j))
 				#define SWAP1(arr, k) std::swap(sc.arr(i, k), sc.arr(j, k))
 
 				int hi = a2h[i];
@@ -904,7 +904,7 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		// clip everything outside the footprint polygon
 		Radians l = rad(lb(row, 0));
 		Radians b = rad(lb(row, 1));
-		int projIdx = pIdx[row];
+		int projIdx = pIdx(row);
 		nstars[projIdx]++;
 
 // 		// Galactic plane zone of avoidance
@@ -920,7 +920,7 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		// immediately reject if in the southern hemisphere (for this projection)
 		if(sqr(x) + sqr(y) > 2.)
 		{
-			hidden[row] = 1;
+			hidden(row) = 1;
 			continue;
 		}
 
@@ -943,7 +943,7 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		gpc_vertex vtmp = { x, y };
 
 		bool infoot = in_polygon(vtmp, poly);
-		hidden[row] = !infoot;
+		hidden(row) = !infoot;
 	}
 
 	DLOG(verb1) << "nstars north: " << nstars[0];

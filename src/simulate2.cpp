@@ -990,10 +990,10 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 		size_t row = t.add_row();
 		lb(row, 0)  = deg(l);
 		lb(row, 1)  = deg(b);
-		color[row]  = s.ri;
-		mag[row]    = s.m;
-		absmag[row] = Mr;
-		comp[row] = 0;
+		color(row)  = s.ri;
+		mag(row)    = s.m;
+		absmag(row) = Mr;
+		comp(row) = 0;
 		XYZ(row, 0) = x;
 		XYZ(row, 1) = y;
 		XYZ(row, 2) = z;

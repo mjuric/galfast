@@ -496,33 +496,33 @@ struct ALIGN(16) runtime_state
 
 	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, typename Model::state &ms) const
 	{
-		ilb = this->ilb[tid];
-		im  = this->im[tid];
-		iM  = this->iM[tid];
-		k   = this->k[tid];
-		bc  = this->bc[tid];
-		pos = this->pos[tid];
-		pix = this->pix[tid];
-		D   = this->D[tid];
-		ms  = this->ms[tid];
+		ilb = this->ilb(tid);
+		im  = this->im(tid);
+		iM  = this->iM(tid);
+		k   = this->k(tid);
+		bc  = this->bc(tid);
+		pos = this->pos(tid);
+		pix = this->pix(tid);
+		D   = this->D(tid);
+		ms  = this->ms(tid);
 	}
 
 	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, typename Model::state ms) const
 	{
-		this->ilb[tid] = ilb;
-		this->im[tid]  = im;
-		this->iM[tid]  = iM;
-		this->k[tid]   = k;
-		this->bc[tid]  = bc;
-		this->pos[tid] = pos;
-		this->pix[tid] = pix;
-		this->D[tid]   = D;
-		this->ms[tid]  = ms;
+		this->ilb(tid) = ilb;
+		this->im(tid)  = im;
+		this->iM(tid)  = iM;
+		this->k(tid)   = k;
+		this->bc(tid)  = bc;
+		this->pos(tid) = pos;
+		this->pix(tid) = pix;
+		this->D(tid)   = D;
+		this->ms(tid)  = ms;
 
-		this->cont[tid] = 1;
+		this->cont(tid) = 1;
 	}
 	
-	bool continuing(int tid) const { return this->cont[tid]; }
+	bool continuing(int tid) const { return this->cont(tid); }
 };
 
 struct ALIGN(16) skygenConfig

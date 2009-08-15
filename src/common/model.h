@@ -555,7 +555,7 @@ public:
 			elementSize = ptr.elementSize();
 
 			column<char>::host_t h = ptr;
-			return &h[0];
+			return &h(0);
 		}
 		~columndef();
 		columndef &add_alias(const std::string &name)		// add an additional name (alias) to this column

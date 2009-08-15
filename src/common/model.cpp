@@ -1205,9 +1205,9 @@ bool BahcallSoneira_model::add_details(otable &t, rng_t &rng)
 		float pthick = (thin + thick) / rho;
 
 		float u = rng.uniform();
-		if(u < pthin) { comp[row] = THIN; }
-		else if(u < pthick) { comp[row] = THICK; }
-		else { comp[row] = HALO; }
+		if(u < pthin) { comp(row) = THIN; }
+		else if(u < pthick) { comp(row) = THICK; }
+		else { comp(row) = HALO; }
 	}
 
 	return true;

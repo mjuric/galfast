@@ -64,7 +64,7 @@ KERNEL(
 
 //		feh = -comp[row]; FeH[row] = feh; continue;
 		float feh;
-		int component = comp[row];
+		int component = comp(row);
 #if 1
 /*		if (component==0) //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 			feh=0;
@@ -119,7 +119,7 @@ KERNEL(
 				break;*/
 		}
 #endif
-		FeH[row] = feh;
+		FeH(row) = feh;
 	}
 	rng.store(threadID());
 }
@@ -550,7 +550,7 @@ KERNEL(
 	for(int row=ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// fetch prerequisites
-		const int component = comp[row];
+		const int component = comp(row);
 		float X = XYZ(row, 0);
 		float Y = XYZ(row, 1);
 		float Zpc = XYZ(row, 2);
@@ -661,7 +661,7 @@ KERNEL(
 {
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-		FeH[row] = fixedFeH;
+		FeH(row) = fixedFeH;
 	}
 }
 
@@ -754,7 +754,7 @@ KERNEL(
 	rng.load(threadID());
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-		float M1 = M[row];
+		float M1 = M(row);
 		Msys(row, 0) = M1;
 		float Ltot = exp10f(-0.4f*M1);
 		int ncomps = 1;			/* Number of components of the multiple system */
@@ -773,8 +773,8 @@ KERNEL(
 			}
 		}
 		float Mtot = -2.5*log10f(Ltot);
-		    M[row] = Mtot;
-		ncomp[row] = ncomps;
+		    M(row) = Mtot;
+		ncomp(row) = ncomps;
 	}
 	rng.store(threadID());
 }
@@ -790,14 +790,14 @@ __TLS std::vector<xptrng::tptr<uint> >   *flags;
 #endif
 
 #if HAVE_CUDA && !BUILD_FOR_CPU
-texture<float4, 2, cudaReadModeElementType> color0;
-texture<float4, 2, cudaReadModeElementType> color1;
-texture<float4, 2, cudaReadModeElementType> color2;
-texture<float4, 2, cudaReadModeElementType> color3;
-texture<uint4, 2, cudaReadModeElementType> cflags0;
-texture<uint4, 2, cudaReadModeElementType> cflags1;
-texture<uint4, 2, cudaReadModeElementType> cflags2;
-texture<uint4, 2, cudaReadModeElementType> cflags3;
+texture<float4, 2, cudaReadModeElementType> color0(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<float4, 2, cudaReadModeElementType> color1(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<float4, 2, cudaReadModeElementType> color2(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<float4, 2, cudaReadModeElementType> color3(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags0(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags1(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags2(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags3(false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color1, &color2, &color3 };
 texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
@@ -833,8 +833,8 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 	uint fl = 0;
 	for(int ic=0; ic != ncolors; ic++)
 	{
-		colors[ic] = (*locuses)[ic].elem(f, m);
-		fl |= (*flags)[ic].elem(f, m);
+		colors[ic] = (*locuses)[ic](f, m);
+		fl |= (*flags)[ic](f, m);
 	}
 	return fl;
 }
@@ -882,7 +882,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		char idx[50];
 		sprintf(idx, "%s%d", id, i);
 		os_photometry_tex_get(idx, texc, texf);
-		if(texc.isNull() || texf.isNull())
+		if(!texc || !texf)
 		{
 			texc = xptrng::tptr<float4>(width, height);
 			texf =  xptrng::tptr<uint4>(width, height);
@@ -892,15 +892,15 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 			{
 				for(int x=0; x != width; x++)
 				{
-					texc.elem(x, y).x =                     (*loc)[i+0].elem(x, y)    ;
-					texc.elem(x, y).y = i+1 < loc->size() ? (*loc)[i+1].elem(x, y) : 0;
-					texc.elem(x, y).z = i+2 < loc->size() ? (*loc)[i+2].elem(x, y) : 0;
-					texc.elem(x, y).w = i+3 < loc->size() ? (*loc)[i+3].elem(x, y) : 0;
+					texc(x, y).x =                     (*loc)[i+0](x, y)    ;
+					texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
+					texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
+					texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
 
-					texf.elem(x, y).x =                      (*flgs)[i+0].elem(x, y)    ;
-					texf.elem(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1].elem(x, y) : 0;
-					texf.elem(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2].elem(x, y) : 0;
-					texf.elem(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3].elem(x, y) : 0;
+					texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
+					texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
+					texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
+					texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
 				}
 			}
 			os_photometry_tex_set(idx, texc, texf);
@@ -915,6 +915,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 // 			(*loc)[i+2](317, 28),
 // 			(*loc)[i+3](317, 28));
 
+#if 0
 		// Bind isochrone array to texture reference
 		cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
 		//cudaArray* cu_array = gpuMMU.mapToCUDAArray(texc, channelDesc);
@@ -936,7 +937,10 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		cflagsTextures[texid]->filterMode = cudaFilterModePoint;
 		cflagsTextures[texid]->normalized = false;    // access with normalized texture coordinates
 		cuxErrCheck( cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc) );
-
+#else
+		texc.bind_texture( *colorTextures[texid]);
+		texf.bind_texture(*cflagsTextures[texid]);
+#endif
 		texid++;
 	}
 #endif
@@ -961,7 +965,7 @@ KERNEL(
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// construct colors given the absolute magnitude and metallicity
-		float fFeH = FeH[row];
+		float fFeH = FeH(row);
 		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
 
 		// generate system components, compute system luminosity
@@ -972,8 +976,8 @@ KERNEL(
 
 			float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
 			int flag = sampleColors(c, iFeH, iMr, lt.ncolors);
-			if(syscomp) { flag &= flags[row]; }
-			flags[row] = flag;
+			if(syscomp) { flag &= flags(row); }
+			flags(row) = flag;
 
 			// compute absolute magnitudes in different bands, and store
 			// as luminosity
@@ -990,7 +994,7 @@ KERNEL(
 		}
 
 		// convert luminosity to apparent magnitude of the system
-		float dm = DM[row];
+		float dm = DM(row);
 		for(int b = 0; b <= lt.ncolors; b++)
 		{
 			float Mtot = -2.5f * log10f(mags(row, b));

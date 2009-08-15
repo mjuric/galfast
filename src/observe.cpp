@@ -456,7 +456,7 @@ size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng
 	for(size_t row=begin; row != end; row++)
 	{
 		// fetch prerequisites
-		const int component = comp[row];
+		const int component = comp(row);
 		float X = XYZ(row, 0);
 		float Y = XYZ(row, 1);
 		float Zpc = XYZ(row, 2);
@@ -638,9 +638,9 @@ class os_photometry : public osink
 //			std::cerr << "fm = " << f << " " << m << "   " << ((FeH - FeH0) / dFeH) << " " << ((Mr  -  Mr0) / dMr) << "\n";
 //			int idx = m*nFeH + f;
 //			if(e) { *e = eclt[ic][idx]; }
-			if(e) { *e = eflags[ic].elem(f, m); }
+			if(e) { *e = eflags[ic](f, m); }
 //			return clt[ic][idx];
-			return isochrones[ic].elem(f, m);
+			return isochrones[ic](f, m);
 		}
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -829,9 +829,9 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 				int idx = m*nFeH + f;
 
 ///				clt[ic][idx] = s(FeH);
-				isochrones[ic].elem(f, m) = s(FeH);
+				isochrones[ic](f, m) = s(FeH);
 //				eclt[ic][idx] = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
-				eflags[ic].elem(f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
+				eflags[ic](f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
 //				if(eflags[ic](f, m) && ic > 1) { std::cerr << ic << " " << Mr << " " << FeH << " : " << isochrones[ic](f, m) << " " << eflags[ic](f,m) << "\n"; }
 			}
 		}
@@ -1313,7 +1313,7 @@ struct mask_output : otable::mask_functor
 	virtual bool shouldOutput(int row) const
 	{
 		tick.tick();
-		return !hidden[row];
+		return !hidden(row);
 	}
 };
 
@@ -1430,7 +1430,7 @@ struct write_fits_rows_state
 
 	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
 	{
-		hidden = xptrng::make_hptr2D<int>(NULL, 0);
+		hidden = NULL; // xptrng::make_hptr2D<int>(NULL, 0);
 		rowswritten = 0;
 
 		columns = columns_;
@@ -1464,7 +1464,7 @@ int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int nar
 		{
 			if(st.hidden)
 			{
-				while(orow != st.to && st.hidden[orow]) { orow++; }	// find next non-hidden row
+				while(orow != st.to && st.hidden(orow)) { orow++; }	// find next non-hidden row
 			}
 			if(orow == st.to) { break; }				// have we reached the end of the table?
 

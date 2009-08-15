@@ -52,23 +52,51 @@ template<typename T>
 		cuxErrCheck( cudaFree(v) );
 	}
 
-	template<typename T>
-	struct cux_ptr
+template<typename T, int dim = 1>
+	struct cux_ptr_base
 	{
 		T *ptr;
+		uint32_t pitch[dim-1];	// pitch[0] == width of a row of data, in bytes
+					// pitch[1] == number of rows of data in a slice of a 3D data cube
+
+		#if __CUDACC__
+		// Access
+		__device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
+		{
+			return *((T*)((char*)ptr + y * (pitch[0] + z * pitch[1])) + x);
+		}
+		__device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
+		{
+			return *((T*)((char*)ptr + y * pitch[0]) + x);
+		}
+		__device__ T &operator[](const uint32_t i) const			// 1D accessor (valid only if dim >= 2)
+		{
+			return ptr[i];
+		}
+		__device__ operator bool() const
+		{
+			return ptr != NULL;
+		}
+		#endif
+	};
+
+template<typename T, int dim = 1>
+	struct cux_ptr : public cux_ptr_base<T, dim>
+	{
+		T *ptr;
+		uint32_t pitch[dim-1];	// pitch[0] == width of a row of data, in bytes
+					// pitch[1] == number of rows of data in a slice of a 3D data cube
 
 		void   upload(const T* src, int count = 1)  { if(!ptr) { alloc(count); } cuxErrCheck( cudaMemcpy(ptr,  src, count*sizeof(T), cudaMemcpyHostToDevice) ); }
 		void download(T* dest, int count = 1) const {                            cuxErrCheck( cudaMemcpy(dest, ptr, count*sizeof(T), cudaMemcpyDeviceToHost) ); }
 		void alloc(int count) { ptr = cuxNew<T>(count); }
 		void free() { cuxFree(ptr); }
+
 		cux_ptr<T> operator =(T *p) { ptr = p; return *this; }
 		cux_ptr<T> operator =(const cux_ptr<T> &p) { ptr = p.ptr; return *this; }
-		
-		#if __CUDACC__
-		T &operator[](uint32_t idx) const { return ptr[idx]; }
-		#endif
 	};
-	template<typename T>
+
+template<typename T>
 	inline cux_ptr<T> make_cux_ptr(void *data)
 	{
 		cux_ptr<T> ptr;
@@ -228,79 +256,6 @@ protected:
 
 namespace xptrng
 {
-	// Pointer to 2D array, GPU interface.
-	//     - Used to point to device memory, in kernels
-	//     - May be obtained from tptr<>
-	template<typename T, int dim = 2>
-	struct gptr
-	{
-		typedef T value_type;
-
-		char *data;
-		uint32_t pitch[dim-1];	// pitch[0] == width of a row of data, in bytes
-					// pitch[1] == number of rows of data in a slice of a 3D data cube
-
-		// Access
-		__device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
-		{
-			return *((T*)(data + y * (pitch[0] + z * pitch[1])) + x);
-		}
-		__device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
-		{
-			return *((T*)(data + y * pitch[0]) + x);
-		}
-		__device__ T &operator[](const uint32_t i) const			// 1D accessor (valid only if dim >= 2)
-		{
-			return ((T*)data)[i];
-		}
-		__device__ operator bool() const
-		{
-			return data != NULL;
-		}
-	};
-	template<typename T>
-	inline gptr<T, 2> make_gptr2D(void *data, uint32_t pitch)
-	{
-		gptr<T> ptr;
-		ptr.data = (char*)data;
-		ptr.pitch[0] = pitch;
-		return ptr;
-	}
-	template<typename T>
-	inline gptr<T, 3> make_gptr3D(void *data, uint32_t pitch, uint32_t height)
-	{
-		gptr<T> ptr;
-		ptr.data = (char*)data;
-		ptr.pitch[0] = pitch;
-		ptr.pitch[1] = height;
-		return ptr;
-	}
-
-	// Pointer to 2D array, CPU interface.
-	//     - Used to access host memory, on the host
-	//     - May be obtained from tptr<>
-	template<typename T, int dim = 2>
-	struct hptr : public gptr<T>
-	{
-	};
-	template<typename T>
-	inline hptr<T, 2> make_hptr2D(void *data, uint32_t pitch)
-	{
-		hptr<T> ptr;
-		ptr.data = (char*)data;
-		ptr.pitch[0] = pitch;
-		return ptr;
-	}
-	template<typename T>
-	inline hptr<T, 2> make_hptr3D(void *data, uint32_t pitch, uint32_t height)
-	{
-		hptr<T> ptr;
-		ptr.data = (char*)data;
-		ptr.pitch[0] = pitch;
-		ptr.pitch[1] = height;
-		return ptr;
-	}
-
 	// Smart pointer, inner part, low level implementation.
 	//     - only meant to be used from tptr and derivatives
 	//     - points to a well-formed block of memory with 2D dimensions m_dim, of elements of size m_elementSize,
@@ -309,6 +264,49 @@ namespace xptrng
 	//     - can upload the data to global device memory, or CUDA array
 	struct ptr_desc
 	{
+	public:
+		struct gptr_to_pdesc
+		{
+			ptr_desc *master;
+			int refcnt;
+
+			gptr_to_pdesc() : master(NULL), refcnt(0) {}
+		};
+		typedef std::map<void*, gptr_to_pdesc> gptr_refcnt_t;
+		gptr_refcnt_t gptr_refcnt;
+
+		int gptr_release(void *data)
+		{
+			if(data == NULL) { return 0; }
+
+			gptr_refcnt_t::iterator it = gptr_refcnt.find(data);
+			assert(it != gptr_refcnt.end());
+			it->second.refcnt--;
+			return it->second.refcnt;
+		}
+		void *gptr_addref(void *data, ptr_desc *master = NULL)
+		{
+			if(data == NULL) { return NULL; }
+
+			gptr_refcnt_t::iterator it = gptr_refcnt.find(data);
+			if(it != gptr_refcnt.end())
+			{
+				assert(master != NULL);
+				gptr_to_pdesc &r = gptr_refcnt[data];
+				r.master = master;
+				r.refcnt++;
+			}
+			else
+			{
+				it->second.refcnt++;
+			}
+			return data;
+		}
+		void *gptr_addref(ptr_desc &master)
+		{
+			return gptr_addref(master.syncToDevice(), &master);
+		}
+	public:
 		friend struct GPUMM;
 		static ptr_desc *null;
 
@@ -359,6 +357,85 @@ namespace xptrng
 		ptr_desc(const ptr_desc &);
 		ptr_desc& operator=(const ptr_desc &);
 	};
+
+	// Pointer to n-D array, GPU interface.
+	//     - Used to point to device memory, in kernels
+	//     - Must be obtained from tptr<>
+	template<typename T, int dim = 2, int dev=-2>
+	struct gptr : public cux_ptr<T, dim>
+	{
+		gptr()
+		{
+			this->ptr = NULL;
+		}
+		gptr(ptr_desc &master)
+		{
+			switch(dim)
+			{
+			case 3:
+				this->pitch[1] = master.m_dim.y;
+			case 2:
+				this->pitch[0] = master.m_pitch;
+			}
+			ptr_desc::gptr_addref(this->ptr, master, dev);
+		}
+		gptr &operator=(const gptr &a)
+		{
+			ptr_desc::gptr_release(this->ptr);
+			this->ptr = (T*)ptr_desc::gptr_addref(a.ptr);
+			for(int i = 0; i != dim; i++) { this->pitch[i] = a.pitch[i]; }
+		}
+		gptr(const gptr &a)
+		{
+			*this = a;
+		}
+		~gptr()
+		{
+			ptr_desc::gptr_release(this->ptr);
+		}
+	};
+// 	template<typename T>
+// 	inline gptr<T, 2> make_gptr2D(void *data, uint32_t pitch)
+// 	{
+// 		gptr<T> ptr;
+// 		ptr.data = (char*)data;
+// 		ptr.pitch[0] = pitch;
+// 		return ptr;
+// 	}
+// 	template<typename T>
+// 	inline gptr<T, 3> make_gptr3D(void *data, uint32_t pitch, uint32_t height)
+// 	{
+// 		gptr<T> ptr;
+// 		ptr.data = (char*)data;
+// 		ptr.pitch[0] = pitch;
+// 		ptr.pitch[1] = height;
+// 		return ptr;
+// 	}
+
+	// Pointer to 2D array, CPU interface.
+	//     - Used to access host memory, on the host
+	//     - May be obtained from tptr<>
+	template<typename T, int dim = 2>
+	struct hptr : public cux_ptr_base<T, dim, -1>
+	{
+	};
+// 	template<typename T>
+// 	inline hptr<T, 2> make_hptr2D(void *data, uint32_t pitch)
+// 	{
+// 		hptr<T> ptr;
+// 		ptr.data = (char*)data;
+// 		ptr.pitch[0] = pitch;
+// 		return ptr;
+// 	}
+// 	template<typename T>
+// 	inline hptr<T, 2> make_hptr3D(void *data, uint32_t pitch, uint32_t height)
+// 	{
+// 		hptr<T> ptr;
+// 		ptr.data = (char*)data;
+// 		ptr.pitch[0] = pitch;
+// 		ptr.pitch[1] = height;
+// 		return ptr;
+// 	}
 
 	// Smart pointer, public interface.
 	//     - attempts to mimic shared_ptr<> semantics
@@ -491,7 +568,8 @@ namespace xptrng
 		}
 		operator gptr<T, 2>()
 		{
-			return make_gptr2D<T>(syncToDevice(), pitch());
+			//return make_gptr2D<T>(syncToDevice(), pitch());
+			return gptr<T, 2>(desc);
 		}
 		operator cux_ptr<T>()
 		{

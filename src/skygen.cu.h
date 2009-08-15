@@ -99,7 +99,7 @@ void expModel::postrun(host_state_t &hstate, bool draw)
 	if(draw)
 	{
 		cudaUnbindTexture(expModelLF);
-		hstate.lf.release_device_arrays();
+		//hstate.lf.release_device_arrays();
 	}
 }
 

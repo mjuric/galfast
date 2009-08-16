@@ -114,7 +114,10 @@ void xptrng::xptr_impl_t::gc()
 	// assume it's available for deletion
 	if(!cleanCudaArray || boundTextures.empty())
 	{
-		cuxErrCheck( cudaFreeArray(cuArray) );
+		if(cuArray)
+		{
+			cuxErrCheck( cudaFreeArray(cuArray) );
+		}
 		cuArray = NULL;
 		cleanCudaArray = false;
 	}
@@ -163,47 +166,51 @@ void *xptrng::xptr_impl_t::syncTo(bool device)
 	return m_data.ptr;
 }
 
+#define GC_AND_RETRY_IF_FAIL(x) \
+	{ \
+		cudaError err = (x); \
+		if(err == cudaErrorMemoryAllocation) \
+		{ \
+			global_gc(); \
+			err = (x); \
+		} \
+		cuxErrCheck(err); \
+	}
+
 cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 {
 	ASSERT(channelDesc.x + channelDesc.y + channelDesc.z + channelDesc.w == m_elementSize*8);
 
+	// FIXME: This all seems to be majorly fu*ked up, as CUDA devemu
+	// has bugs with cudaMalloc3DArray that has any of the extent dimensions
+	// set to zero. Will have to be fixed by trial-and-error on the real GPU.
 	if(!cleanCudaArray)
 	{
 		syncToHost();	// ensure the data is on the host
 
-		// array size (we're going to need this later)
+		// array size in elements (we're going to need this later)
 		cudaExtent ex = make_cudaExtent(m_width, m_data.extent[1], m_data.extent[2]);
-		cudaArray* cu_array;
-		cudaError err;
 
-		if(ex.depth == 1) { ex.depth = 0; }
-
-		if(!cuArray)
+		if(!cuArray)	// allocate if needed
 		{
-			// autocreate the array of correct size and dimensionallity
-
-			// CUDA 2.2 bug workaround: Although the documentation claims that setting ex.height=0
-			// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
-			if(ex.height == 0) { ex.height = 1; }
-
-			//cuxErrCheck(  cudaMalloc3DArray(&cuArray, &channelDesc, ex)  );
-			cudaError err = cudaMalloc3DArray(&cuArray, &channelDesc, ex);
-			if(err == cudaErrorMemoryAllocation)
+			if(ex.depth > 1)
 			{
-				global_gc();
-				err = cudaMalloc3DArray(&cuArray, &channelDesc, ex);
+				// 3D arrays
+				GC_AND_RETRY_IF_FAIL( cudaMalloc3DArray(&cuArray, &channelDesc, ex) );
 			}
-			cuxErrCheck(err);
+			else
+			{
+				// 2D and 1D arrays
+				GC_AND_RETRY_IF_FAIL( cudaMallocArray(&cuArray, &channelDesc, ex.width, ex.height) );
+			}
 		}
 
-		// Prefer true 2D to degenerate 3D arrays: true 2D arrays can be up to 64k x 32k,
-		// while 3D can only go to 2k x 2k x 2k (CUDA 2.2 ref. man, cudaMalloc3DArray docs)
-		// NOTE: Also works around an apparent CUDA bug: cudaMemcpy3D (silently) fails to
-		// copy data for arrays with depth=0
+		// copy
 		if(ex.depth > 1)
 		{
+			// 3D arrays
 			cudaMemcpy3DParms par = { 0 };
-			par.srcPtr = make_cudaPitchedPtr(m_data.ptr, m_data.extent[0], m_width, m_data.extent[1]);
+			par.srcPtr = make_cudaPitchedPtr(m_data.ptr, m_data.extent[0], ex.width, ex.height);
 			par.dstArray = cuArray;
 			par.extent = ex;
 			par.kind = cudaMemcpyHostToDevice;
@@ -211,7 +218,8 @@ cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 		}
 		else
 		{
-			cuxErrCheck( cudaMemcpy2DToArray(cuArray, 0, 0, m_data.ptr, m_data.extent[0], m_width*m_elementSize, ex.height, cudaMemcpyHostToDevice) );
+			// 2D and 1D arrays
+			cuxErrCheck( cudaMemcpy2DToArray(cuArray, 0, 0, m_data.ptr, m_data.extent[0], ex.width*m_elementSize, ex.height, cudaMemcpyHostToDevice) );
 		}
 
 		cleanCudaArray = true;

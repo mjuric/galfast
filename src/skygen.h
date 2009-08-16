@@ -173,8 +173,9 @@ struct ALIGN(8) afloat2 : public float2 {};
 template<typename T, int dim, enum cudaTextureReadMode mode>
 	static inline __device__ T sample(texture<T, dim, mode> &r, float x, float2 xx)
 	{
-		float xi = (x - xx.x) * xx.y;
+		float xi = (x - xx.x) * xx.y + 0.5;
 		T y = tex1D(r, xi);
+		//T y = 0.01f;
 #if __DEVICE_EMULATION__
 //		printf("phi=%f\n", y);
 #endif

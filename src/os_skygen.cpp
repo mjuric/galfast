@@ -68,11 +68,26 @@ lfParams lfTextureManager::load(const char *fn)
 
 xptrng::xptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
 {
+#if 1
 	xptrng::xptr<float> tex(2);
 	tex(0U) = val;
 	tex(1U) = val;
 	texCoords.x = X0;
 	texCoords.y = 1./(X1 - X0);
+#else
+	// resample to texture
+	int nsamp = 32768;
+	xptrng::xptr<float> tex(nsamp);
+	float dX = (X1 - X0) / (nsamp-1);
+	for(int i=0; i != nsamp; i++)
+	{
+		tex(i) = .02f;
+	}
+
+	// construct 
+	texCoords.x = X0;
+	texCoords.y = 1./dX;
+#endif
 	return tex;
 }
 
@@ -87,7 +102,7 @@ xptrng::xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *
 	tx.construct(X, phi);
 
 	// resample to texture
-	xptrng::xptr<float> tex(nsamp, 0, 0);
+	xptrng::xptr<float> tex(nsamp);
 	float X0 = X.front(), X1 = X.back(), dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{

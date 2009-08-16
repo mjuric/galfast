@@ -284,13 +284,11 @@ namespace xptrng
 
 		uint32_t memsize() const				// number of bytes allocated
 		{
-			uint32_t size = m_data.extent[0];
-			size *= std::max(m_data.extent[1], 1U);
-			size *= std::max(m_data.extent[2], 1U);
+			uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
 			return size;
 		}
 
-		ptr_desc(size_t es, size_t pitch, size_t width, size_t height = 0, size_t depth = 0);
+		ptr_desc(size_t es, size_t pitch, size_t width, size_t height = 1, size_t depth = 1);
 		~ptr_desc();
 
 // 		static ptr_desc *getnullptr()
@@ -299,7 +297,8 @@ namespace xptrng
 // 			return null;
 // 		}
 
-		operator bool() const { return m_data.extent[0] == 0 && m_data.extent[1] == 0 && m_data.extent[2] == 0; }
+//		operator bool() const { return m_data.extent[0] == 0 && m_data.extent[1] == 0 && m_data.extent[2] == 0; }
+		operator bool() const { return m_data.extent[0] == 0; }
 
 		ptr_desc *addref() { ++refcnt; return this; }
 		int release()
@@ -357,15 +356,15 @@ namespace xptrng
 	template<typename T>
 	inline array_ptr<T, 2> make_array_ptr(T *data, uint32_t pitch)
 	{
-		cux_ptr<T, 2> ptr;
+		array_ptr<T, 2> ptr;
 		ptr.ptr = data;
 		ptr.extent[0] = pitch;
 		return ptr;
 	}
 	template<typename T>
-	inline cux_ptr<T, 3> make_array_ptr(T *data, uint32_t pitch, uint32_t ydim)
+	inline array_ptr<T, 3> make_array_ptr(T *data, uint32_t pitch, uint32_t ydim)
 	{
-		cux_ptr<T, 3> ptr;
+		array_ptr<T, 3> ptr;
 		ptr.ptr = data;
 		ptr.extent[0] = pitch;
 		ptr.extent[1] = ydim;
@@ -389,14 +388,7 @@ namespace xptrng
 		uint32_t pitch()   const { return desc->m_data.extent[0]; }
 		size_t size() const
 		{
-			size_t s = width();
-
-			if(!height()) return s;
-			s *= height();
-
-			if(!depth()) return s;
-			s *= depth();
-
+			size_t s = width()*height()*depth();
 			return s;
 		}
 
@@ -404,7 +396,7 @@ namespace xptrng
 		{
 			desc = ptr_desc::getnullptr()->addref();
 		}*/
-		tptr(uint32_t width = 0, uint32_t height = 0, uint32_t depth = 0, int elemSize = sizeof(T), uint32_t align = 128)
+		tptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, int elemSize = sizeof(T), uint32_t align = 128)
 		{
 			desc = new ptr_desc(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
 		}

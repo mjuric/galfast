@@ -45,6 +45,8 @@
 xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
 {
 	ASSERT(pitch >= width*es);
+	ASSERT(depth >= 1);
+	ASSERT(height >= 1);
 
 	// array layout
 	m_data.extent[0] = pitch;
@@ -84,6 +86,7 @@ void xptrng::ptr_desc::gc()
 	{
 		cuxErrCheck( cudaFreeArray(cuArray) );
 		cuArray = NULL;
+		cleanCudaArray = false;
 	}
 }
 
@@ -148,6 +151,8 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 		cudaArray* cu_array;
 		cudaError err;
 
+		if(ex.depth == 1) { ex.depth = 0; }
+
 		if(!cuArray)
 		{
 			// autocreate the array of correct size and dimensionallity
@@ -155,15 +160,18 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 			// CUDA 2.2 bug workaround: Although the documentation claims that setting ex.height=0
 			// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
 			if(ex.height == 0) { ex.height = 1; }
+
 			cuxErrCheck(  cudaMalloc3DArray(&cuArray, &channelDesc, ex)  );
 		}
 
-		// Apparent CUDA 2.2 bug workaround: cudaMemcpy3D (silently) fails to copy
-		// data for arrays with depth=0
-		if(ex.depth != 0)
+		// Prefer true 2D to degenerate 3D arrays: true 2D arrays can be up to 64k x 32k,
+		// while 3D can only go to 2k x 2k x 2k (CUDA 2.2 ref. man, cudaMalloc3DArray docs)
+		// NOTE: Also works around an apparent CUDA bug: cudaMemcpy3D (silently) fails to
+		// copy data for arrays with depth=0
+		if(ex.depth > 1)
 		{
 			cudaMemcpy3DParms par = { 0 };
-			par.srcPtr = make_cudaPitchedPtr(m_data.ptr, m_data.extent[0], m_width, std::max(1U, m_data.extent[1]));
+			par.srcPtr = make_cudaPitchedPtr(m_data.ptr, m_data.extent[0], m_width, m_data.extent[1]);
 			par.dstArray = cuArray;
 			par.extent = ex;
 			par.kind = cudaMemcpyHostToDevice;
@@ -171,7 +179,7 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 		}
 		else
 		{
-			cuxErrCheck( cudaMemcpy2DToArray(cuArray, 0, 0, m_data.ptr, m_data.extent[0], m_width*m_elementSize, std::max(1U, m_data.extent[1]), cudaMemcpyHostToDevice) );
+			cuxErrCheck( cudaMemcpy2DToArray(cuArray, 0, 0, m_data.ptr, m_data.extent[0], m_width*m_elementSize, ex.height, cudaMemcpyHostToDevice) );
 		}
 
 		cleanCudaArray = true;

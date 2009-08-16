@@ -89,18 +89,14 @@ void expDisk::prerun(host_state_t &hstate, bool draw)
 
 void expModel::postrun(host_state_t &hstate, bool draw)
 {
-	if(draw)
-	{
-		hstate.lf.unbind_texture(expModelLF);
-	}
+	// unbind LF texture reference
+	hstate.lf.unbind_texture(expModelLF);
 }
 
 void expDisk::postrun(host_state_t &hstate, bool draw)
 {
-	if(draw)
-	{
-		hstate.lf.unbind_texture(expDiskLF);
-	}
+	// unbind LF texture reference
+	hstate.lf.unbind_texture(expDiskLF);
 }
 
 template<typename T>
@@ -163,6 +159,8 @@ void skyConfig<T>::download(bool draw)
 		cpu_maxCount = new float[this->nthreads];
 		this->maxCount.download(cpu_maxCount, this->nthreads);
 	}
+
+	this->model.postrun(model_host_state, draw);
 }
 
 #if 0

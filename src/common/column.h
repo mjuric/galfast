@@ -6,17 +6,15 @@
 template<typename T>
 struct column : public xptrng::tptr<T>
 {
-	typedef xptrng::gptr<T> gpu_t;
-	typedef xptrng::hptr<T> host_t;
+	typedef xptrng::gptr<T, 2> gpu_t;
+	typedef xptrng::hptr<T, 2> host_t;
 
 	// NOTE: WARNING: The meaning of width/height is being _inverted_ here
 	// to bring it in line with the typical table metaphore. In memory, however
 	// the array is stored such that nrows() is its width. This allows the GPU
 	// to coalesce memory accesses to adjacent rows of the table.
-	// NOTE #2: The std::max() in width() is there to represent the 1D arrays
-	// as 2D arrays with 2nd dimension equal to 1
 	uint32_t nrows() const { return xptrng::tptr<T>::width(); }
-	uint32_t width() const { return std::max(xptrng::tptr<T>::height(), 1U); }
+	uint32_t width() const { return xptrng::tptr<T>::height(); }
 
 //	column() : xptrng::tptr<T>(0, 1) { }
 	column() { }
@@ -24,19 +22,22 @@ struct column : public xptrng::tptr<T>
 	{
 		(xptrng::tptr<T> &)(*this) = t.clone();
 	}
-	void resize(size_t nrows, size_t width, int es = 0)
+	void resize(uint32_t nrows, uint32_t width = 0, uint32_t es = 0)
 	{
 		if(!es) { es = this->elementSize(); }
-		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>(nrows, width, 0., es);
+		if(!width) { width = this->width(); }
+		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>(nrows, width, 1., es);
 	}
 	T *get() const { return this->syncToHost(); }
+#if 1
 	column<T>& operator=(void *ptr)
 	{
+		ASSERT(0);	// Figure out where did I call this from???
 		assert(ptr == NULL); // can only be used to set it to 0 (for now)
 		(xptrng::tptr<T>&)(*this) = NULL; //xptrng::tptr<T>();
 		return *this;
 	}
-
+#endif
 	// GPU interface
 	operator gpu_t() { return (xptrng::tptr<T>&)(*this); }
 	operator host_t() { return (xptrng::tptr<T>&)(*this); }

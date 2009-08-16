@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
-      <programargs>postprocess postprocess.conf skygen.conf fitsout.conf</programargs>
+      <programargs>postprocess postprocess.conf skygen.conf</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="5" name="all_log_level" />
@@ -59,7 +59,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>postprocess postprocess.conf skygen.conf</globaldebugarguments>
+      <globaldebugarguments>postprocess postprocess.conf skygen.conf fitsout.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>

@@ -270,7 +270,7 @@ void otable::columndef::dealloc()
 	}
 
 	// deallocate the memory without erasing the metadata
-	ptr.resize(0, ptr.width());
+	ptr.resize(0);
 }
 
 void otable::columnclass::set_property(const std::string &key, const std::string &value)

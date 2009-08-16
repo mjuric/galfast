@@ -40,9 +40,7 @@
 #include <cuda.h>
 #endif // HAVE_CUDA
 
-/*xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
-*/
-xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
+xptrng::xptr_impl_t::xptr_impl_t(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
 {
 	ASSERT(pitch >= width*es);
 	ASSERT(depth >= 1);
@@ -55,8 +53,9 @@ xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height,
 	m_width = width;
 	m_elementSize = es;
 
-	// reference counting
+	// reference counting and garbage collection
 	refcnt = 1;
+	all_xptrs.insert(this);
 
 	// NOTE: storage is lazily allocated the first time this pointer
 	// is accessed through syncTo* methods
@@ -67,7 +66,38 @@ xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height,
 	cleanCudaArray = false;
 }
 
-void xptrng::ptr_desc::gc()
+xptrng::xptr_impl_t::~xptr_impl_t()
+{
+	ASSERT(boundTextures.empty()); // make sure to unbind the textures before deleting the underlying data
+
+	onDevice = false;
+	cleanCudaArray = false;
+
+	gc();
+
+	delete [] m_data.ptr;
+
+	all_xptrs.erase(this);
+}
+
+xptrng::xptr_impl_t::allocated_pointers::~allocated_pointers()
+{
+	if(!empty())
+	{
+		MLOG(verb1) << "ERROR: Memory leak -- " << size() << " xptr<> pointers were not deallocated\n";
+	}
+}
+
+xptrng::xptr_impl_t::allocated_pointers xptrng::xptr_impl_t::all_xptrs;
+void xptrng::xptr_impl_t::global_gc()
+{
+	FOREACH(all_xptrs)
+	{
+		(*i)->gc();
+	}
+}
+
+void xptrng::xptr_impl_t::gc()
 {
 	// delete the host copy if master copy resides on one of the devices
 	if(onDevice)
@@ -90,19 +120,7 @@ void xptrng::ptr_desc::gc()
 	}
 }
 
-xptrng::ptr_desc::~ptr_desc()
-{
-	ASSERT(boundTextures.empty()); // make sure to unbind the textures before deleting the underlying data
-
-	onDevice = false;
-	cleanCudaArray = false;
-
-	gc();
-
-	delete [] m_data.ptr;
-}
-
-void *xptrng::ptr_desc::syncTo(bool device)
+void *xptrng::xptr_impl_t::syncTo(bool device)
 {
 	if(onDevice != device)
 	{
@@ -114,7 +132,14 @@ void *xptrng::ptr_desc::syncTo(bool device)
 	{
 		if(device)
 		{
-			cuxErrCheck( cudaMalloc((void**)&m_data.ptr, memsize()) );
+			//cuxErrCheck( cudaMalloc((void**)&m_data.ptr, memsize()) );
+			cudaError err = cudaMalloc((void**)&m_data.ptr, memsize());
+			if(err == cudaErrorMemoryAllocation)
+			{
+				global_gc();
+				err = cudaMalloc((void**)&m_data.ptr, memsize());
+			}
+			cuxErrCheck(err);
 		}
 		else
 		{
@@ -133,12 +158,12 @@ void *xptrng::ptr_desc::syncTo(bool device)
 	// assume the sync dirtied up the textures
 	cleanCudaArray = false;
 
-	gc(); // agressive garbage collection while debugging
+//	gc(); // agressive garbage collection while debugging
 
 	return m_data.ptr;
 }
 
-cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
+cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 {
 	ASSERT(channelDesc.x + channelDesc.y + channelDesc.z + channelDesc.w == m_elementSize*8);
 
@@ -161,7 +186,14 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 			// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
 			if(ex.height == 0) { ex.height = 1; }
 
-			cuxErrCheck(  cudaMalloc3DArray(&cuArray, &channelDesc, ex)  );
+			//cuxErrCheck(  cudaMalloc3DArray(&cuArray, &channelDesc, ex)  );
+			cudaError err = cudaMalloc3DArray(&cuArray, &channelDesc, ex);
+			if(err == cudaErrorMemoryAllocation)
+			{
+				global_gc();
+				err = cudaMalloc3DArray(&cuArray, &channelDesc, ex);
+			}
+			cuxErrCheck(err);
 		}
 
 		// Prefer true 2D to degenerate 3D arrays: true 2D arrays can be up to 64k x 32k,
@@ -190,20 +222,20 @@ cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 }
 
 // texture access
-void xptrng::ptr_desc::bind_texture(textureReference &texref)
+void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
 {
 	cuxErrCheck( cudaBindTextureToArray(&texref, getCUDAArray(texref.channelDesc), &texref.channelDesc) );
 	boundTextures.insert(&texref);
 
-	gc(); // agressive garbage collection while debugging
+//	gc(); // agressive garbage collection while debugging
 }
 
-void xptrng::ptr_desc::unbind_texture(textureReference &texref)
+void xptrng::xptr_impl_t::unbind_texture(textureReference &texref)
 {
 	cudaUnbindTexture(&texref);
 	boundTextures.erase(&texref);
 
-	gc(); // agressive garbage collection while debugging
+//	gc(); // agressive garbage collection while debugging
 }
 
 

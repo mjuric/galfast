@@ -780,11 +780,11 @@ KERNEL(
 #include <vector>
 
 #if BUILD_FOR_CPU && HAVE_CUDA
-extern __TLS std::vector<xptrng::tptr<float> > *locuses;
-extern __TLS std::vector<xptrng::tptr<uint> >   *flags;
+extern __TLS std::vector<xptrng::xptr<float> > *locuses;
+extern __TLS std::vector<xptrng::xptr<uint> >   *flags;
 #else
-__TLS std::vector<xptrng::tptr<float> > *locuses;
-__TLS std::vector<xptrng::tptr<uint> >   *flags;
+__TLS std::vector<xptrng::xptr<float> > *locuses;
+__TLS std::vector<xptrng::xptr<uint> >   *flags;
 #endif
 
 #if HAVE_CUDA && !BUILD_FOR_CPU
@@ -840,14 +840,14 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 
 #if HAVE_CUDA && BUILD_FOR_CPU
 #include <map>
-std::map<std::string, xptrng::tptr<float4> > os_photometry_tex_c;
-std::map<std::string, xptrng::tptr<uint4> >  os_photometry_tex_f;
-void os_photometry_tex_get(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f)
+std::map<std::string, xptrng::xptr<float4> > os_photometry_tex_c;
+std::map<std::string, xptrng::xptr<uint4> >  os_photometry_tex_f;
+void os_photometry_tex_get(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f)
 {
 	c = os_photometry_tex_c[id];
 	f = os_photometry_tex_f[id];
 }
-void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f)
+void os_photometry_tex_set(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f)
 {
 	os_photometry_tex_c[id] = c;
 	os_photometry_tex_f[id] = f;
@@ -856,10 +856,10 @@ void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr
 
 #if !BUILD_FOR_CPU || !HAVE_CUDA
 
-void os_photometry_tex_get(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
-void os_photometry_tex_set(const char *id, xptrng::tptr<float4> &c, xptrng::tptr<uint4> &f);
+void os_photometry_tex_get(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f);
+void os_photometry_tex_set(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f);
 
-void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs)
+void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs)
 {
 	locuses = loc;
 	flags = flgs;
@@ -871,8 +871,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 	size_t width  = (*loc)[0].width();
 	size_t height = (*loc)[0].height();
 
-	xptrng::tptr<float4> texc;
-	xptrng::tptr<uint4>  texf;
+	xptrng::xptr<float4> texc;
+	xptrng::xptr<uint4>  texf;
 	int texid = 0;
 	for(int i=0; i < loc->size(); i += 4)
 	{
@@ -882,8 +882,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 		os_photometry_tex_get(idx, texc, texf);
 		if(!texc || !texf)
 		{
-			texc = xptrng::tptr<float4>(width, height);
-			texf =  xptrng::tptr<uint4>(width, height);
+			texc = xptrng::xptr<float4>(width, height);
+			texf =  xptrng::xptr<uint4>(width, height);
 
 			// Pack the lookups to float4
 			for(int y=0; y != height; y++)

@@ -104,7 +104,7 @@ extern lfTextureManager texLFMgr;
 	class cuxTexture
 	{
 	public:
-		xptrng::tptr<T> m_data;
+		xptrng::xptr<T> m_data;
 		float x0[dim], dx[dim];
 
 		void init(T *data, int n0, float x0, float dx0, int n1 = 0, float x1 = 0, float dx1 = 0, int n2 = 0, float x2 = 0, float dx2 = 0);
@@ -118,7 +118,7 @@ extern lfTextureManager texLFMgr;
 		if(dim >= 3) { x0[2] = x2;  dx[2] = dx2; }
 
 		dim3 d = {n0, n1, n2};
-		m_data = xptrng::tptr<T>(d);
+		m_data = xptrng::xptr<T>(d);
 		m_data.copyFrom(data);
 	};
 
@@ -192,7 +192,7 @@ struct ALIGN(16) expModel
 {
 	struct ALIGN(16) host_state_t
 	{
-		xptrng::tptr<float> lf;
+		xptrng::xptr<float> lf;
 	};
 	struct state
 	{
@@ -309,7 +309,7 @@ struct ALIGN(16) expDisk
 public:
 	struct ALIGN(16) host_state_t
 	{
-		xptrng::tptr<float> lf;
+		xptrng::xptr<float> lf;
 	};
 
 protected:

@@ -85,6 +85,25 @@ template<typename T, int dim = 1>
 		}
 	};
 
+template<typename T>
+	inline array_ptr<T, 2> make_array_ptr(T *data, uint32_t pitch)
+	{
+		array_ptr<T, 2> ptr;
+		ptr.ptr = data;
+		ptr.extent[0] = pitch;
+		return ptr;
+	}
+
+template<typename T>
+	inline array_ptr<T, 3> make_array_ptr(T *data, uint32_t pitch, uint32_t ydim)
+	{
+		array_ptr<T, 3> ptr;
+		ptr.ptr = data;
+		ptr.extent[0] = pitch;
+		ptr.extent[1] = ydim;
+		return ptr;
+	}
+
 template<typename T, int dim = 1>
 	struct cux_ptr : public array_ptr<T, dim>
 	{
@@ -96,14 +115,6 @@ template<typename T, int dim = 1>
 		cux_ptr<T> operator =(T *p) { this->ptr = p; return *this; }
 		cux_ptr<T> operator =(const cux_ptr<T> &p) { this->ptr = p.ptr; return *this; }
 	};
-
-template<typename T>
-	inline cux_ptr<T> make_cux_ptr(void *data)
-	{
-		cux_ptr<T> ptr;
-		ptr.ptr = data;
-		return ptr;
-	}
 
 template<typename T>
 	void cuxUploadConst(T &dest, const T &source)
@@ -123,48 +134,6 @@ template<typename T>
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // Simplified texturing support
 ////////////////////////////////////////////////////////////////////////////////////////////////
-
-// 	/*TEXTURE_TYPE*/
-// 	struct cpuTextureReference : public textureReference
-// 	{
-// 		void *data;
-// 	};
-// 
-// 	template<class T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
-// 	struct cpu_texture : public cpuTextureReference
-// 	{
-// 		typedef T value_type;
-// 
-// 		__host__ cpu_texture(int                         norm  = 0,
-// 				enum cudaTextureFilterMode  fMode = cudaFilterModePoint,
-// 				enum cudaTextureAddressMode aMode = cudaAddressModeClamp)
-// 		{
-// 			normalized     = norm;
-// 			filterMode     = fMode;
-// 			addressMode[0] = aMode;
-// 			addressMode[1] = aMode;
-// 			addressMode[2] = aMode;
-// 			channelDesc    = cudaCreateChannelDesc<T>();
-// 		}
-// 
-// 		__host__ cpu_texture(int                          norm,
-// 				enum cudaTextureFilterMode   fMode,
-// 				enum cudaTextureAddressMode  aMode,
-// 				struct cudaChannelFormatDesc desc)
-// 		{
-// 			normalized     = norm;
-// 			filterMode     = fMode;
-// 			addressMode[0] = aMode;
-// 			addressMode[1] = aMode;
-// 			addressMode[2] = aMode;
-// 			channelDesc    = desc;
-// 		}
-// 
-// 		value_type sample(float x)
-// 		{
-// 			assert(0);
-// 		}
-// 	};
 
 struct spline;
 struct cuxTextureManager
@@ -257,79 +226,11 @@ protected:
 
 namespace xptrng
 {
-	// Smart pointer, inner part, low level implementation.
-	//     - only meant to be used from tptr and derivatives
-	//     - points to a well-formed block of memory with 2D dimensions m_dim, of elements of size m_elementSize,
-	//	 with subsequent rows separated by m_pitch bytes.
-	//     - is reference counted, auto de-allocates on all devices upon final release
-	//     - can upload the data to global device memory, or CUDA array
-	struct ptr_desc
-	{
-	public:
-		array_ptr<char, 4> m_data;	// master copy of the data (can be on host or device, depending on onDevice)
-		char *slave;			// slave copy of the data  (can be on host or device, depending on onDevice)
-		cudaArray* cuArray;		// CUDA array copy of the data
-
-		bool onDevice;			// true if the "master copy" of the data is on the device
-		bool cleanCudaArray;		// true if the last access operation was obtaining a reference to cudaArray
-
-/*		static ptr_desc *null;
-*/
-		uint32_t m_width;		// logical width of the array (in elements)
-		uint32_t m_elementSize;		// size of the array element (bytes)
-
-		int refcnt;			// number of xptrs pointing to this desc
-
-		std::set<textureReference *> boundTextures;	// list of textures bound to the cudaArray copy
-
-		uint32_t memsize() const				// number of bytes allocated
-		{
-			uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
-			return size;
-		}
-
-		ptr_desc(size_t es, size_t pitch, size_t width, size_t height = 1, size_t depth = 1);
-		~ptr_desc();
-
-// 		static ptr_desc *getnullptr()
-// 		{
-// 			if(!null) { null = new ptr_desc(0, 0, 0); }
-// 			return null;
-// 		}
-
-//		operator bool() const { return m_data.extent[0] == 0 && m_data.extent[1] == 0 && m_data.extent[2] == 0; }
-		operator bool() const { return m_data.extent[0] == 0; }
-
-		ptr_desc *addref() { ++refcnt; return this; }
-		int release()
-		{
-			--refcnt;
-			if(refcnt == 0) { delete this; return 0; }
-			return refcnt;
-		}
-
-		// upload/download the data to/from the device
-		void *syncTo(bool device);
-		void *syncToDevice() { return syncTo(true); }
-		void *syncToHost() { return syncTo(false); }
-
-		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc);
-		// texture access
-		void bind_texture(textureReference &texref);
-		void unbind_texture(textureReference &texref);
-	private:
-		// garbage collection -- release all unused copies of this pointer
-		// on devices other than master
-		void gc();
-
-		// ensure no shenanigans (no copy constructor & operator)
-		ptr_desc(const ptr_desc &);
-		ptr_desc& operator=(const ptr_desc &);
-	};
-
-	// Pointer to n-D array, GPU interface.
-	//     - Used to point to device memory, in kernels
-	//     - Must be obtained from tptr<>
+	// Pointer to n-D array in global GPU memory
+	//	- Used to obtain a pointer to and access device memory (in kernels)
+	//	- Thin veneer over array_ptr, to facilitate obtaining by cast from xptr<>
+	//	- Must be obtained via cast from xptr<>
+	//	- Remains valid until a hptr<> or a texture_bind is called for the parent xptr<>
 	template<typename T, int dim = 2>
 	struct gptr : public array_ptr<T, dim>
 	{
@@ -340,9 +241,11 @@ namespace xptrng
 		}
 	};
 
-	// Pointer to 2D array, CPU interface.
-	//     - Used to access host memory, on the host
-	//     - May be obtained from tptr<>
+	// Pointer to n-D array in host memory
+	//	- Used to obtain a pointer to and access host memory
+	//	- Thin veneer over array_ptr, to facilitate obtaining by cast from xptr<>
+	//	- Must be obtained via cast from xptr<>
+	//	- Remains valid until a gptr<> or a texture_bind is called for the parent xptr<>
 	template<typename T, int dim = 2>
 	struct hptr : public array_ptr<T, dim>
 	{
@@ -353,165 +256,225 @@ namespace xptrng
 		}
 	};
 
-	template<typename T>
-	inline array_ptr<T, 2> make_array_ptr(T *data, uint32_t pitch)
+	// Inner part, low level implementation of xptr<T>. See the documentation of xptr<T>
+	// for more details.
+	//     - only meant to be used from xptr
+	//     - points to a well-formed block 3D block of elements of size m_elementSize,
+	//	 with byte dimensions in m_data.extent[0-2], and logical width given in
+	//	 m_width.
+	//     - is reference counted, auto de-allocates on all devices upon final release
+	struct xptr_impl_t
 	{
-		array_ptr<T, 2> ptr;
-		ptr.ptr = data;
-		ptr.extent[0] = pitch;
-		return ptr;
-	}
-	template<typename T>
-	inline array_ptr<T, 3> make_array_ptr(T *data, uint32_t pitch, uint32_t ydim)
-	{
-		array_ptr<T, 3> ptr;
-		ptr.ptr = data;
-		ptr.extent[0] = pitch;
-		ptr.extent[1] = ydim;
-		return ptr;
-	}
+	public:
+		// data members
+		array_ptr<char, 4> m_data;	// master copy of the data (can be on host or device, depending on onDevice)
+		char *slave;			// slave copy of the data  (can be on host or device, depending on onDevice)
+		cudaArray* cuArray;		// CUDA array copy of the data
 
-	// Smart pointer, public interface.
-	//     - attempts to mimic shared_ptr<> semantics
-	//     - works in conjunction with gptr<> to provide copies of data on compute devices
-	template<typename T>
-	struct tptr
-	{
-		ptr_desc *desc;
+		bool onDevice;			// true if the "master copy" of the data is on the device
+		bool cleanCudaArray;		// true if the last access operation was obtaining a reference to cudaArray
 
-		uint32_t elementSize() const { return desc->m_elementSize; }
-		uint32_t width()   const { return desc->m_width; }
-		uint32_t height()  const { return desc->m_data.extent[1]; }
-		uint32_t depth()   const { return desc->m_data.extent[2]; }
-		uint32_t ncols()   const { return width(); }
-		uint32_t nrows()   const { return height(); }
-		uint32_t pitch()   const { return desc->m_data.extent[0]; }
-		size_t size() const
+		uint32_t m_elementSize;		// size of the array element (bytes)
+		uint32_t m_width;		// logical width of the array (in elements)
+
+		int refcnt;			// number of xptrs pointing to this m_impl
+
+		std::set<textureReference *> boundTextures;	// list of textures bound to the cuArray
+
+	public:
+		// constructors
+		xptr_impl_t(size_t es, size_t pitch, size_t width, size_t height = 1, size_t depth = 1);
+		~xptr_impl_t();
+
+		// aux methods
+		operator bool() const { return m_data.extent[0] == 0; }
+		uint32_t memsize() const				// number of bytes allocated
 		{
-			size_t s = width()*height()*depth();
-			return s;
+			uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
+			return size;
 		}
 
-/*		tptr()
+		// reference management
+		xptr_impl_t *addref() { ++refcnt; return this; }
+		int release()
 		{
-			desc = ptr_desc::getnullptr()->addref();
-		}*/
-		tptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, int elemSize = sizeof(T), uint32_t align = 128)
-		{
-			desc = new ptr_desc(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
+			--refcnt;
+			if(refcnt == 0) { delete this; return 0; }
+			return refcnt;
 		}
-		tptr(const tptr& t)
+
+		// upload/download to/from the device
+		void *syncTo(bool device);
+		void *syncToDevice() { return syncTo(true); }
+		void *syncToHost() { return syncTo(false); }
+
+		// texture access
+		void bind_texture(textureReference &texref);
+		void unbind_texture(textureReference &texref);
+
+	private:
+		// garbage collection facilities
+		struct allocated_pointers : public std::set<xptr_impl_t *>
 		{
-			desc = t.desc->addref();
+			~allocated_pointers();
+		};
+		static allocated_pointers all_xptrs;
+		static void global_gc();
+
+	private:
+		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc);
+
+		// garbage collection -- release all unused copies of this pointer
+		// on devices other than master
+		void gc();
+
+		// ensure no shenanigans (no copy constructor & operator)
+		xptr_impl_t(const xptr_impl_t &);
+		xptr_impl_t& operator=(const xptr_impl_t &);
+	};
+
+	// Smart GPU/CPU memory pointer with on-demand garbage collection
+	//	- Points to a sized (up to three-dimensional) block of memory
+	//	- At any given time, the block is either on GPU, CPU, or bound to texture
+	//	- To access the block on host/device, obtain a hptr<> or gptr<> via cast.
+	//	  Obtaining either moves the block to the apropriate device, and invalidates
+	//	  any previously obtained pointers of the other type. The pointer is then
+	//	  "locked" to that particular device.
+	//	- Accessing the data with operator() is equivalent to obtaining a hptr<>
+	//	- Blocks remain allocated on device and host (for speed) until an OOM
+	//	  condition is reached on the device. Garbage collection will then remove
+	//	  all unlocked device pointers, and retry the allocation.
+	//	- The block can be bound to texture using bind_texture, and must be unbound
+	//	  before the pointer is deallocated
+	//	- The pointer is reference-counted, and automatically releases all memory
+	//	  when the reference count falls to zero.
+	template<typename T>
+	struct xptr
+	{
+	protected:
+		xptr_impl_t *m_impl;
+
+	public:
+		uint32_t elementSize() const { return m_impl->m_elementSize; }	// size of the stored element (typically, sizeof(T))
+		uint32_t width()   const { return m_impl->m_width; }		// logical width of the data array
+		uint32_t height()  const { return m_impl->m_data.extent[1]; }	// logical height of the data array
+		uint32_t depth()   const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
+		uint32_t pitch()   const { return m_impl->m_data.extent[0]; }	// byte width of the data array
+		uint32_t size()    const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
+
+		xptr(const xptr& t)				// construct a copy of existing pointer
+		{
+			m_impl = t.m_impl->addref();
 		}
-		tptr &operator =(const tptr &t)
+		xptr &operator =(const xptr &t)			// construct a copy of existing pointer
 		{
-			if(t.desc != desc)
+			if(t.m_impl != m_impl)
 			{
-				desc->release();
-				desc = t.desc->addref();
+				m_impl->release();
+				m_impl = t.m_impl->addref();
 			}
 			return *this;
 		}
-		~tptr()
+		~xptr()
  		{
- 			desc->release();
+ 			m_impl->release();
  		}
 
-		// memory allocation
-		void realloc(const dim3 &dim, int elemSize = sizeof(T), uint32_t align = 128)
+		xptr<T> clone(bool copyData = false) const	// make the exact copy of this pointer, optionally copying the data as well
 		{
-			*this = tptr<T>(dim.x, dim.y, dim.z, elemSize, align);
-		}
-		tptr<T> clone(bool copyData = false) const
-		{
-			tptr<T> ret(new ptr_desc(elementSize(), pitch(), width(), height(), depth()));
+			xptr<T> ret(new xptr_impl_t(elementSize(), pitch(), width(), height(), depth()));
 			if(copyData)
 			{
 				syncToHost();
-				memcpy(ret.desc->m_data.ptr, desc->m_data.ptr, desc->memsize());
+				memcpy(ret.m_impl->m_data.ptr, m_impl->m_data.ptr, m_impl->memsize());
 			}
 			return ret;
 		}
 
-		void copyFrom(const T* data)
-		{
-			if(data == NULL) { return; }
-
-			hptr<T, 3> v = *this;
-			for(int i = 0; i != width(); i++)
-			{
-				for(int j = 0; j != height(); j++)
-				{
-					for(int k = 0; k != depth(); k++)
-					{
-						v(i, j, k) = *data;
-						data++;
-					}
-				}
-			}
-		}
-
 		// comparisons/tests
- 		operator bool() const
+ 		operator bool() const			// return true if this is not a null pointer
  		{
- 			return *desc;
-// 			return desc == ptr_desc::getnullptr();
+ 			return *m_impl;
  		}
 
-		// host data accessors (note: use hptr<> interface if possible)
+		// host data accessors (note: use hptr<> interface if possible, for speed)
 		T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 		{
-			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 3> *)(&desc->m_data))(x, y, z);
+			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 3> *)(&m_impl->m_data))(x, y, z);
 		}
 		T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
 		{
-			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 2> *)(&desc->m_data))(x, y);
+			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 2> *)(&m_impl->m_data))(x, y);
 		}
 		T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
 		{
-			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 1> *)(&desc->m_data))(x);
+			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 1> *)(&m_impl->m_data))(x);
 		}
 
 		// texture access
 		void bind_texture(textureReference &texref)
 		{
-			desc->bind_texture(texref);
+			m_impl->bind_texture(texref);
 		}
 		void unbind_texture(textureReference &texref)
 		{
-			desc->unbind_texture(texref);
+			m_impl->unbind_texture(texref);
 		}
 	public:
 		template<int dim>
-			operator hptr<T, dim>()
+			operator hptr<T, dim>()			// request access to data on the host
 			{
 				syncToHost();
-				return *(hptr<T, dim> *)(&desc->m_data);
+				return *(hptr<T, dim> *)(&m_impl->m_data);
 			}
 
 		template<int dim>
-			operator gptr<T, dim>()
+			operator gptr<T, dim>()			// request access to data on the GPU
 			{
 				syncToDevice();
-				return *(gptr<T, dim> *)(&desc->m_data);
+				return *(gptr<T, dim> *)(&m_impl->m_data);
 			}
+
+		xptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, int elemSize = sizeof(T), uint32_t align = 128)
+		{
+			m_impl = new xptr_impl_t(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
+		}
+
 
 	protected:
 		// multi-device support. Don't call these directly; use gptr instead.
-		T* syncToHost() const { return (T*)const_cast<tptr<T> *>(this)->desc->syncToHost(); }
-		T* syncToDevice() { return (T*)desc->syncToDevice(); }
+		T* syncToHost() const { return (T*)const_cast<xptr<T> *>(this)->m_impl->syncToHost(); }
+		T* syncToDevice() { return (T*)m_impl->syncToDevice(); }
 
 		// protected constructors
-		tptr(ptr_desc *d)
+		xptr(xptr_impl_t *d)
 		{
-			desc = d;
+			m_impl = d;
 		}
 	};
 
+	template<typename T>
+	void copy(xptr<T> &p, const T* data)	// copy data from a C pointer to an xptr<>. Assumes the argument has the required number of elements.
+	{
+		if(data == NULL) { return; }
+
+		hptr<T, 3> v = p;
+		for(int i = 0; i != p.width(); i++)
+		{
+			for(int j = 0; j != p.height(); j++)
+			{
+				for(int k = 0; k != p.depth(); k++)
+				{
+					v(i, j, k) = *data;
+					data++;
+				}
+			}
+		}
+	}
 };
+using namespace xptrng;
 
 #endif // _gpu2_h__

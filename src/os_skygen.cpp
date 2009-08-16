@@ -66,10 +66,9 @@ lfParams lfTextureManager::load(const char *fn)
 }
 #endif
 
-xptrng::tptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
+xptrng::xptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
 {
-	xptrng::tptr<float> tex(2);
-	MLOG(verb2) << tex.desc->memsize() << "\n";
+	xptrng::xptr<float> tex(2);
 	tex(0U) = val;
 	tex(1U) = val;
 	texCoords.x = X0;
@@ -77,7 +76,7 @@ xptrng::tptr<float> load_constant_texture(float2 &texCoords, float val, float X0
 	return tex;
 }
 
-xptrng::tptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
+xptrng::xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
 {
 	// load the points from the file, and construct
 	// a spline to resample from
@@ -88,7 +87,7 @@ xptrng::tptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *
 	tx.construct(X, phi);
 
 	// resample to texture
-	xptrng::tptr<float> tex(nsamp, 0, 0);
+	xptrng::xptr<float> tex(nsamp, 0, 0);
 	float X0 = X.front(), X1 = X.back(), dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{

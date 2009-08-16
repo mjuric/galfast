@@ -616,8 +616,8 @@ class os_photometry : public osink
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 ///		std::vector<std::vector<float> > clt;
-		std::vector<xptrng::tptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
-		std::vector<xptrng::tptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
+		std::vector<xptrng::xptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
+		std::vector<xptrng::xptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
 /*		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
 		std::vector<std::vector<cbool> > eclt;	// extrapolation flags*/
 		int nMr, nFeH;
@@ -793,10 +793,10 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	// allocate memory for output tables
 	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
-///	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
+//	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
 //	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
-	isochrones.resize(ncolors); FOREACH(isochrones)  { i->realloc(nFeH, nMr); }
-	eflags.resize(ncolors);     FOREACH(eflags)      { i->realloc(nFeH, nMr); }
+	isochrones.resize(ncolors); FOREACH(isochrones)  { *i = xptrng::xptr<float>(nFeH, nMr); }
+	eflags.resize(ncolors);     FOREACH(eflags)      { *i = xptrng::xptr<uint>(nFeH, nMr); }
 
 	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
 	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
@@ -930,7 +930,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
 DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH));
-void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs);
+void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {

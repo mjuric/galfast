@@ -448,10 +448,10 @@ __device__ inline float3 position(const direction &p, const float d)
 
 struct ALIGN(16) ocolumns
 {
-	column_types::cdouble::gpu_t	lb;
-	column_types::cint::gpu_t	projIdx;
-	column_types::cfloat::gpu_t	DM, M, XYZ;
-	column_types::cint::gpu_t	comp;
+	cdouble_t::gpu_t	lb;
+	cint_t::gpu_t		projIdx;
+	cfloat_t::gpu_t		DM, M, XYZ;
+	cint_t::gpu_t		comp;
 };
 
 template<typename Model>

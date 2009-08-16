@@ -480,12 +480,12 @@ bool skyConfig<T>::init(
 
 struct star_comp
 {
-	column_types::cdouble::host_t	lb;
-	column_types::cint::host_t 	projIdx;
-	column_types::cfloat::host_t	XYZ;
-	column_types::cint::host_t	comp;
-	column_types::cfloat::host_t	M;
-	column_types::cfloat::host_t	DM;
+	cdouble_t::host_t	lb;
+	cint_t::host_t		projIdx;
+	cfloat_t::host_t	XYZ;
+	cint_t::host_t		comp;
+	cfloat_t::host_t	M;
+	cfloat_t::host_t	DM;
 
 	star_comp(otable &in)
 	{
@@ -892,10 +892,9 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const		// r
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// fetch prerequisites
-	using namespace column_types;
-	cdouble::host_t lb      = in.col<double>("lb");
-	cint::host_t pIdx       = in.col<int>("projIdx");
-	cint::host_t	hidden  = in.col<int>("hidden");
+	cdouble_t::host_t lb      = in.col<double>("lb");
+	cint_t::host_t pIdx       = in.col<int>("projIdx");
+	cint_t::host_t	hidden  = in.col<int>("hidden");
 
 	// debugging statistics
 	int nstars[2] = { 0, 0 };

@@ -958,13 +958,12 @@ void sky_generator::draw_stars(const std::vector<model_pdf::star> &stars, galact
 {
 	ticker tick("Writing", 10000);
 
-	using namespace column_types;
-	cdouble::host_t lb    = t.col<double>("lb");
-	cfloat::host_t color  = t.col<float>("color");
-	cfloat::host_t mag    = t.col<float>("mag");
-	cfloat::host_t absmag = t.col<float>("absmag");
-	cfloat::host_t XYZ    = t.col<float>("XYZ");	t.set_output("XYZ", true);
-	cint::host_t comp     = t.col<int>("comp");	t.set_output("comp", true);
+	cdouble_t::host_t lb    = t.col<double>("lb");
+	cfloat_t::host_t color  = t.col<float>("color");
+	cfloat_t::host_t mag    = t.col<float>("mag");
+	cfloat_t::host_t absmag = t.col<float>("absmag");
+	cfloat_t::host_t XYZ    = t.col<float>("XYZ");	t.set_output("XYZ", true);
+	cint_t::host_t comp     = t.col<int>("comp");	t.set_output("comp", true);
 
 	const static double Rg = coord_pack::Rg;
 	FORj(j, 0, stars.size())

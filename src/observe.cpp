@@ -56,7 +56,6 @@
 #include <astro/useall.h>
 
 using namespace boost::lambda;
-namespace ct = column_types;
 
 #include "observe.h"
 
@@ -148,8 +147,8 @@ size_t os_photometricErrors::process(otable &in, size_t begin, size_t end, rng_t
 	// mix-in gaussian error, with sigma drawn from preloaded splines
 	FOREACH(columnsToTransform)
 	{
-		ct::cfloat::host_t magObs  = in.col<float>(i->obsBandset);
-		ct::cfloat::host_t magTrue = in.col<float>(i->trueBandset);
+		cfloat_t::host_t magObs  = in.col<float>(i->obsBandset);
+		cfloat_t::host_t magTrue = in.col<float>(i->trueBandset);
 		int bandIdx = i->bandIdx;
 
 		for(size_t row=begin; row <= end; row++)
@@ -446,9 +445,9 @@ size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	double tmp[3]; bool firstGaussian;
-	ct::cint::host_t   comp = in.col<int>("comp");
-	ct::cfloat::host_t XYZ  = in.col<float>("XYZ");
-	ct::cfloat::host_t vcyl = in.col<float>("vcyl");
+	cint_t::host_t   comp = in.col<int>("comp");
+	cfloat_t::host_t XYZ  = in.col<float>("XYZ");
+	cfloat_t::host_t vcyl = in.col<float>("vcyl");
 
 	// ASSUMPTIONS:
 	//	- Fe/H exists in input
@@ -928,20 +927,20 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 #else
-typedef ct::cfloat::gpu_t gcfloat;
-typedef ct::cint::gpu_t gcint;
+typedef cfloat_t::gpu_t gcfloat;
+typedef cint_t::gpu_t gcint;
 DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH));
 void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float> > *loc, std::vector<xptrng::tptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	ct::cint  &flags  = in.col<int>(photoFlagsName);
-	ct::cfloat &DM    = in.col<float>("DM");
-	ct::cfloat &mags  = in.col<float>(bandset2);
-	ct::cfloat &FeH   = in.col<float>("FeH");
+	cint_t  &flags  = in.col<int>(photoFlagsName);
+	cfloat_t &DM    = in.col<float>("DM");
+	cfloat_t &mags  = in.col<float>(bandset2);
+	cfloat_t &FeH   = in.col<float>("FeH");
 
 	std::string absmagSys = absbband + "Sys";
-	ct::cfloat &Mr    = in.using_column(absmagSys) ?
+	cfloat_t &Mr    = in.using_column(absmagSys) ?
 				in.col<float>(absmagSys) :
 				in.col<float>(absbband);
 
@@ -1163,16 +1162,15 @@ public:
 	}
 };
 
-DECLARE_KERNEL(os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out));
+DECLARE_KERNEL(os_gal2other_kernel(otable_ks ks, int coordsys, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out));
 
 size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	using namespace column_types;
-	cdouble &lb   = in.col<double>("lb");
+	cdouble_t &lb   = in.col<double>("lb");
 
 	if(coordsys == EQU)
 	{
-		cdouble &out = in.col<double>("radec");
+		cdouble_t &out = in.col<double>("radec");
 		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
 	}
 
@@ -1306,9 +1304,9 @@ class os_textout : public osink
 
 struct mask_output : otable::mask_functor
 {
-	column_types::cint::host_t hidden;
+	cint_t::host_t hidden;
 	ticker &tick;
-	mask_output(column_types::cint::host_t &h, ticker &tck) : hidden(h), tick(tck) {}
+	mask_output(cint_t::host_t &h, ticker &tck) : hidden(h), tick(tck) {}
 
 	virtual bool shouldOutput(int row) const
 	{
@@ -1336,7 +1334,7 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 #if 1
 	if(t.using_column("hidden"))
 	{
-		column_types::cint::host_t   hidden = t.col<int>("hidden");
+		cint_t::host_t   hidden = t.col<int>("hidden");
 		nserialized = t.serialize_body(out.out(), from, to, mask_output(hidden, tick));
 	}
 	else
@@ -1424,7 +1422,7 @@ class os_fitsout : public osink
 
 struct write_fits_rows_state
 {
-	column_types::cint::host_t hidden;
+	cint_t::host_t hidden;
 	os_fitsout::coldef *columns;
 	int row, to, rowswritten;
 

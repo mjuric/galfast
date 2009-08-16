@@ -52,7 +52,6 @@
 #include <astro/useall.h>
 
 using namespace boost::lambda;
-namespace ct = column_types;
 
 #include "observe.h"
 
@@ -61,10 +60,10 @@ namespace ct = column_types;
 DECLARE_KERNEL(
 	os_vel2pm_kernel(
 		otable_ks ks, os_vel2pm_data par, gpu_rng_t rng, 
-		ct::cdouble::gpu_t lb0, 
-		ct::cfloat::gpu_t XYZ,
-		ct::cfloat::gpu_t vcyl,  
-		ct::cfloat::gpu_t pmlb))
+		cdouble_t::gpu_t lb0,
+		cfloat_t::gpu_t XYZ,
+		cfloat_t::gpu_t vcyl,
+		cfloat_t::gpu_t pmlb))
 
 size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 { 
@@ -74,11 +73,10 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	// OUTPUT:
 	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
 	//	Radial velocity in km/s in pm[2]
-	using namespace column_types;
-	ct::cdouble &lb0 = in.col<double>("lb");
-	ct::cfloat  &XYZ  = in.col<float>("XYZ");
-	ct::cfloat  &vcyl = in.col<float>("vcyl");
-	ct::cfloat  &pmlb = in.col<float>(output_col_name);
+	cdouble_t &lb0 = in.col<double>("lb");
+	cfloat_t  &XYZ  = in.col<float>("XYZ");
+	cfloat_t  &vcyl = in.col<float>("vcyl");
+	cfloat_t  &pmlb = in.col<float>(output_col_name);
 
 	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl,pmlb);
 	return nextlink->process(in, begin, end, rng);

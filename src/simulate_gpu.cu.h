@@ -34,8 +34,6 @@
 
 #include "simulate_base.h"
 
-namespace ct = column_types;
-
 //======================================================================
 //======================================================================
 //    FeH
@@ -46,9 +44,9 @@ KERNEL(
 	ks, 3*4,
 	os_FeH_kernel(
 		otable_ks ks, os_FeH_data par, gpu_rng_t rng, 
-		ct::cint::gpu_t comp, 
-		ct::cfloat::gpu_t XYZ, 
-		ct::cfloat::gpu_t FeH),
+		cint_t::gpu_t comp,
+		cfloat_t::gpu_t XYZ,
+		cfloat_t::gpu_t FeH),
 	os_FeH_kernel,
 	(ks, par, rng, comp, XYZ, FeH)
 )
@@ -353,10 +351,10 @@ KERNEL(
 	ks, 0, 
 	os_vel2pm_kernel(
 		otable_ks ks, os_vel2pm_data par, gpu_rng_t rng, 
-		ct::cdouble::gpu_t lb0, 
-		ct::cfloat::gpu_t XYZ,
-		ct::cfloat::gpu_t vcyl,  
-		ct::cfloat::gpu_t pmout),
+		cdouble_t::gpu_t lb0,
+		cfloat_t::gpu_t XYZ,
+		cfloat_t::gpu_t vcyl,
+		cfloat_t::gpu_t pmout),
 	os_vel2pm_kernel,
 	(ks, par, rng, lb0, XYZ, vcyl, pmout)
 )
@@ -513,9 +511,9 @@ KERNEL(
 	ks, 3*4,
 	os_kinTMIII_kernel(
 		otable_ks ks, gpu_rng_t rng, 
-		ct::cint::gpu_t comp, 
-		ct::cfloat::gpu_t XYZ, 
-		ct::cfloat::gpu_t vcyl),
+		cint_t::gpu_t comp,
+		cfloat_t::gpu_t XYZ,
+		cfloat_t::gpu_t vcyl),
 	os_kinTMIII_kernel,
 	(ks, rng, comp, XYZ, vcyl)
 )
@@ -622,7 +620,7 @@ inline __device__ double2 galequ(const double2 lb)
 
 KERNEL(
 	ks, 0,
-	os_gal2other_kernel(otable_ks ks, int coordsys, ct::cdouble::gpu_t lb0, ct::cdouble::gpu_t out),
+	os_gal2other_kernel(otable_ks ks, int coordsys, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out),
 	os_gal2other_kernel,
 	(ks, coordsys, lb0, out)
 )
@@ -654,7 +652,7 @@ KERNEL(
 
 KERNEL(
 	ks, 0,
-	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH),
+	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, cfloat_t::gpu_t FeH),
 	os_fixedFeH_kernel,
 	(ks, fixedFeH, FeH)
 )
@@ -741,7 +739,7 @@ __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo al
 
 KERNEL(
 	ks, 3*4,
-	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M, ct::cfloat::gpu_t Msys, ct::cint::gpu_t ncomp, multiplesAlgorithms::algo algo),
+	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, multiplesAlgorithms::algo algo),
 	os_unresolvedMultiples_kernel,
 	(ks, rng, nabsmag, M, Msys, ncomp, algo)
 )
@@ -947,8 +945,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::tptr<float
 }
 #endif
 
-typedef ct::cfloat::gpu_t gcfloat;
-typedef ct::cint::gpu_t gcint;
+typedef cfloat_t::gpu_t gcfloat;
+typedef cint_t::gpu_t gcint;
 
 #if !__CUDACC__
 #include <iostream>

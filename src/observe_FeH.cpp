@@ -53,16 +53,14 @@
 #include <astro/useall.h>
 
 using namespace boost::lambda;
-namespace ct = column_types;
 #include "observe.h"
 
 
 
 #if 1
 
-//void os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH);
 DECLARE_KERNEL(
-	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t FeH))
+	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t FeH))
 
 size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
@@ -72,10 +70,9 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- all stars are main sequence
 
 	// fetch prerequisites
-	using namespace column_types;
-	cint   &comp  = in.col<int>("comp");
-	cfloat &XYZ   = in.col<float>("XYZ");
-	cfloat &FeH   = in.col<float>("FeH");
+	cint_t   &comp  = in.col<int>("comp");
+	cfloat_t &XYZ   = in.col<float>("XYZ");
+	cfloat_t &FeH   = in.col<float>("FeH");
 
 	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
@@ -155,15 +152,14 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 }
 
 
-DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, ct::cfloat::gpu_t FeH));
+DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, cfloat_t::gpu_t FeH));
 size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
-	using namespace column_types;
-	cfloat &FeH   = in.col<float>("FeH");
+	cfloat_t &FeH   = in.col<float>("FeH");
 
 	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, FeH);
 	return nextlink->process(in, begin, end, rng);
@@ -203,17 +199,16 @@ bool os_unresolvedMultiples::runtime_init(otable &t)
 	return true;
 }
 
-DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, ct::cfloat::gpu_t M, ct::cfloat::gpu_t Msys, ct::cint::gpu_t ncomp, multiplesAlgorithms::algo algo));
+DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, multiplesAlgorithms::algo algo));
 size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
-	using namespace column_types;
-	cfloat &M     = in.col<float>("absmag");
-	cfloat &Msys  = in.col<float>(absmagSys);
-	cint   &ncomp = in.col<int>(absmagSys+"Ncomp");
+	cfloat_t &M     = in.col<float>("absmag");
+	cfloat_t &Msys  = in.col<float>(absmagSys);
+	cint_t   &ncomp = in.col<int>(absmagSys+"Ncomp");
 
 	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, algo);
 	return nextlink->process(in, begin, end, rng);

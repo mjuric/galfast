@@ -6,53 +6,50 @@
 template<typename T>
 struct column : public xptrng::tptr<T>
 {
+public:
+	typedef xptrng::tptr<T> tptr_t;
+
 	typedef xptrng::gptr<T, 2> gpu_t;
 	typedef xptrng::hptr<T, 2> host_t;
 
+public:
 	// NOTE: WARNING: The meaning of width/height is being _inverted_ here
 	// to bring it in line with the typical table metaphore. In memory, however
 	// the array is stored such that nrows() is its width. This allows the GPU
 	// to coalesce memory accesses to adjacent rows of the table.
-	uint32_t nrows() const { return xptrng::tptr<T>::width(); }
-	uint32_t width() const { return xptrng::tptr<T>::height(); }
+	uint32_t nrows() const { return tptr_t::width(); }
+	uint32_t width() const { return tptr_t::height(); }
 
-//	column() : xptrng::tptr<T>(0, 1) { }
-	column() { }
+	// Change the width/height/element size of this column to match that
+	// of the argument column
 	void reshape(const column<T> &t)
 	{
-		(xptrng::tptr<T> &)(*this) = t.clone();
+		(tptr_t &)(*this) = tptr_t(t.nrows(), t.width(), 1., t.elementSize());
 	}
+
+	// Resize the column to have the given number of rows, width and
+	// element size
 	void resize(uint32_t nrows, uint32_t width = 0, uint32_t es = 0)
 	{
 		if(!es) { es = this->elementSize(); }
 		if(!width) { width = this->width(); }
-		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>(nrows, width, 1., es);
+		(tptr_t&)(*this) = tptr_t(nrows, width, 1., es);
 	}
+
+	// Return the base of the host memory containing the column data
 	T *get() const { return this->syncToHost(); }
-#if 1
-	column<T>& operator=(void *ptr)
-	{
-		ASSERT(0);	// Figure out where did I call this from???
-		assert(ptr == NULL); // can only be used to set it to 0 (for now)
-		(xptrng::tptr<T>&)(*this) = NULL; //xptrng::tptr<T>();
-		return *this;
-	}
-#endif
-	// GPU interface
-	operator gpu_t() { return (xptrng::tptr<T>&)(*this); }
-	operator host_t() { return (xptrng::tptr<T>&)(*this); }
+
+public:
+	column() { }
+
 private:
 	// prevent copying
 	column(const column<T> &);
-	//column<T>& operator=(const column<T> &a);
 };
 
 // convenience typedefs
-namespace column_types
-{
-	typedef column<double> cdouble;
-	typedef column<int> cint;
-	typedef column<float> cfloat;
-};
+typedef column<double> cdouble_t;
+typedef column<int> cint_t;
+typedef column<float> cfloat_t;
 
 #endif

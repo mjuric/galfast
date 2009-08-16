@@ -52,7 +52,6 @@
 #include <astro/useall.h>
 
 using namespace boost::lambda;
-namespace ct = column_types;
 #include "observe.h"
 
 int split_fvec(std::vector<float>& arr, const std::string &text)
@@ -94,7 +93,7 @@ void farray_to_i8array(farray5& fa, i8array5& ia)
 extern os_kinTMIII_data os_kinTMIII_par;
 
 DECLARE_KERNEL(
-	os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, ct::cint::gpu_t comp, ct::cfloat::gpu_t XYZ, ct::cfloat::gpu_t vcyl))
+	os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl))
 size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -102,10 +101,9 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- galactocentric XYZ coordinates exist in input
 
 	// fetch prerequisites
-	using namespace column_types;
-	cint   &comp  = in.col<int>("comp");
-	cfloat &XYZ   = in.col<float>("XYZ");
-	cfloat &vcyl   = in.col<float>("vcyl");
+	cint_t   &comp  = in.col<int>("comp");
+	cfloat_t &XYZ   = in.col<float>("XYZ");
+	cfloat_t &vcyl   = in.col<float>("vcyl");
 
 // 	os_kinTMIII_data_int par_int;
 // 	

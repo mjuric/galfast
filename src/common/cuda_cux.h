@@ -24,6 +24,7 @@
 //#include "gpu.h"
 #include <assert.h>
 #include <map>
+#include <set>
 #include <algorithm>
 
 // CUDA API wrappers
@@ -262,41 +263,43 @@ namespace xptrng
 	//	 with subsequent rows separated by m_pitch bytes.
 	//     - is reference counted, auto de-allocates on all devices upon final release
 	//     - can upload the data to global device memory, or CUDA array
-	struct ptr_desc : array_ptr<char, 4>
+	struct ptr_desc
 	{
 	public:
-		static ptr_desc *null;
+		array_ptr<char, 4> m_data;	// master copy of the data (can be on host or device, depending on onDevice)
+		char *slave;			// slave copy of the data  (can be on host or device, depending on onDevice)
+		cudaArray* cuArray;		// CUDA array copy of the data
 
+		bool onDevice;			// true if the "master copy" of the data is on the device
+		bool cleanCudaArray;		// true if the last access operation was obtaining a reference to cudaArray
+
+/*		static ptr_desc *null;
+*/
 		uint32_t m_width;		// logical width of the array (in elements)
 		uint32_t m_elementSize;		// size of the array element (bytes)
 
-		int refcnt;		// number of xptrs pointing to this desc
-		int masterDevice;	// the device holding the master copy of the data (-1 is the host)
+		int refcnt;			// number of xptrs pointing to this desc
 
-		static const int MAXDEV = 16;			// maximum number of allowed devices
-		void *deviceDataPointers_neg1;			// a hack to allow deviceDataPointers[-1]
-		void *deviceDataPointers[MAXDEV];		// map of device<->device pointer
-		cudaArray* cudaArrayPointers[MAXDEV];		// map of allocated cudaArrays
-
-		int cleanArray;
-		std::map<textureReference *, int> boundTextures;	// map of bound textures->device IDs
+		std::set<textureReference *> boundTextures;	// list of textures bound to the cudaArray copy
 
 		uint32_t memsize() const				// number of bytes allocated
 		{
-			uint32_t size = this->extent[0];
-			size *= std::max(this->extent[1], 1U);
-			size *= std::max(this->extent[2], 1U);
+			uint32_t size = m_data.extent[0];
+			size *= std::max(m_data.extent[1], 1U);
+			size *= std::max(m_data.extent[2], 1U);
 			return size;
 		}
 
 		ptr_desc(size_t es, size_t pitch, size_t width, size_t height = 0, size_t depth = 0);
 		~ptr_desc();
 
-		static ptr_desc *getnullptr()
-		{
-			if(!null) { null = new ptr_desc(0, 0, 0); }
-			return null;
-		}
+// 		static ptr_desc *getnullptr()
+// 		{
+// 			if(!null) { null = new ptr_desc(0, 0, 0); }
+// 			return null;
+// 		}
+
+		operator bool() const { return m_data.extent[0] == 0 && m_data.extent[1] == 0 && m_data.extent[2] == 0; }
 
 		ptr_desc *addref() { ++refcnt; return this; }
 		int release()
@@ -306,17 +309,15 @@ namespace xptrng
 			return refcnt;
 		}
 
-		// multi-device support. Returns the pointer to the copy of the data
-		// on the device dev, which becomes the master device for the data.
-		void *syncToDevice(int dev = -2);
+		// upload/download the data to/from the device
+		void *syncTo(bool device);
+		void *syncToDevice() { return syncTo(true); }
+		void *syncToHost() { return syncTo(false); }
 
-		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2);
-
-// 		void unbind_texture(textureReference *texref)
-// 		{
-// 			cudaUnbindTexture(texref);
-// 		}
-
+		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc);
+		// texture access
+		void bind_texture(textureReference &texref);
+		void unbind_texture(textureReference &texref);
 	private:
 		// garbage collection -- release all unused copies of this pointer
 		// on devices other than master
@@ -333,8 +334,6 @@ namespace xptrng
 	template<typename T, int dim = 2>
 	struct gptr : public array_ptr<T, dim>
 	{
-//		gptr<T, dim> &operator =(const array_ptr<T, dim> &a) { *this = a; return *this; }
-//		using array_ptr<T, dim>::operator=;
 		__device__ __host__ gptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
 		{
 			this->ptr = NULL;
@@ -348,32 +347,12 @@ namespace xptrng
 	template<typename T, int dim = 2>
 	struct hptr : public array_ptr<T, dim>
 	{
-//		hptr<T, dim> &operator =(const array_ptr<T, dim> &a) { *this = a; return *this; }
-//		using array_ptr<T, dim>::operator=;
 		hptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
 		{
 			this->ptr = NULL;
 			return *this;
 		}
 	};
-
-// 	template<typename T>
-// 	inline gptr<T, 2> make_gptr2D(void *data, uint32_t pitch)
-// 	{
-// 		gptr<T> ptr;
-// 		ptr.data = (char*)data;
-// 		ptr.pitch[0] = pitch;
-// 		return ptr;
-// 	}
-// 	template<typename T>
-// 	inline gptr<T, 3> make_gptr3D(void *data, uint32_t pitch, uint32_t height)
-// 	{
-// 		gptr<T> ptr;
-// 		ptr.data = (char*)data;
-// 		ptr.pitch[0] = pitch;
-// 		ptr.pitch[1] = height;
-// 		return ptr;
-// 	}
 
 	template<typename T>
 	inline array_ptr<T, 2> make_array_ptr(T *data, uint32_t pitch)
@@ -393,24 +372,6 @@ namespace xptrng
 		return ptr;
 	}
 
-// 	template<typename T>
-// 	inline hptr<T, 2> make_hptr2D(void *data, uint32_t pitch)
-// 	{
-// 		hptr<T> ptr;
-// 		ptr.data = (char*)data;
-// 		ptr.pitch[0] = pitch;
-// 		return ptr;
-// 	}
-// 	template<typename T>
-// 	inline hptr<T, 2> make_hptr3D(void *data, uint32_t pitch, uint32_t height)
-// 	{
-// 		hptr<T> ptr;
-// 		ptr.data = (char*)data;
-// 		ptr.pitch[0] = pitch;
-// 		ptr.pitch[1] = height;
-// 		return ptr;
-// 	}
-
 	// Smart pointer, public interface.
 	//     - attempts to mimic shared_ptr<> semantics
 	//     - works in conjunction with gptr<> to provide copies of data on compute devices
@@ -421,11 +382,11 @@ namespace xptrng
 
 		uint32_t elementSize() const { return desc->m_elementSize; }
 		uint32_t width()   const { return desc->m_width; }
-		uint32_t height()  const { return desc->extent[1]; }
-		uint32_t depth()   const { return desc->extent[2]; }
+		uint32_t height()  const { return desc->m_data.extent[1]; }
+		uint32_t depth()   const { return desc->m_data.extent[2]; }
 		uint32_t ncols()   const { return width(); }
 		uint32_t nrows()   const { return height(); }
-		uint32_t pitch()   const { return desc->extent[0]; }
+		uint32_t pitch()   const { return desc->m_data.extent[0]; }
 		size_t size() const
 		{
 			size_t s = width();
@@ -439,11 +400,11 @@ namespace xptrng
 			return s;
 		}
 
-		tptr()
+/*		tptr()
 		{
 			desc = ptr_desc::getnullptr()->addref();
-		}
-		tptr(uint32_t width, uint32_t height = 0, uint32_t depth = 0, int elemSize = sizeof(T), uint32_t align = 128)
+		}*/
+		tptr(uint32_t width = 0, uint32_t height = 0, uint32_t depth = 0, int elemSize = sizeof(T), uint32_t align = 128)
 		{
 			desc = new ptr_desc(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
 		}
@@ -476,7 +437,7 @@ namespace xptrng
 			if(copyData)
 			{
 				syncToHost();
-				memcpy(ret.desc->ptr, desc->ptr, desc->memsize());
+				memcpy(ret.desc->m_data.ptr, desc->m_data.ptr, desc->memsize());
 			}
 			return ret;
 		}
@@ -502,78 +463,55 @@ namespace xptrng
 		// comparisons/tests
  		operator bool() const
  		{
- 			return desc == ptr_desc::getnullptr();
+ 			return *desc;
+// 			return desc == ptr_desc::getnullptr();
  		}
 
 		// host data accessors (note: use hptr<> interface if possible)
 		T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 		{
-			if(desc->masterDevice != -1) { syncToHost(); }
-			return ((array_ptr<T, 3> &)(*desc))(x, y, z);
+			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 3> *)(&desc->m_data))(x, y, z);
 		}
 		T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
 		{
-			if(desc->masterDevice != -1) { syncToHost(); }
-			return ((array_ptr<T, 2> &)(*desc))(x, y);
+			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 2> *)(&desc->m_data))(x, y);
 		}
 		T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
 		{
-			if(desc->masterDevice != -1) { syncToHost(); }
-			return ((array_ptr<T, 1> &)(*desc))(x);
+			if(desc->onDevice || !desc->m_data.ptr) { syncToHost(); }
+			return (*(array_ptr<T, 1> *)(&desc->m_data))(x);
 		}
 
-/*		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev = -2, bool forceUpload = false)
-		{
-			return desc->getCUDAArray(channelDesc, dev, forceUpload);
-		}
-*/
 		// texture access
-		void bind_texture(textureReference &texref, int dev = -2)
+		void bind_texture(textureReference &texref)
 		{
-			cudaArray *arr = desc->getCUDAArray(texref.channelDesc);
-			cuxErrCheck( cudaBindTextureToArray(&texref, arr, &texref.channelDesc) );
+			desc->bind_texture(texref);
 		}
-
-		void unbind_texture(textureReference &texref, int dev = -2)
+		void unbind_texture(textureReference &texref)
 		{
-			cudaUnbindTexture(&texref);
-		}
-
-		// debugging
-		void assert_synced(int whichDev)
-		{
-			assert(desc->masterDevice == whichDev);
+			desc->unbind_texture(texref);
 		}
 	public:
 		template<int dim>
 			operator hptr<T, dim>()
 			{
 				syncToHost();
-				return *(hptr<T, dim> *)(desc);
+				return *(hptr<T, dim> *)(&desc->m_data);
 			}
 
-		operator gptr<T, 2>()
-		{
-			gptr<T, 2> ret;
-			(array_ptr<T, 2>&)ret = make_array_ptr(syncToDevice(), pitch());
-			return ret;
-		}
-		operator gptr<T, 3>()
-		{
-			gptr<T, 3> ret;
-			(array_ptr<T, 3>&)ret = make_array_ptr(syncToDevice(), pitch(), height());
-			return ret;
-		}
-
-// 		operator cux_ptr<T>()
-// 		{
-// 			return make_cux_ptr<T>(syncToDevice());
-// 		}
+		template<int dim>
+			operator gptr<T, dim>()
+			{
+				syncToDevice();
+				return *(gptr<T, dim> *)(&desc->m_data);
+			}
 
 	protected:
 		// multi-device support. Don't call these directly; use gptr instead.
-		T* syncToHost() const { return (T*)const_cast<tptr<T> *>(this)->desc->syncToDevice(-1); }
-		T* syncToDevice(int dev = -2) { return (T*)desc->syncToDevice(dev); }
+		T* syncToHost() const { return (T*)const_cast<tptr<T> *>(this)->desc->syncToHost(); }
+		T* syncToDevice() { return (T*)desc->syncToDevice(); }
 
 		// protected constructors
 		tptr(ptr_desc *d)

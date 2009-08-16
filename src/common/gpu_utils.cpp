@@ -40,178 +40,162 @@
 #include <cuda.h>
 #endif // HAVE_CUDA
 
-xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
-
+/*xptrng::ptr_desc *xptrng::ptr_desc::null = NULL;
+*/
 xptrng::ptr_desc::ptr_desc(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
 {
 	ASSERT(pitch >= width*es);
 
-	extent[0] = pitch;
-	extent[1] = height;
-	extent[2] = depth;
+	// array layout
+	m_data.extent[0] = pitch;
+	m_data.extent[1] = height;
+	m_data.extent[2] = depth;
 	m_width = width;
 	m_elementSize = es;
 
+	// reference counting
 	refcnt = 1;
-	masterDevice = -1;
-	cleanArray = -1;
-	FOR(i, MAXDEV)
-	{
-		cudaArrayPointers[i] = NULL;
-		deviceDataPointers[i] = NULL;
-	}
 
-	uint32_t size = memsize();
-	deviceDataPointers[-1] = ptr = new char[size];
+	// NOTE: storage is lazily allocated the first time this pointer
+	// is accessed through syncTo* methods
+	m_data.ptr = NULL;
+	slave = NULL;
+	cuArray = NULL;
+	onDevice = false;
+	cleanCudaArray = false;
 }
 
 void xptrng::ptr_desc::gc()
 {
 	// delete the host copy if master copy resides on one of the devices
-	if(masterDevice != -1)
+	if(onDevice)
 	{
-		delete [] ((char*)ptr);
+		delete [] slave;
 	}
-
-	// delete the device copy if it's not the master copy
-	FOR(0, MAXDEV)
+	else
 	{
-		// FIXME: None of this would actually work if we had more than one
-		// device, as each device has to be worked with from its own thread.
+		cuxErrCheck( cudaFree(slave) );
+	}
+	slave = NULL;
 
-		// delete unused device copies
-		if(masterDevice != i)
-		{
-			cuxErrCheck( cudaFree(deviceDataPointers[i]) );
-			deviceDataPointers[i] = NULL;
-		}
-
-		// delete unused CUDA Array copies
-		if(cleanArray != i)
-		{
-			cuxErrCheck( cudaFreeArray(cudaArrayPointers[i]) );
-		}
+	// if the cudaArray is dirty, or there are no textures bound to it
+	// assume it's available for deletion
+	if(!cleanCudaArray || boundTextures.empty())
+	{
+		cuxErrCheck( cudaFreeArray(cuArray) );
+		cuArray = NULL;
 	}
 }
 
 xptrng::ptr_desc::~ptr_desc()
 {
-	masterDevice = -10;
-	cleanArray = -1;
+	ASSERT(boundTextures.empty()); // make sure to unbind the textures before deleting the underlying data
+
+	onDevice = false;
+	cleanCudaArray = false;
+
 	gc();
+
+	delete [] m_data.ptr;
 }
 
-void *xptrng::ptr_desc::syncToDevice(int dev)
+void *xptrng::ptr_desc::syncTo(bool device)
 {
-	if(dev == -2)
+	if(onDevice != device)
 	{
-		dev = gpuGetActiveDevice();
+		std::swap(slave, m_data.ptr);
 	}
 
-	if(masterDevice != dev)
+	// Allocate m_data.ptr if needed.
+	if(!m_data.ptr)
 	{
-		// check if this device-to-device copy. If so, do the copy via host
-		if(masterDevice != -1 && dev != -1)
+		if(device)
 		{
-			syncToDevice(-1); // this will change masterDevice to -1
+			cuxErrCheck( cudaMalloc((void**)&m_data.ptr, memsize()) );
 		}
-
-		// allocate/copy to device
-		cudaError err;
-
-		// determine destination and copy direction
-		cudaMemcpyKind dir = cudaMemcpyDeviceToHost;
-		if(dev != -1)
+		else
 		{
-			dir = cudaMemcpyHostToDevice;
-
-			// allocate device space (if unallocated)
-			if(!deviceDataPointers[dev])
-			{
-				cuxErrCheck( cudaMalloc(&deviceDataPointers[dev], memsize()) );
-			}
+			m_data.ptr = new char[memsize()];
 		}
-		void *dest = deviceDataPointers[dev];
-		void *src = deviceDataPointers[masterDevice];
+	}
 
-		// do the copy
-		cuxErrCheck( cudaMemcpy(dest, src, memsize(), dir) );
-
-		// record new master device
-		masterDevice = dev;
+	// copy slave -> m_data.ptr (if there's something to copy)
+	if(onDevice != device && slave)
+	{
+		cudaMemcpyKind dir = device ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost;
+		cuxErrCheck( cudaMemcpy(m_data.ptr, slave, memsize(), dir) );
+		onDevice = device;
 	}
 
 	// assume the sync dirtied up the textures
-	cleanArray = -1;
+	cleanCudaArray = false;
 
 	gc(); // agressive garbage collection while debugging
 
-	return deviceDataPointers[masterDevice];
+	return m_data.ptr;
 }
 
-cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc, int dev/*, bool forceUpload*/)
+cudaArray *xptrng::ptr_desc::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 {
-	if(dev == -2)
+	ASSERT(channelDesc.x + channelDesc.y + channelDesc.z + channelDesc.w == m_elementSize*8);
+
+	if(!cleanCudaArray)
 	{
-		dev = gpuGetActiveDevice();
-		assert(dev >= 0);
-	}
+		syncToHost();	// ensure the data is on the host
 
-	if(cleanArray == dev)
-	{
-		ASSERT(cudaArrayPointers[dev]);
-		return cudaArrayPointers[dev];
-	}
+		// array size (we're going to need this later)
+		cudaExtent ex = make_cudaExtent(m_width, m_data.extent[1], m_data.extent[2]);
+		cudaArray* cu_array;
+		cudaError err;
 
-	bool needUpload = cleanArray == -1;
-	syncToDevice(-1);	// ensure the data is on the host
+		if(!cuArray)
+		{
+			// autocreate the array of correct size and dimensionallity
 
-	// array size (we're going to need this later)
-	cudaExtent ex = make_cudaExtent(extent[0], extent[1], extent[2]);
-	cudaArray* cu_array;
-	cudaError err;
+			// CUDA 2.2 bug workaround: Although the documentation claims that setting ex.height=0
+			// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
+			if(ex.height == 0) { ex.height = 1; }
+			cuxErrCheck(  cudaMalloc3DArray(&cuArray, &channelDesc, ex)  );
+		}
 
-	if(!cudaArrayPointers[dev])
-	{
-		cu_array = cudaArrayPointers[dev];
-	}
-	else
-	{
-		// autocreate the array of correct size and dimensionallity
-
-		// CUDA 2.2 bug workaround: Although the documentation claims that setting ex.height=0
-		// will produce a 1D texture, it does not appear to do so (returns a NULL ptr)
-		if(ex.height == 0) { ex.height = 1; }
-		cuxErrCheck(  cudaMalloc3DArray(&cu_array, &channelDesc, ex)  );
-		//cuxErrCheck( cudaMallocArray(&cu_array, &channelDesc, m_dim.x, m_dim.y) );
-
-		cudaArrayPointers[dev] = cu_array;
-	}
-
-	if(needUpload)
-	{
 		// Apparent CUDA 2.2 bug workaround: cudaMemcpy3D (silently) fails to copy
 		// data for arrays with depth=0
 		if(ex.depth != 0)
 		{
 			cudaMemcpy3DParms par = { 0 };
-			par.srcPtr = make_cudaPitchedPtr(ptr, extent[0], m_width, std::max(1U, extent[1]));
-			par.dstArray = cu_array;
+			par.srcPtr = make_cudaPitchedPtr(m_data.ptr, m_data.extent[0], m_width, std::max(1U, m_data.extent[1]));
+			par.dstArray = cuArray;
 			par.extent = ex;
 			par.kind = cudaMemcpyHostToDevice;
 			cuxErrCheck( cudaMemcpy3D(&par) );
 		}
 		else
 		{
-			cuxErrCheck( cudaMemcpy2DToArray(cu_array, 0, 0, ptr, extent[0], m_width*m_elementSize, std::max(1U, extent[1]), cudaMemcpyHostToDevice) );
+			cuxErrCheck( cudaMemcpy2DToArray(cuArray, 0, 0, m_data.ptr, m_data.extent[0], m_width*m_elementSize, std::max(1U, m_data.extent[1]), cudaMemcpyHostToDevice) );
 		}
+
+		cleanCudaArray = true;
 	}
 
-	cleanArray = dev;
+	ASSERT(cuArray);
+	return cuArray;
+}
+
+// texture access
+void xptrng::ptr_desc::bind_texture(textureReference &texref)
+{
+	cuxErrCheck( cudaBindTextureToArray(&texref, getCUDAArray(texref.channelDesc), &texref.channelDesc) );
+	boundTextures.insert(&texref);
 
 	gc(); // agressive garbage collection while debugging
+}
 
-	return cu_array;
+void xptrng::ptr_desc::unbind_texture(textureReference &texref)
+{
+	cudaUnbindTexture(&texref);
+	boundTextures.erase(&texref);
+
+	gc(); // agressive garbage collection while debugging
 }
 
 

@@ -68,7 +68,7 @@ lfParams lfTextureManager::load(const char *fn)
 
 xptrng::tptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
 {
-	xptrng::tptr<float> tex(2, 0, 0);
+	xptrng::tptr<float> tex(2);
 	MLOG(verb2) << tex.desc->memsize() << "\n";
 	tex(0U) = val;
 	tex(1U) = val;

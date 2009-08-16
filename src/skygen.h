@@ -176,7 +176,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 		float xi = (x - xx.x) * xx.y;
 		T y = tex1D(r, xi);
 #if __DEVICE_EMULATION__
-		printf("phi=%f\n", y);
+//		printf("phi=%f\n", y);
 #endif
 		return y;
 	}
@@ -270,7 +270,7 @@ public:
 //		M = 5.80;
 		float phi = sample(expModelLF, M, lf);
 #if __DEVICE_EMULATION__
-		printf("phi=%f rho=%f\n", phi, phi*s.rho);
+//		printf("phi=%f rho=%f\n", phi, phi*s.rho);
 #endif
 		return phi * s.rho;
 	}

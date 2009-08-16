@@ -13,10 +13,13 @@ struct column : public xptrng::tptr<T>
 	// to bring it in line with the typical table metaphore. In memory, however
 	// the array is stored such that nrows() is its width. This allows the GPU
 	// to coalesce memory accesses to adjacent rows of the table.
-	size_t nrows() const { return xptrng::tptr<T>::width(); }
-	size_t width() const { return xptrng::tptr<T>::height(); }
+	// NOTE #2: The std::max() in width() is there to represent the 1D arrays
+	// as 2D arrays with 2nd dimension equal to 1
+	uint32_t nrows() const { return xptrng::tptr<T>::width(); }
+	uint32_t width() const { return std::max(xptrng::tptr<T>::height(), 1U); }
 
-	column() : xptrng::tptr<T>(0, 1) { }
+//	column() : xptrng::tptr<T>(0, 1) { }
+	column() { }
 	void reshape(const column<T> &t)
 	{
 		(xptrng::tptr<T> &)(*this) = t.clone();
@@ -24,13 +27,13 @@ struct column : public xptrng::tptr<T>
 	void resize(size_t nrows, size_t width, int es = 0)
 	{
 		if(!es) { es = this->elementSize(); }
-		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>(nrows, width, es);
+		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>(nrows, width, 0., es);
 	}
 	T *get() const { return this->syncToHost(); }
 	column<T>& operator=(void *ptr)
 	{
 		assert(ptr == NULL); // can only be used to set it to 0 (for now)
-		(xptrng::tptr<T>&)(*this) = xptrng::tptr<T>();
+		(xptrng::tptr<T>&)(*this) = NULL; //xptrng::tptr<T>();
 		return *this;
 	}
 

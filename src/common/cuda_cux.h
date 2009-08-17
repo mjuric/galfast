@@ -120,7 +120,14 @@ template<typename T>
 	void cuxUploadConst(T &dest, const T &source)
 	{
 		unsigned size = sizeof(source);
+#ifdef __CUDACC__
 		cuxErrCheck( cudaMemcpyToSymbol(dest, &source, size) );
+#elif BUILD_FOR_CPU
+		memcpy(&dest, &source, size);
+#else
+		assert(0);
+		//#error cuxUploadConst can be used only in .cu files, or when BUILD_FOR_CPU is defined
+#endif
 	}
 
 template<typename T>
@@ -131,6 +138,7 @@ template<typename T>
 		cuxErrCheck( cudaMemcpyToSymbol(symbol, &source, size) );
 	}
 
+#if 0
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // Simplified texturing support
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -218,6 +226,8 @@ protected:
 
 #define DECLARE_TEXTURE(name) \
 	extern cuxTextureManager name##Manager;
+
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -480,4 +490,148 @@ namespace xptrng
 };
 using namespace xptrng;
 
+////////////////////////////////////////////////////////////////////////////////////////////////
+// Simplified texturing support
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+	Work around CUDA defficiency with some built-in struct alignments.
+
+	CUDA header files declare some structs (float2 being an example) with
+	__builtin_align() attribute that resolves to __align__ only when using
+	CUDACC. This makes those structure's alignments different in nvcc compiled
+	object code, compared to GCC's. Example: with nvcc, float2 is 8-byte
+	aligned; on gcc, it's 4-byte aligned (given its members are all 4-byte
+	aligned floats). Therefore, a struct that has a float2 member may be
+	packed differently on gcc and nvcc. Example: struct { float a; float2 b; };
+	On nvcc, &b = &a + 8 (in bytes). On gcc, &b = &a + 4 (bytes).
+
+	This cludge works around the problem by deriving an aligned type from
+	the problematic CUDA type. It should be used instead of the CUDA type
+	in structures where this problem may occur.
+*/
+struct ALIGN(8) afloat2 : public float2 {};
+
+// CPU emulation & management
+template<int dim>
+	struct cuxTexCoords
+	{
+		afloat2 tc[dim];
+		__host__ const float2 &operator[](int i) const { return tc[i]; }
+		__host__       float2 &operator[](int i)       { return tc[i]; }
+	};
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	struct cuxTexture
+	{
+	public:
+		xptr<T>	data;
+		textureReference &texref;
+		cuxTexCoords<dim> tc;
+		const char *tcSymbolName;
+	public:
+		cuxTexture(textureReference &texref_, const char *tcSymbolName)
+			: texref(texref_), tcSymbolName(tcSymbolName)
+		{
+		}
+
+		void bind(const xptr<T> &data_, const afloat2 *texcoord)
+		{
+			unbind();
+
+			data = data_;
+			for(int i=0; i != dim; i++) { tc[i] = texcoord[i]; }
+
+			cuxUploadConst(tcSymbolName, tc);
+			data.bind_texture(texref);
+		}
+
+		void unbind()
+		{
+			if(!data) { return; }
+
+			data.unbind_texture(texref);
+			data = 0U;
+		}
+
+		T tex1D(float x) const		// sample a 1D texture
+		{
+			// FIXME: implement interpolation, clamp modes, normalized coordinates
+			uint32_t i = (uint32_t)x;
+			if(i < 0) { i = 0; }
+			if(i >= data.width()) { i = data.width()-1; }
+			return data(i);
+		}
+	};
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	T tex1D(const cuxTexture<T, dim, mode> &texref, float x)
+	{
+		return texref.tex1D(x);
+	}
+
+// Sampler routines
+template<typename T, typename Texref>
+	inline __device__ T sample_impl(Texref r, float x, float2 tc)
+	{
+		float xi = (x - tc.x) * tc.y + 0.5;
+		T y = tex1D(r, xi);
+//		T y = 0.01f;
+#if __DEVICE_EMULATION__
+//		printf("phi=%f\n", y);
+#endif
+		return y;
+	}
+
+// texture class (GPU and CPU)
+#if !__CUDACC__
+	#define DEFINE_TEXTURE(name, T, dim, mode, norm, fMode, aMode) \
+		extern cuxTexture<T, dim, mode> name##Manager; \
+		static cuxTexture<T, dim, mode> &name = name##Manager
+
+	#define DECLARE_TEXTURE(name, T, dim, mode) \
+		DEFINE_TEXTURE(name, T, dim, mode, dummy, dummy, dummy)
+
+	#define TEX1D(name, x) sample(name, x)
+
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(cuxTexture<T, 1, mode> r, float x)
+		{
+			return sample_impl<T, cuxTexture<T, 1, mode> >(r, x, r.tc[0]);
+		}
+#else
+	// real thing
+	#define DEFINE_TEXTURE(name, T, dim, mode, norm, fMode, aMode) \
+		texture<T, dim, mode> name(norm, fMode, aMode); \
+		__constant__ cuxTexCoords<dim> name##TC; \
+		cuxTexture<T, dim, mode> name##Manager(name, #name "TC")
+
+	#define TEX1D(name, x) sample(name, x, name##TC)
+
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 1, mode> r, float x, float2 tc)
+		{
+			return sample_impl<T, texture<T, 1, mode> >(r, x, tc);
+		}
+
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 1, mode> r, float x, cuxTexCoords<1> tc)
+		{
+			return sample(r, x, tc[0]);
+		}
+#endif
+
+#if 0
+template<typename T, enum cudaTextureReadMode mode>
+	inline __device__ T sample(texture<T, 1, mode> r, float x, float2 tc)
+	{
+		float xi = (x - tc.x) * tc.y + 0.5;
+		T y = tex1D(r, xi);
+//		T y = 0.01f;
+#if __DEVICE_EMULATION__
+//		printf("phi=%f\n", y);
+#endif
+		return y;
+	}
+#endif
 #endif // _gpu2_h__

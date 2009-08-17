@@ -78,25 +78,29 @@ void lfTextureManager::free()
 void expModel::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-	hstate.lf.bind_texture(expModelLF);
+//	hstate.lf.bind_texture(expModelLF);
+	expModelLFManager.bind(hstate.lf, &hstate.tc_lf);
 }
 
 void expDisk::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-	hstate.lf.bind_texture(expDiskLF);
+//	hstate.lf.bind_texture(expDiskLF);
+	expDiskLFManager.bind(hstate.lf, &hstate.tc_lf);
 }
 
 void expModel::postrun(host_state_t &hstate, bool draw)
 {
 	// unbind LF texture reference
-	hstate.lf.unbind_texture(expModelLF);
+//	hstate.lf.unbind_texture(expModelLF);
+	expModelLFManager.unbind();
 }
 
 void expDisk::postrun(host_state_t &hstate, bool draw)
 {
 	// unbind LF texture reference
-	hstate.lf.unbind_texture(expDiskLF);
+//	hstate.lf.unbind_texture(expDiskLF);
+	expDiskLFManager.unbind();
 }
 
 template<typename T>

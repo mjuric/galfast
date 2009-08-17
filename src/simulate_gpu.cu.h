@@ -625,9 +625,37 @@ KERNEL(
 	}
 }
 
-DEFINE_TEXTURE(secProb);
-DEFINE_TEXTURE(cumLF);
-DEFINE_TEXTURE(invCumLF);
+DEFINE_TEXTURE( secProb, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(   cumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(invCumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+/*cuxTexture<float, 1, cudaReadModeElementType>
+	secProb  (false, cudaFilterModeLinear, cudaAddressModeClamp),
+	cumLF    (false, cudaFilterModeLinear, cudaAddressModeClamp),
+	invCumLF (false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+__device__ __constant__ afloat2
+	tc_secProb,
+	tc_cumLF,
+	tc_invCumLF;
+
+void os_unresolvedMultiples_textures::bind_textures()
+{
+	 secProb.bind_texture(::secProb);	cuxUploadConst(::tc_secProb, tc_secProb);
+	   cumLF.bind_texture(::cumLF);		cuxUploadConst(::tc_cumLF, tc_cumLF);
+	invCumLF.bind_texture(::invCumLF);	cuxUploadConst(::tc_invCumLF, tc_invCumLF);
+}
+
+void os_unresolvedMultiples_textures::unbind_textures()
+{
+	 secProb.unbind_texture(::secProb);
+	   cumLF.unbind_texture(::cumLF);
+	invCumLF.unbind_texture(::invCumLF);
+}
+*/
+// DEFINE_TEXTURE(secProb);
+// DEFINE_TEXTURE(cumLF);
+// DEFINE_TEXTURE(invCumLF);
 
 __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
 {
@@ -652,7 +680,7 @@ __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo al
 	// draw the probability that this star has a secondary
 	float psec, u;
 
-	psec = secProb.sample(M1);
+	psec = TEX1D(secProb, M1);
 	u = rng.uniform();
 #if __DEVICE_EMULATION__
 /*	for(float u=0; u <= 17; u += .1)
@@ -672,14 +700,14 @@ __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo al
 	using namespace multiplesAlgorithms;
 	if(algo == EQUAL_MASS) { M2 = M1; return true; }
 
-	float pprim = cumLF.sample(M1);
+	float pprim = TEX1D(cumLF, M1);
 	u = rng.uniform();
 	if(algo == LF_M2_GT_M1)
 	{
 		// draw subject to the requirement that it is fainter than the primary
 		u = pprim + u * (1. - pprim);
 	}
-	M2 = invCumLF.sample(u);// + rng.gaussian(1.f);
+	M2 = TEX1D(invCumLF, u);// + rng.gaussian(1.f);
 //	M2 = 5.f + 12.f*u;
 	if(algo == LF_M2_GT_M1 && M2 < M1)
 	{

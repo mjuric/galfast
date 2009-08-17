@@ -177,6 +177,8 @@ class os_unresolvedMultiples : public osink
 		std::string absmagSys;
 		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
+		xptr<float> secProb, cumLF, invCumLF;		// probability and LF texture data ...
+		afloat2 tc_secProb, tc_cumLF, tc_invCumLF;	// ... and their texture coordinates
 	public:
 		virtual bool runtime_init(otable &t);
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);

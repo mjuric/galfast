@@ -91,19 +91,14 @@ xptrng::xptr<float> load_constant_texture(float2 &texCoords, float val, float X0
 	return tex;
 }
 
-xptrng::xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
+xptr<float> construct_1D_texture_by_resampling(float2 &texCoords, double *X, double *Y, int ndata, int nsamp = 1024)
 {
-	// load the points from the file, and construct
-	// a spline to resample from
-	text_input_or_die(txin, fn);
-	std::vector<double> X, phi;
-	::load(txin, X, 0, phi, 1);
 	spline tx;
-	tx.construct(X, phi);
+	tx.construct(X, Y, ndata);
 
 	// resample to texture
 	xptrng::xptr<float> tex(nsamp);
-	float X0 = X.front(), X1 = X.back(), dX = (X1 - X0) / (nsamp-1);
+	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
 		tex(i) = tx(X0 + i*dX);
@@ -113,6 +108,17 @@ xptrng::xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *
 	texCoords.x = X0;
 	texCoords.y = 1./dX;
 	return tex;
+}
+
+xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
+{
+	// load the points from the file, and construct
+	// a spline to resample from
+	text_input_or_die(txin, fn);
+	std::vector<double> X, Y;
+	::load(txin, X, 0, Y, 1);
+
+	return construct_1D_texture_by_resampling(texCoords, &X[0], &Y[0], X.size(), nsamp);
 }
 
 void expModel::load(host_state_t &hstate, const peyton::system::Config &cfg)
@@ -132,11 +138,11 @@ void expModel::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		hstate.lf = load_and_resample_1D_texture(lf, cfg["lumfunc"].c_str());
+		hstate.lf = load_and_resample_1D_texture(hstate.tc_lf, cfg["lumfunc"].c_str());
 	}
 	else
 	{
-		hstate.lf = load_constant_texture(lf, 1.f);
+		hstate.lf = load_constant_texture(hstate.tc_lf, 1.f);
 	}
 
 	// cutoff radius (default: 1Mpc)
@@ -161,11 +167,11 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		hstate.lf = load_and_resample_1D_texture(lf, cfg["lumfunc"].c_str());
+		hstate.lf = load_and_resample_1D_texture(hstate.tc_lf, cfg["lumfunc"].c_str());
 	}
 	else
 	{
-		hstate.lf = load_constant_texture(lf, 1.f);
+		hstate.lf = load_constant_texture(hstate.tc_lf, 1.f);
 	}
 
 	// cutoff radius (default: 1Mpc)

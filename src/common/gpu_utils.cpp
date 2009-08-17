@@ -233,24 +233,17 @@ cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
 {
 	cudaArray *cuArray = getCUDAArray(texref.channelDesc);
-//	if(texref.channelDesc.y == 0)
-	{
-		cuxErrCheck( cudaBindTextureToArray(&texref, cuArray, &texref.channelDesc) );
-	}
+	cuxErrCheck( cudaBindTextureToArray(&texref, cuArray, &texref.channelDesc) );
+	
 	boundTextures.insert(&texref);
-
-//	gc(); // agressive garbage collection while debugging
 }
 
 void xptrng::xptr_impl_t::unbind_texture(textureReference &texref)
 {
-//	if(texref.channelDesc.y == 0)
-	{
-		cudaUnbindTexture(&texref);
-	}
-	boundTextures.erase(&texref);
+	cuxErrCheck( cudaUnbindTexture(&texref) );
 
-//	gc(); // agressive garbage collection while debugging
+	ASSERT(boundTextures.count(&texref));
+	boundTextures.erase(&texref);
 }
 
 
@@ -728,6 +721,7 @@ void test_cuda_caller()
 	callKernel3(nv::kernel("test_kernel", nthreads), var1, var2, var3);
 }
 
+#if 0
 ////////////////////////////////////////////////
 //  Texturing support
 ////////////////////////////////////////////////
@@ -799,6 +793,6 @@ void cuxTextureManager::set(float *cpudata, int len, float x0, float dx)
 	cuxErrCheck( cudaMemcpyToArray( texdata, 0, 0, cpudata, len*sizeof(float), cudaMemcpyHostToDevice));
 	bind();
 }
-
+#endif
 
 #endif

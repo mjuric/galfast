@@ -94,7 +94,7 @@ extern lfTextureManager texLFMgr;
 #endif
 #endif
 
-
+#if 0
 	////////////////////////////////////////////////
 	//  Texturing support, next generation
 	////////////////////////////////////////////////
@@ -128,7 +128,7 @@ extern lfTextureManager texLFMgr;
 	{
 	};
 #endif
-
+#endif
 /*
 	// GPU interface
 	template<typename T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
@@ -152,41 +152,11 @@ extern lfTextureManager texLFMgr;
 	};
 */
 
-/*
-	Work around CUDA defficiency with some built-in struct alignments.
-
-	CUDA header files declare some structs (float2 being an example) with
-	__builtin_align() attribute that resolves to __align__ only when using
-	CUDACC. This makes those structure's alignments different in nvcc compiled
-	object code, compared to GCC's. Example: with nvcc, float2 is 8-byte
-	aligned; on gcc, it's 4-byte aligned (given its members are all 4-byte
-	aligned floats). Therefore, a struct that has a float2 member may be
-	packed differently on gcc and nvcc. Example: struct { float a; float2 b; };
-	On nvcc, &b = &a + 8 (in bytes). On gcc, &b = &a + 4 (bytes).
-
-	This cludge works around the problem by deriving an aligned type from
-	the problematic CUDA type. It should be used instead of the CUDA type
-	in structures where this problem may occur.
-*/
-struct ALIGN(8) afloat2 : public float2 {};
-
-template<typename T, int dim, enum cudaTextureReadMode mode>
-	static inline __device__ T sample(texture<T, dim, mode> &r, float x, float2 xx)
-	{
-		float xi = (x - xx.x) * xx.y + 0.5;
-		T y = tex1D(r, xi);
-		//T y = 0.01f;
-#if __DEVICE_EMULATION__
-//		printf("phi=%f\n", y);
-#endif
-		return y;
-	}
-
-
 
 #ifdef __CUDACC__
-texture<float, 1, cudaReadModeElementType> expModelLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
+//texture<float, 1, cudaReadModeElementType> expModelLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
 #endif
+DEFINE_TEXTURE(expModelLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 // double-exponential+powerlaw Halo model
 struct ALIGN(16) expModel
@@ -194,6 +164,7 @@ struct ALIGN(16) expModel
 	struct ALIGN(16) host_state_t
 	{
 		xptrng::xptr<float> lf;
+		afloat2 tc_lf;
 	};
 	struct state
 	{
@@ -201,7 +172,6 @@ struct ALIGN(16) expModel
 	};
 	float rho0, l, h, z0, f, lt, ht, fh, q, n;
 	float r_cut2;
-	afloat2 lf;
 
 	int comp_thin, comp_thick, comp_halo;
 
@@ -267,7 +237,8 @@ public:
 //		return 1.f * ((float*)shmem)[threadIdx.x];
 //		return 0.05f * s.rho;
 //		M = 5.80;
-		float phi = sample(expModelLF, M, lf);
+//		float phi = sample(expModelLF, M, lf);
+		float phi = TEX1D(expModelLF, M);
 #if __DEVICE_EMULATION__
 //		printf("phi=%f rho=%f\n", phi, phi*s.rho);
 #endif
@@ -300,8 +271,9 @@ public:
 
 // exponential disk model
 #ifdef __CUDACC__
-texture<float, 1, cudaReadModeElementType> expDiskLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
+//texture<float, 1, cudaReadModeElementType> expDiskLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
 #endif
+DEFINE_TEXTURE(expDiskLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 // these must be overloaded by models
 struct modelConcept
@@ -324,14 +296,12 @@ public:
 	struct ALIGN(16) host_state_t
 	{
 		xptrng::xptr<float> lf;
+		afloat2 tc_lf;
 	};
 
 protected:
 	float f, l, h, z0;
 	float r_cut2;
-
-	// luminosity function texture coordinates
-	afloat2 lf;
 
 	int comp;
 
@@ -365,7 +335,8 @@ public:
 
 	__device__ float rho(state &s, float M) const
 	{
-		float phi = sample(expDiskLF, M, lf);
+//		float phi = sample(expDiskLF, M, lf);
+		float phi = TEX1D(expDiskLF, M);
 		return phi * s.rho;
 	}
 

@@ -158,7 +158,7 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 }
 
 
-DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, cfloat_t::gpu_t FeH));
+DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH));
 size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -166,8 +166,9 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
 	cfloat_t &FeH   = in.col<float>("FeH");
+	cint_t  &comp   = in.col<int>("comp");
 
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, FeH);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, comp0, comp1, comp, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -175,6 +176,8 @@ bool os_fixedFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(fixedFeH, "FeH", 0.f);
+	cfg.get(comp0, "comp0", 0U);
+	cfg.get(comp1, "comp1", 0xffffffff);
 
 	return true;
 }

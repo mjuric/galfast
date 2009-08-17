@@ -614,13 +614,16 @@ KERNEL(
 
 KERNEL(
 	ks, 0,
-	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, cfloat_t::gpu_t FeH),
+	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH),
 	os_fixedFeH_kernel,
-	(ks, fixedFeH, FeH)
+	(ks, fixedFeH, comp0, comp1, comp, FeH)
 )
 {
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		int cmp = comp(row);
+		if(comp0 > cmp || cmp >= comp1) { continue; }
+
 		FeH(row) = fixedFeH;
 	}
 }

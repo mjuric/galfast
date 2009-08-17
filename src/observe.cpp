@@ -105,7 +105,6 @@ bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::s
 #endif
 
 
-
 #if 1
 // add photometric errors information
 class os_photometricErrors : public osink
@@ -128,6 +127,7 @@ protected:
 	std::vector<errdef> columnsToTransform;
 
 	void addErrorCurve(const std::string &bandset, const std::string &band, const std::string &file);
+	void addErrorCurve(const std::string &bandset, const std::string &band, const std::vector<double> &mag, const std::vector<double> &sigma);
 
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
@@ -216,14 +216,19 @@ bool os_photometricErrors::runtime_init(otable &t)
 	return true;
 }
 
+void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::string &band, const std::vector<double> &mag, const std::vector<double> &sigma)
+{
+	availableErrors[bandset][band].construct(mag, sigma);
+	MLOG(verb2) << "Acquired photometric errors for " << bandset << ", " << band << " band";
+}
+
 void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::string &band, const std::string &file)
 {
 	text_input_or_die(in, file);
 	std::vector<double> mag, sigma;
 	load(in, mag, 0, sigma, 1);
 
-	availableErrors[bandset][band].construct(mag, sigma);
-	MLOG(verb2) << "Loaded photometric errors for " << bandset << ", " << band << " band";
+	addErrorCurve(bandset, band, mag, sigma);
 }
 
 bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pipe)
@@ -290,6 +295,104 @@ bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pi
 	return true;
 }
 #endif
+
+class os_modelPhotoErrors : public os_photometricErrors
+{
+protected:
+	struct model_t
+	{
+		virtual double eval(double m) = 0;
+		virtual std::istream &load(std::istream &in) = 0;
+	};
+	struct lsst_t : public model_t
+	{
+		double PHsys, m5, fGamma, Nobs;
+
+		double eval(double m)
+		{
+			double x = pow10(0.4*(m-m5));
+			double PHrand = sqrt((0.04-fGamma)*x + fGamma*sqr(x)) / sqrt(Nobs);
+			double e = sqrt(sqr(PHsys) + sqr(PHrand));
+			return e;
+		}
+		std::istream &load(std::istream &in)
+		{
+			return in >> PHsys >> m5 >> fGamma >> Nobs;
+		}
+	};
+public:
+	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+
+	virtual const std::string &name() const { static std::string s("modelPhotoErrors"); return s; }
+
+	os_modelPhotoErrors() : os_photometricErrors()
+	{
+	}
+};
+
+bool os_modelPhotoErrors::construct(const Config &cfg, otable &t, opipeline &pipe)
+{
+	// Computes photometric errors according to:
+	//
+	//         ## LSST errors (eqs.4-6 from astroph/0805.2366)
+	//              x = 10^(0.4*(m-m5))
+	//         PHrand = sqrt((0.04-fGamma)*x + fGamma*x^2) / sqrt(Nobs)
+	//            err = sqrt(PHsys^2 + PHrand^2)
+	//
+	//	Input parameters:
+	//		<PHsys>	-- systematic error
+	//		<m5>	-- 5 sigma depth for a point source
+	//		<fGamma>-- random error behavior term
+	//		<Nobs>	-- number of observations
+	//
+	// Expected configuration format:
+	// 	<photosys>.<bandidx> = lsst <PHsys> <m5> <fGamma> <Nobs>
+	//
+
+	std::vector<double> mag, err;
+	for(double m = 0; m < 40; m += 0.01)
+	{
+		mag.push_back(m);
+	}
+	err.resize(mag.size());
+
+	std::set<std::string> skeys;
+	cfg.get_matching_keys(skeys, "[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+");
+	FOREACH(skeys)
+	{
+		// parse the photometric system and band name
+		size_t pos = i->find('.');
+		std::string bandset = i->substr(0, pos);
+		std::string band = i->substr(pos+1);
+
+		// parse the error model parameters
+		std::istringstream ss(cfg[*i]);
+
+		std::string model;
+		ss >> model;
+		std::auto_ptr<model_t> m;
+		if(model == "lsst")	{ m.reset(new lsst_t); }
+		else 			{ THROW(EAny, "Unknown photometric error model '" + model + "'"); }
+
+		if(!m->load(ss))
+		{
+			MLOG(verb1) <<  "Problem loading photometric error model parameters. Problematic input: " << cfg[*i];
+			THROW(EAny, "Failed to load photometric error model parameters. Aborting.");
+		}
+
+		// sample the error curve
+		FOR(0, mag.size())
+		{
+			err[i] = m->eval(mag[i]);
+		}
+
+		addErrorCurve(bandset, band, mag, err);
+	}
+	return true;
+}
+
+
+
 
 
 #if 1
@@ -1469,18 +1572,15 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 #if HAVE_LIBCFITSIO
 	else if(name == "fitsout") { s.reset(new os_fitsout); }
 #endif
+	else if(name == "modelPhotoErrors") { s.reset(new os_modelPhotoErrors); }
 	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
 	else if(name == "FeH") { s.reset(new os_FeH); }
 	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "photometry") { s.reset(new os_photometry); }
 	else if(name == "photometricErrors") { s.reset(new os_photometricErrors); }
 	else if(name == "clipper") { s.reset(new os_clipper); }
-#if 0
-	else if(name == "ugriz") { s.reset(new os_ugriz); }
-#endif
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
-//	else if(name == "photoErrors") { s.reset(new os_photoErrors); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
 	else { THROW(EAny, "Module " + name + " unknown."); }
 

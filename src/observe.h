@@ -157,13 +157,14 @@ class os_fixedFeH : public osink
 {
 	protected:
 		float fixedFeH;
+		uint32_t comp0, comp1;
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
-		os_fixedFeH() : osink(), fixedFeH(0)
+		os_fixedFeH() : osink(), fixedFeH(0), comp0(0), comp1(0xffffffff)
 		{
 			prov.insert("FeH");
 		}

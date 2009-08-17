@@ -138,97 +138,6 @@ template<typename T>
 		cuxErrCheck( cudaMemcpyToSymbol(symbol, &source, size) );
 	}
 
-#if 0
-////////////////////////////////////////////////////////////////////////////////////////////////
-// Simplified texturing support
-////////////////////////////////////////////////////////////////////////////////////////////////
-
-struct spline;
-struct cuxTextureManager
-{
-public:
-	struct textureParameters
-	{
-		float x0, inv_dx;
-	};
-
-protected:
-	textureParameters par;
-	const char *parSymbol;
-	textureReference &texref;
-	cudaArray *texdata;
-
-	spline *cputex;
-
-	textureParameters make_textureParameters(float x0, float inv_dx)
-	{
-		textureParameters ret = { x0, inv_dx };
-		return ret;
-	}
-public:
-	cuxTextureManager(textureReference &tr, const char *tp)
-		: texref(tr), parSymbol(tp), texdata(0)
-	{
-		par.x0 = 0.f; par.inv_dx = 1.f;
-	}
-
-	float sample(float x) const;
-
-	void load(const char *fn, int nsamples);
-	void construct(double *x, double *y, int ndata, int nsamples);
-	void bind();
-
-	void free();
-	~cuxTextureManager() { free(); }
-protected:
-	void set(float *cpu_lf, int lfLen, float M0, float dM);
-};
-
-#if !HAVE_CUDA || BUILD_FOR_CPU
-	template<typename T>
-	typename T::value_type tex1D(T &t, float x)
-	{
-		return t.sample(x);
-	}
-
-	#define DEFINE_TEXTURE(name) \
-		extern cuxTextureManager name##Manager; \
-		cuxTextureManager &name = name##Manager;
-#else
-	#define DEFINE_TEXTURE_REFERENCE(name) \
-		texture<float, 1, cudaReadModeElementType>       tex_##name(false, cudaFilterModeLinear, cudaAddressModeClamp); \
-		struct textureSampler_##name : public cuxTextureManager::textureParameters \
-		{ \
-			__device__ inline float sample(float x) const \
-			{ \
-				float val, ix; \
-				ix  = (x  -  x0) * inv_dx + 0.5; \
-				val = tex1D(tex_##name, ix); \
-				return val; \
-			} \
-		}; \
-		__device__ __constant__ textureSampler_##name name
-
-	#define DEFINE_TEXTURE_MANAGER(name) \
-		cuxTextureManager name##Manager(tex_##name, #name)
-
-	#define DEFINE_TEXTURE(name) \
-		DEFINE_TEXTURE_REFERENCE(name); \
-		DEFINE_TEXTURE_MANAGER(name);
-
-	// support for textureManagers as class members
-	#define DECLARE_MEMBER_TEXTURE_MANAGER(name) \
-		cuxTextureManager name##Manager(tex_##name, #name)
-
-	#define INIT_MEMBER_TEXTURE_MANAGER(name) \
-		name##Manager(tex_##name, #name)
-#endif
-
-#define DECLARE_TEXTURE(name) \
-	extern cuxTextureManager name##Manager;
-
-#endif
-
 ////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -621,17 +530,4 @@ template<typename T, typename Texref>
 		}
 #endif
 
-#if 0
-template<typename T, enum cudaTextureReadMode mode>
-	inline __device__ T sample(texture<T, 1, mode> r, float x, float2 tc)
-	{
-		float xi = (x - tc.x) * tc.y + 0.5;
-		T y = tex1D(r, xi);
-//		T y = 0.01f;
-#if __DEVICE_EMULATION__
-//		printf("phi=%f\n", y);
-#endif
-		return y;
-	}
-#endif
 #endif // _gpu2_h__

@@ -624,6 +624,7 @@ class os_photometry : public osink
 		double Mr0, Mr1, dMr;
 		double FeH0, FeH1, dFeH;
 		int ncolors;
+		uint32_t comp0, comp1;
 
 		float color(int ic, double FeH, double Mr, int *e = NULL)
 		{
@@ -647,7 +648,7 @@ class os_photometry : public osink
 		virtual bool runtime_init(otable &t);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
-		os_photometry() : osink() /*, offset_absmag(-1), offset_mag(-1)*/
+		os_photometry() : osink(), comp0(0), comp1(0xffffffff)
 		{
 			req.insert("FeH");
 		}
@@ -677,6 +678,10 @@ struct colsplines
 
 bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	// load component IDs to which this module will apply
+	cfg.get(comp0,   "comp0",   0U);
+	cfg.get(comp1,   "comp1",   0xffffffff);
+
 	// load bandset name
 	std::string tmp, bname;
 	cfg.get(bandset2,   "bandset",   "LSSTugrizy");
@@ -855,7 +860,6 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		}
 		nextrap[i] /= nFeH*nMr;
 	}
-///	MLOG(verb1) << bandset2 << ":    grid size = " << nMr << " x " << nFeH << " (" << clt[0].size() << ").";
 	MLOG(verb2) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
 	MLOG(verb2) << bandset2 << ":    extrapolation fractions = " << nextrap;
 
@@ -878,63 +882,16 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 }
 
 
-#if 0
-size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	ct::cint  &flags  = in.col<int>(photoFlagsName);
-	ct::cfloat &bmag  = in.col<float>(bband);
-	ct::cfloat &Mr    = in.col<float>(absbband);
-	ct::cfloat &mags  = in.col<float>(bandset2);
-	ct::cfloat &FeH   = in.col<float>("FeH");
-	const size_t nbands = bnames.size();
-
-	// ASSUMPTIONS:
-	//	- Fe/H exists in input
-	//	- Apparent and absolute magnitude in the requested band exist in input
-	for(size_t row=begin; row != end; row++)
-	{
-		// construct colors given the absolute magnitude and metallicity
-		int ex;
-		float c[ncolors];
-
-		int f = 0;
-		FOR(0, ncolors)
-		{
-			c[i] = color(i, FeH[row], Mr[row], &ex);
-//			if(ex != 0) { std::cerr << i << " " << ex << "\n"; }
-//			f |= ex << i;
-			f |= ex;
-		}
-		flags[row] = f;
-
-		// convert colors to apparent magnitudes
-		FORj(b, 0, nbands)
-		{
-			float mag = bmag[row];
-			if(b < bidx) { FOR(b, bidx) { mag += c[i]; } }
-			if(b > bidx) { FOR(bidx, b) { mag -= c[i]; } }
-			mags(row, b) = mag;
-		}
-
-/*		if(row == 30)
-		{
-			for(int i=0; i != ncolors; i++) { std::cerr << "c[" << i << "]=" << c[i] << "\n"; }
-			for(int i=0; i != ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
-			exit(0);
-		}*/
-	}
-
-	return nextlink->process(in, begin, end, rng);
-}
-#else
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
-DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH));
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
 void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs);
+void os_photometry_cleanup_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	cint_t  &flags  = in.col<int>(photoFlagsName);
+	cint_t &comp    = in.col<int>("comp");
+	cint_t &flags   = in.col<int>(photoFlagsName);
 	cfloat_t &DM    = in.col<float>("DM");
 	cfloat_t &mags  = in.col<float>(bandset2);
 	cfloat_t &FeH   = in.col<float>("FeH");
@@ -944,203 +901,14 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 				in.col<float>(absmagSys) :
 				in.col<float>(absbband);
 
-	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr };
+	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr, comp0, comp1 };
+//	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr};
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, DM, Mr, Mr.width(), mags, FeH);
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+	os_photometry_cleanup_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
 
 	return nextlink->process(in, begin, end, rng);
 }
-#endif
-
-#if 0
-// convert input absolute/apparent magnitudes to ugriz colors
-class os_ugriz : public osink
-{
-	protected:
-		spline Mr2gi, gi2ri;
-		std::vector<double> FeHDeltaC;
-
-		void Mr2gi_build(const std::string &gi2Mr_str);
-		void gi2ri_build();
-
-		float MrFeH2gi(float Mr, float FeH);
-		float grFeH2ug(float gr, float FeH);
-		float ri2iz(float ri);
-	public:
-		virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-		virtual bool init(const Config &cfg, otable &t);
-		virtual const std::string &name() const { static std::string s("ugriz"); return s; }
-
-		os_ugriz() : osink()
-		{
-			prov.insert("SDSSugriz[5]");
-			req.insert("SDSSr");
-			req.insert("absSDSSr");
-			req.insert("FeH");
-		}
-};
-
-float os_ugriz::grFeH2ug(float gr, float FeH)
-{
-	double y = gr;
-
-	// TODO: we don't know how to set u band for g-r > 0.6
-	// so if g-r > 0.6, just set it to 0.6 for now
-	if(y > 0.6) {
-		y = 0.6;
-	}
-
-	//// DR7 best-fit values
-	// fitParabola23mixed:
-	// ABCDEFGHI = -13.12526674 14.09473031 28.03659028
-	//              -5.505543181 -5.902217618 -58.6842534
-	//               9.135926568 -20.60655771 58.19755486
-	//   differences are in the range -0.7295560609 to 0.4241155876
-	//   mean = 7.66452796e-10, rms = 0.08717628066
-	// this rounded up version returns metallicity
-	// within 0.001 and with rms=0.062 min/max=-0.32/0.32
-	// from the training sample
-	const static double A = -13.13;
-	const static double B =  14.09;
-	const static double C =  28.04;
-	const static double D =  -5.51;
-	const static double E =  -5.90;
-	const static double F = -58.68;
-	const static double G =   9.14;
-	const static double H = -20.61;
-	const static double I =  58.20;
-
-	const double y2 = y*y, y3 = y2*y;
-	const double a = E + G * y;
-	const double b = B + D * y + H * y2;
-	const double c = A + C * y + F * y2 + I * y3 - FeH;
-	double x0, x1;
-	if(gsl_poly_solve_quadratic(a, b, c, &x0, &x1) == 0)
-	{
-	
-		std::stringstream ss; ss << "Could not find roots for ug given FeH=" << FeH << " and gr=" << gr;
-		MLOG(verb2) << ss.str();
-		x0 = x1 = 1.;
-		//THROW(EAny, ss.str());
-	}
-
-	bool x0q = 0.5 < x0 && x0 < 1.8;
-	bool x1q = 0.5 < x1 && x1 < 1.8;
-	if(x0q == x1q) {
-		if(x0q) { DLOG(verb3) << "WARNING: Real u-g root ambiguous: x0,x1 = " << x0 << ", " << x1; }
-		else    { DLOG(verb3) << "WARNING: Both roots probably wrong: x0,x1 = " << x0 << ", " << x1; }
-		x0q = fabs(x0 - 1.05) < fabs(x1 - 1.05) ? true : false;	// return the one closer to 1.05
-		x1q = !x0q;
-	}
-	return x0q ? x0 : x1;
-#if 0
-	// add Gaussian noise
-	randomizeG Zraw 0 0.1 $3
-	unset Zraw
-#endif
-}
-
-void os_ugriz::Mr2gi_build(const std::string &gi2Mr_str)
-{
-	if(0) {
-		// coefficients of Mr(g-i) relation
-		// double coeff[] = {-0.56, 14.32, -12.97, 6.127, -1.267, 0.0967};
-		std::string fn = datadir() + "/gi2Mr.FeH=0.txt";
-		FILE_EXISTS_OR_THROW(fn);
-		MLOG(verb2) << "Mr2gi locus: " << fn;
-
-		text_input_or_die(f, fn);
-		std::vector<double> gi, Mr;
-		load(f, gi, 0, Mr, 1);
-		Mr2gi.construct(Mr, gi);
-	} else {
-		std::vector<double> giarr, Mrarr, gi2Mr;
-		split(gi2Mr, gi2Mr_str);
-		for(double gi=-0.5; gi <= 5.; gi+=0.01)
-		{
-			double Mr = gsl_poly_eval(&gi2Mr[0], gi2Mr.size(), gi);
-			Mrarr.push_back(Mr);
-			giarr.push_back(gi);
-		}
-		Mr2gi.construct(Mrarr, giarr);
-
-		MLOG(verb2) << "Constructed gi(Mr) using Mr(gi) coeffs = " << gi2Mr;
-	}
-}
-
-float os_ugriz::MrFeH2gi(float Mr, float FeH)
-{
-	// offset due to metallicity
-//	double FeHDelta = FeH*(-1.11 - 0.18*FeH);
-	double FeHDelta = gsl_poly_eval(&FeHDeltaC[0], FeHDeltaC.size(), FeH);
-
-	return Mr2gi(Mr - FeHDelta);
-}
-void os_ugriz::gi2ri_build()
-{
-	std::string fn = datadir() + "/gi2ri.spline.txt";
-	FILE_EXISTS_OR_THROW(fn);
-	MLOG(verb2) << "gi2ri locus: " << fn;
-
-	text_input_or_die(f, fn);
-	std::vector<double> gi, ri;
-	load(f, gi, 0, ri, 1);
-	gi2ri.construct(gi, ri);
-}
-float os_ugriz::ri2iz(float ri)
-{
-	return 0.53*ri;
-}
-
-size_t os_ugriz::push(sstruct *&in, const size_t count, gsl_rng *rng)
-{
-	// ASSUMPTIONS:
-	//	- Fe/H exists in input
-	//	- paralax returns the absolute magnitude in SDSS r band
-	//	- all stars are main sequence
-	for(size_t i=0; i != count; i++)
-	{
-		sstruct &s = in[i];
-
-		// calculate magnitudes, absolute magnitudes and distance
-		const double Mr = s.absSDSSr();
-		const float FeH = s.FeH();
-
-		// construct SDSS colors given the absolute magnitude and metallicity
-		float gi = MrFeH2gi(Mr, FeH);
-		float ri = gi2ri(gi);
-		float gr = gi - ri;
-		float ug = grFeH2ug(gr, FeH);
-		float iz = ri2iz(ri);
-
-		// convert colors to apparent magnitudes
-		float r  = s.SDSSr();
-		float *mags = s.SDSSugriz();
-		mags[0] = ug + gr + r;
-		mags[1] = gr + r;
-		mags[2] = r;
-		mags[3] = r - ri;
-		mags[4] = r - ri - iz;
-	}
-
-	return nextlink->push(in, count, rng);
-}
-
-bool os_ugriz::init(const Config &cfg, otable &t)
-{
-	std::string gi2Mr_str, FeH2dMr_str;
-	cfg.get(gi2Mr_str,   "gi2Mr",   "-0.56 14.32 -12.97 6.127 -1.267 0.0967");
-	cfg.get(FeH2dMr_str, "FeH2dMr", "0.0 -1.11 -0.18");
-
-	split(FeHDeltaC, FeH2dMr_str);
-	MLOG(verb2) << "DeltaMr(Fe/H) coeffs = " << FeHDeltaC;
-
-	Mr2gi_build(gi2Mr_str);
-	gi2ri_build();
-
-	return true;
-}
-#endif
 
 
 /////////////////////////////////////////////////////////////

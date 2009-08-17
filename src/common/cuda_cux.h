@@ -287,7 +287,10 @@ namespace xptrng
 		~xptr_impl_t();
 
 		// aux methods
-		operator bool() const { return m_data.extent[0] == 0; }
+		operator bool() const					// true if the pointer is considered non-null (effectively defines what non-null means)
+		{
+			return m_data.extent[0] != 0;
+		}
 		uint32_t memsize() const				// number of bytes allocated
 		{
 			uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
@@ -394,7 +397,7 @@ namespace xptrng
 		// comparisons/tests
  		operator bool() const			// return true if this is not a null pointer
  		{
- 			return *m_impl;
+ 			return (bool)(*m_impl);
  		}
 
 		// host data accessors (note: use hptr<> interface if possible, for speed)

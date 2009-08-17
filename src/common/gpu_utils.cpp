@@ -232,7 +232,11 @@ cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 // texture access
 void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
 {
-	cuxErrCheck( cudaBindTextureToArray(&texref, getCUDAArray(texref.channelDesc), &texref.channelDesc) );
+	cudaArray *cuArray = getCUDAArray(texref.channelDesc);
+//	if(texref.channelDesc.y == 0)
+	{
+		cuxErrCheck( cudaBindTextureToArray(&texref, cuArray, &texref.channelDesc) );
+	}
 	boundTextures.insert(&texref);
 
 //	gc(); // agressive garbage collection while debugging
@@ -240,7 +244,10 @@ void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
 
 void xptrng::xptr_impl_t::unbind_texture(textureReference &texref)
 {
-	cudaUnbindTexture(&texref);
+//	if(texref.channelDesc.y == 0)
+	{
+		cudaUnbindTexture(&texref);
+	}
 	boundTextures.erase(&texref);
 
 //	gc(); // agressive garbage collection while debugging

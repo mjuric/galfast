@@ -32,6 +32,7 @@ struct os_FeH_data
 {
 	float A[2], sigma[3], offs[3];
 	float Hmu, muInf, DeltaMu;
+	int comp_thin, comp_thick, comp_halo;
 };
 
 struct os_photometry_data
@@ -39,6 +40,7 @@ struct os_photometry_data
 	int ncolors, bidx;
 	float FeH0, dFeH;
 	float Mr0, dMr;
+	uint32_t comp0, comp1;	// component ID range [comp0, comp1) to which this photometry module will be asigning magnitudes
 };
 
 struct os_vel2pm_data
@@ -68,7 +70,7 @@ struct farray5
 		} 
 };
 
-static const int BahcallSoneira_model_THIN = 0, BahcallSoneira_model_THICK = 1, BahcallSoneira_model_HALO = 2;
+// static const int BahcallSoneira_model_THIN = 0, BahcallSoneira_model_THICK = 1, BahcallSoneira_model_HALO = 2;
 
 struct iarray5
 {
@@ -103,12 +105,13 @@ struct i8array5
 };
 
 struct os_kinTMIII_data
-{	
-		float fk, DeltavPhi;
-		farray5 	vPhi1, vPhi2, vR, vZ,
-			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
-			HvPhi, HvR, HvZ,
-			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
+{
+	int comp_thin, comp_thick, comp_halo;
+	float fk, DeltavPhi;
+	farray5 	vPhi1, vPhi2, vR, vZ,
+		sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
+		HvPhi, HvR, HvZ,
+		HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
 };
 
 namespace peyton { namespace system { class Config; }};

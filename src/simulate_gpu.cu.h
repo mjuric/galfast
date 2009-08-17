@@ -55,19 +55,9 @@ KERNEL(
 	rng.load(tid);
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-//		FeH[row] = -((threadID() % 300) / 100.f);
-// 		float temp = -rng.uniform();
-// 		FeH[row] = temp;
-// 		continue; 
-
-//		feh = -comp[row]; FeH[row] = feh; continue;
 		float feh;
 		int component = comp(row);
-#if 1
-/*		if (component==0) //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-			feh=0;
-		else*/
-		if(component < 2)
+		if(component == par.comp_thin || component == par.comp_thick)
 		{
 			// choose the gaussian to draw from
 			float p = rng.uniform()*(par.A[0]+par.A[1]);
@@ -80,44 +70,20 @@ KERNEL(
 			// draw
 			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
 		}
-		else if(component == 2)
+		else if(component == par.comp_halo)
 		{
 			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
 		}
 		else
 		{
-			feh = -9999.f;
+			// do nothing (assuming some other module will set Fe/H for this component)
+			feh = -100.f;
 		}
-#else
-		/*
-			This chunk of code appears to compile incorrectly with CUDA 2.1 nvcc (V0.2.1221).
-			Expected result of running with below: feh=1 when comp=1, 0 otherwise.
-			Actual result: feh=comp when comp=1,2
-		*/
-		feh = float(component);
-		//FeH[row] = feh;
-		//continue;
-		switch(component)
+
+		if(feh != -100.f)
 		{
-/*			case 2: //BahcallSoneira_model::HALO:
-				feh = -2.f;
-				break;*/
-			case 3: // BahcallSoneira_model::THIN:
-				feh = -3.0f;
-				break;
-			case 1: // BahcallSoneira_model::THICK:
-				feh = component-1;
-				break;
-			case 4: // BahcallSoneira_model::THIN:
-				feh = -4.0f;
-				break;
-/*			default:
-				//THROW(ENotImplemented, "We should have never gotten here");
-				feh = -9.f;
-				break;*/
+			FeH(row) = feh;
 		}
-#endif
-		FeH(row) = feh;
 	}
 	rng.store(threadID());
 }
@@ -559,17 +525,13 @@ KERNEL(
 // 		printf("%d %d %d R=%f Z=%f\n", tid, (int)row, component, sqrtf(Rsquared), Z);
 // #endif
 
-		switch(component) 
+		if(component == par.comp_thin || component == par.comp_thick)
 		{
-			case BahcallSoneira_model_THIN:
-			case BahcallSoneira_model_THICK:
-				get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
-				break;
-			case BahcallSoneira_model_HALO:		
-				get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans, haloEllip);
-				break;
-			//default:
-				//THROW(ENotImplemented, "We should have never gotten here");
+			get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
+		}
+		else if(component == par.comp_halo)
+		{
+			get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans, haloEllip);
 		}
 		vcyl(row, 0) = tmp[0];
 		vcyl(row, 1) = tmp[1];
@@ -739,9 +701,9 @@ __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo al
 
 KERNEL(
 	ks, 3*4,
-	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, multiplesAlgorithms::algo algo),
+	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, uint32_t comp0, uint32_t comp1, multiplesAlgorithms::algo algo),
 	os_unresolvedMultiples_kernel,
-	(ks, rng, nabsmag, M, Msys, ncomp, algo)
+	(ks, rng, nabsmag, M, Msys, ncomp, comp, comp0, comp1, algo)
 )
 {
 	/*
@@ -752,6 +714,9 @@ KERNEL(
 	rng.load(threadID());
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		int cmp = comp(row);
+		if(comp0 > cmp || cmp >= comp1) { continue; }
+
 		float M1 = M(row);
 		Msys(row, 0) = M1;
 		float Ltot = exp10f(-0.4f*M1);
@@ -792,10 +757,10 @@ texture<float4, 2, cudaReadModeElementType> color0(false, cudaFilterModeLinear, 
 texture<float4, 2, cudaReadModeElementType> color1(false, cudaFilterModeLinear, cudaAddressModeClamp);
 texture<float4, 2, cudaReadModeElementType> color2(false, cudaFilterModeLinear, cudaAddressModeClamp);
 texture<float4, 2, cudaReadModeElementType> color3(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags0(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags1(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags2(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags3(false, cudaFilterModeLinear, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags0(false, cudaFilterModePoint, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags1(false, cudaFilterModePoint, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags2(false, cudaFilterModePoint, cudaAddressModeClamp);
+texture<uint4, 2, cudaReadModeElementType> cflags3(false, cudaFilterModePoint, cudaAddressModeClamp);
 
 texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color1, &color2, &color3 };
 texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
@@ -871,6 +836,16 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 	size_t width  = (*loc)[0].width();
 	size_t height = (*loc)[0].height();
 
+	//
+	// Optimization strategy for (Mr,FeH)->{colors} lookup
+	//
+	// Since the cost of a texture fetch of float4 is equal to that of just a float
+	// we pack up to four colors into a single float4 texture, instead of having each
+	// (Mr, FeH)->color mapping in a separate texture.
+	//
+	// The packed textures are built on first use, and are cached across subsequent
+	// kernel calls.
+	//
 	xptrng::xptr<float4> texc;
 	xptrng::xptr<uint4>  texf;
 	int texid = 0;
@@ -878,7 +853,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 	{
 		// Get the pre-built arrays cached across kernel calls
 		char idx[50];
-		sprintf(idx, "%s%d", id, i);
+		snprintf(idx, 50, "%s%d", id, i);
 		os_photometry_tex_get(idx, texc, texf);
 		if(!texc || !texf)
 		{
@@ -943,6 +918,31 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 	}
 #endif
 }
+
+// Unbind photometry textures
+void os_photometry_cleanup_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs)
+{
+#if HAVE_CUDA
+	activeDevice dev(gpuExecutionEnabled("os_photometry_kernel")? 0 : -1);
+	if(gpuGetActiveDevice() < 0) { return; }
+
+	xptrng::xptr<float4> texc;
+	xptrng::xptr<uint4>  texf;
+	int texid = 0;
+	for(int i=0; i < loc->size(); i += 4)
+	{
+		char idx[50];
+		snprintf(idx, 50, "%s%d", id, i);
+		os_photometry_tex_get(idx, texc, texf);
+
+		texc.unbind_texture( *colorTextures[texid]);
+		texf.unbind_texture(*cflagsTextures[texid]);
+
+		texid++;
+	}
+#endif
+}
+
 #endif
 
 typedef cfloat_t::gpu_t gcfloat;
@@ -954,14 +954,18 @@ typedef cint_t::gpu_t gcint;
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH),
+	os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp),
 	os_photometry_kernel,
-	(ks, lt, flags, DM, Mr, nabsmag, mags, FeH)
+	(ks, lt, flags, DM, Mr, nabsmag, mags, FeH, comp)
 )
 {
 	float *c = ks.sharedMemory<float>();
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		// should we process this star (based on the galactic model component it belongs to)?
+		int cmp = comp(row);
+		if(lt.comp0 > cmp || cmp >= lt.comp1) { continue; }
+
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH(row);
 		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
@@ -977,6 +981,14 @@ KERNEL(
 			if(syscomp) { flag &= flags(row); }
 			flags(row) = flag;
 
+#if __DEVICE_EMULATION__
+		if(row == 0)
+		{
+			for(int i=0; i != lt.ncolors; i++) { fprintf(stderr, "FeH=%f Mr=%f c[%d] = %f\n", fFeH, fMr, i, c[i]); }
+//			for(int i=0; i != lt.ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
+//			exit(0);
+		}
+#endif
 			// compute absolute magnitudes in different bands, and store
 			// as luminosity
 			for(int b = 0; b <= lt.ncolors; b++)
@@ -999,12 +1011,5 @@ KERNEL(
 			float mtot = dm + Mtot;
 			mags(row, b) = mtot;
 		}
-
-/*		if(row == 30)
-		{
-			for(int i=0; i != lt.ncolors; i++) { std::cerr << "c[" << i << "]=" << c[i] << "\n"; }
-			for(int i=0; i != lt.ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
-			exit(0);
-		}*/
 	}
 }

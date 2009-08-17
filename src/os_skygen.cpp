@@ -142,6 +142,11 @@ void expModel::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	// cutoff radius (default: 1Mpc)
 	cfg.get(r_cut2,  "rcut",   1e6f);
 	r_cut2 *= r_cut2;
+
+	// component IDs
+	cfg.get(comp_thin,  "comp_thin",  0);
+	cfg.get(comp_thick, "comp_thick", 1);
+	cfg.get(comp_halo,  "comp_halo",  2);
 }
 
 void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)

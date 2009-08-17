@@ -92,8 +92,7 @@ void farray_to_i8array(farray5& fa, i8array5& ia)
 
 extern os_kinTMIII_data os_kinTMIII_par;
 
-DECLARE_KERNEL(
-	os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl))
+DECLARE_KERNEL(os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl))
 size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -104,32 +103,6 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cint_t   &comp  = in.col<int>("comp");
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &vcyl   = in.col<float>("vcyl");
-
-// 	os_kinTMIII_data_int par_int;
-// 	
-// 	farray_to_iarray(vR, par_int.vR);
-//     farray_to_iarray(vPhi1, par_int.vPhi1);
-//     farray_to_iarray(vZ, par_int.vZ);
-//     farray_to_iarray(sigmaRR, par_int.sigmaRR);
-//     farray_to_iarray(sigmaRPhi, par_int.sigmaRPhi);
-//     farray_to_iarray(sigmaRZ, par_int.sigmaRZ);
-//     farray_to_iarray(sigmaPhiPhi1, par_int.sigmaPhiPhi1);
-//     farray_to_iarray(sigmaPhiPhi2, par_int.sigmaPhiPhi2);
-//     farray_to_iarray(sigmaZPhi, par_int.sigmaZPhi);
-//     farray_to_iarray(sigmaZZ, par_int.sigmaZZ);
-// 
-// 	farray_to_i8array(HvR, par_int.HvR);
-// 	farray_to_i8array(HvPhi, par_int.HvPhi);
-// 	farray_to_i8array(HvZ, par_int.HvZ);
-// 	farray_to_i8array(HsigmaRR, par_int.HsigmaRR);
-// 	farray_to_i8array(HsigmaRPhi, par_int.HsigmaRPhi);
-// 	farray_to_i8array(HsigmaRZ, par_int.HsigmaRZ);
-// 	farray_to_i8array(HsigmaPhiPhi, par_int.HsigmaPhiPhi);
-// 	farray_to_i8array(HsigmaZPhi, par_int.HsigmaZPhi);
-// 	farray_to_i8array(HsigmaZZ, par_int.HsigmaZZ);
-// 
-// 	par_int.fk=fk;
-// 	par_int.DeltavPhi=DeltavPhi;
 
 #if HAVE_CUDA
 	{
@@ -152,15 +125,20 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 
 bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	// Component IDs
+	cfg.get(comp_thin,  "comp_thin",  0);
+	cfg.get(comp_thick, "comp_thick", 1);
+	cfg.get(comp_halo,  "comp_halo",  2);
+
 	cfg.get(fk           , "fk"           , 3.0f);
 	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0f);
 	fk = fk / (1. + fk);	// renormalize to probability of drawing from the first gaussian
 
 	typedef std::vector<float> fvec;
-		fvec 	vPhi1_fvec, vPhi2_fvec, vR_fvec, vZ_fvec,
-			sigmaPhiPhi1_fvec, sigmaPhiPhi2_fvec, sigmaRR_fvec, sigmaZZ_fvec, sigmaRPhi_fvec, sigmaZPhi_fvec, sigmaRZ_fvec,
-			HvPhi_fvec, HvR_fvec, HvZ_fvec,
-			HsigmaPhiPhi_fvec, HsigmaRR_fvec, HsigmaZZ_fvec, HsigmaRPhi_fvec, HsigmaZPhi_fvec, HsigmaRZ_fvec;
+	fvec 	vPhi1_fvec, vPhi2_fvec, vR_fvec, vZ_fvec,
+		sigmaPhiPhi1_fvec, sigmaPhiPhi2_fvec, sigmaRR_fvec, sigmaZZ_fvec, sigmaRPhi_fvec, sigmaZPhi_fvec, sigmaRZ_fvec,
+		HvPhi_fvec, HvR_fvec, HvZ_fvec,
+		HsigmaPhiPhi_fvec, HsigmaRR_fvec, HsigmaZZ_fvec, HsigmaRPhi_fvec, HsigmaZPhi_fvec, HsigmaRZ_fvec;
 
 	cfg.get(vR_fvec           , "vR"           , split_fvec("0 0 0 0 0"));	
 	cfg.get(vPhi1_fvec        , "vPhi"         , split_fvec("-194 19.2 1.25 0 0"));	
@@ -174,15 +152,15 @@ bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(sigmaZZ_fvec      , "sigmaZZ"      , split_fvec("25 4 1.5 0 0"));	
 
 	fvecToFarray(vR_fvec, vR);
-    fvecToFarray(vPhi1_fvec, vPhi1);
-    fvecToFarray(vZ_fvec, vZ);
-    fvecToFarray(sigmaRR_fvec, sigmaRR);
-    fvecToFarray(sigmaRPhi_fvec, sigmaRPhi);
-    fvecToFarray(sigmaRZ_fvec, sigmaRZ);
-    fvecToFarray(sigmaPhiPhi1_fvec, sigmaPhiPhi1);
-    fvecToFarray(sigmaPhiPhi2_fvec, sigmaPhiPhi2);
-    fvecToFarray(sigmaZPhi_fvec, sigmaZPhi);
-    fvecToFarray(sigmaZZ_fvec, sigmaZZ);	
+	fvecToFarray(vPhi1_fvec, vPhi1);
+	fvecToFarray(vZ_fvec, vZ);
+	fvecToFarray(sigmaRR_fvec, sigmaRR);
+	fvecToFarray(sigmaRPhi_fvec, sigmaRPhi);
+	fvecToFarray(sigmaRZ_fvec, sigmaRZ);
+	fvecToFarray(sigmaPhiPhi1_fvec, sigmaPhiPhi1);
+	fvecToFarray(sigmaPhiPhi2_fvec, sigmaPhiPhi2);
+	fvecToFarray(sigmaZPhi_fvec, sigmaZPhi);
+	fvecToFarray(sigmaZZ_fvec, sigmaZZ);
 
 	cfg.get(HvR_fvec          , "HvR"          , split_fvec("0 0 0 0 0"));	
 	cfg.get(HvPhi_fvec        , "HvPhi"        , split_fvec("0 0 0 0 0"));	
@@ -207,7 +185,9 @@ bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
  	vPhi2 = vPhi1;
  	vPhi2[0] += DeltavPhi;
 
-	// some info
+	// Output model parameters
+	MLOG(verb2) << "Component IDs (thn, thk, hl): " << comp_thin << " " << comp_thick << " " << comp_halo;
+	
 	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
 	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;
 

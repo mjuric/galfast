@@ -203,11 +203,9 @@ struct ALIGN(16) expModel
 	float r_cut2;
 	afloat2 lf;
 
+	int comp_thin, comp_thick, comp_halo;
+
 	// Management functions
-/*	void setmodel(float l_, float h_, float z0_, float f_, float lt_, float ht_, float fh_, float q_, float n_)
-	{
-		l = l_; h = h_; z0 = z0_; f = f_; lt = lt_; ht = ht_; fh = fh_; q = q_; n = n_;
-	}*/
 	void load(host_state_t &hstate, const peyton::system::Config &cfg);
 	void prerun(host_state_t &hstate, bool draw);
 	void postrun(host_state_t &hstate, bool draw);
@@ -276,9 +274,9 @@ public:
 		return phi * s.rho;
 	}
 
-	static const int THIN  = 0;
+/*	static const int THIN  = 0;
 	static const int THICK = 1;
-	static const int HALO  = 2;
+	static const int HALO  = 2;*/
 	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
 	{
 		float r = sqrtf(x*x + y*y);
@@ -292,9 +290,9 @@ public:
 		float pthick = (thin + thick) / rho;
 
 		float u = rng.uniform();
-		if(u < pthin) { return THIN; }
-		else if(u < pthick) { return THICK; }
-		else { return HALO; }
+		if(u < pthin) { return comp_thin; }
+		else if(u < pthick) { return comp_thick; }
+		else { return comp_halo; }
 	}
 #endif
 };
@@ -305,7 +303,22 @@ public:
 texture<float, 1, cudaReadModeElementType> expDiskLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
 #endif
 
-struct ALIGN(16) expDisk
+// these must be overloaded by models
+struct modelConcept
+{
+	struct host_state_t {};
+	struct state {};
+
+	void load(host_state_t &hstate, const peyton::system::Config &cfg);
+	void prerun(host_state_t &hstate, bool draw);
+	void postrun(host_state_t &hstate, bool draw);
+
+	__device__ void setpos(state &s, float x, float y, float z) const;
+	__device__ float rho(state &s, float M) const;
+	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const;
+};
+
+struct ALIGN(16) expDisk : public modelConcept
 {
 public:
 	struct ALIGN(16) host_state_t
@@ -317,7 +330,7 @@ protected:
 	float f, l, h, z0;
 	float r_cut2;
 
-	// luminosity function
+	// luminosity function texture coordinates
 	afloat2 lf;
 
 	int comp;

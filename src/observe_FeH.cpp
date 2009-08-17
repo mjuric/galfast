@@ -141,7 +141,13 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(sigma[2], "sigmaH",  0.30f);
 	cfg.get(offs[2],  "offsH",  -1.46f);
 
+	// Component IDs
+	cfg.get(comp_thin,  "comp_thin",  0);
+	cfg.get(comp_thick, "comp_thick", 1);
+	cfg.get(comp_halo,  "comp_halo",  2);
+
 	// Output model parameters
+	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< comp_thin << " " << comp_thick << " " << comp_halo;
 	MLOG(verb2) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
 	MLOG(verb2) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];
 	MLOG(verb2) << "Disk offsets          (offs[0], offs[1]): "<< offs[0] << " " << offs[1];
@@ -187,9 +193,7 @@ bool os_unresolvedMultiples::runtime_init(otable &t)
 	const std::string &absmag = col.getPrimaryName();
 	absmagSys = absmag + "Sys";
 	std::string band = col.get_property("band");
-	std::string absmagSysDef = absmagSys + "[2]{class=magnitude;alias=absmagSys;band=" + band + ";"
-//		+ "fieldNames=0:" + absmag + "1,1:" + absmag + "2;}";
-		+ "fieldNames=0:M1,1:M2;}";
+	std::string absmagSysDef = absmagSys + "[2]{class=magnitude;alias=absmagSys;band=" + band + ";fieldNames=0:M1,1:M2;}";
 	t.use_column(absmagSysDef);
 
 	// number of components present
@@ -199,18 +203,19 @@ bool os_unresolvedMultiples::runtime_init(otable &t)
 	return true;
 }
 
-DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, multiplesAlgorithms::algo algo));
+DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, uint32_t comp0, uint32_t comp1, multiplesAlgorithms::algo algo));
 size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
+	cint_t   &comp  = in.col<int>("comp");
 	cfloat_t &M     = in.col<float>("absmag");
 	cfloat_t &Msys  = in.col<float>(absmagSys);
 	cint_t   &ncomp = in.col<int>(absmagSys+"Ncomp");
 
-	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, algo);
+	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, comp0, comp1, algo);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -220,6 +225,10 @@ DECLARE_TEXTURE(invCumLF);
 
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	// range of model components onto which this model should apply
+	cfg.get(comp0, "comp0", 0U);
+	cfg.get(comp1, "comp1", 0xffffffff);
+
 	std::string LFfile, binaryFractionFile, strAlgo;
 	cfg.get(LFfile, "lumfunc", "");
 	cfg.get(binaryFractionFile, "fraction_file", "");

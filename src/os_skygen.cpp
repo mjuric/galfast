@@ -34,38 +34,6 @@
 
 /***********************************************************************/
 
-#if 0
-lfParams lfTextureManager::loadConstant(float val)
-{
-	const int nlf = 2;
-	float lfp[nlf] = { val, val };
-	float lfM0 = -100, lfM1 = 100, lfdM = (lfM1 - lfM0) / (nlf-1);
-	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
-}
-
-lfParams lfTextureManager::load(const char *fn)
-{
-	// load the luminosity function and normalize to m.rho0.
-	// rho0 is assumed to contain the number of stars per cubic parsec
-	// per 1mag of r-i
-	text_input_or_die(lfin, fn);
-	std::vector<double> M, phi;
-	::load(lfin, M, 0, phi, 1);
-	spline lf;
-	lf.construct(M, phi);
-
-	// resample the LF to texture
-	const int nlf = 1024;
-	std::vector<float> lfp(nlf);
-	float lfM0 = M.front(), lfM1 = M.back(), lfdM = (lfM1 - lfM0) / (nlf-1);
-	for(int i=0; i != nlf; i++)
-	{
-		lfp[i] = lf(lfM0 + i*lfdM);
-	}
-	return set(&lfp[0], nlf, lfM0, lfM1, lfdM);
-}
-#endif
-
 xptrng::xptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
 {
 #if 1
@@ -690,8 +658,6 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 
 ////////////////////////////////////////////////////////////////////////////
 
-//void makeHemisphereMaps(gpc_polygon &nsky, gpc_polygon &ssky, peyton::math::lambert &sproj, const peyton::math::lambert &nproj, gpc_polygon allsky, Radians dx, Radians margin);
-//gpc_polygon clip_zone_of_avoidance(gpc_polygon &sky, double bmin, const peyton::math::lambert &proj);
 std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_polygon> &foot, const peyton::math::lambert &proj, Radians dx);
 
 const os_clipper &os_skygen::load_footprints(const std::string &footprints, float dx, opipeline &pipe)
@@ -709,7 +675,6 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 
 	// Project the footprint onto north/south hemispheres
 	peyton::math::lambert proj(rad(90), rad(90));
-//	peyton::math::lambert proj(rad(33), rad(22));
 	std::pair<gpc_polygon, gpc_polygon> sky = project_to_hemispheres(foot, proj, dx);
 
 	// setup clipper for the footprint
@@ -737,6 +702,15 @@ skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 
 int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper)
 {
+	// projections the pixels are bound to
+	std::vector<std::pair<double, double> > lb0;	// projection poles
+	int nproj = clipper.getProjections(lb0);
+	assert(nproj == 2);
+	for(int i=0; i != lb0.size(); i++)
+	{
+		sc.proj[i].init(lb0[i].first, lb0[i].second);
+	}
+
 	// prepare the skypixels to be processed by subsequently loaded models
 	std::vector<os_clipper::pixel> pix;
 	sc.npixels = clipper.getPixelCenters(pix);
@@ -745,16 +719,7 @@ int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model
 	{
 		os_clipper::pixel &p = pix[i];
 		float coveredFraction = p.coveredArea / p.pixelArea;
-		skypixels[i] = skypixel(p.l, p.b, p.projIdx, sqrt(p.pixelArea), coveredFraction);
-	}
-
-	// projections the pixels are bound to
-	std::vector<std::pair<double, double> > lb0;	// projection poles
-	int nproj = clipper.getProjections(lb0);
-	assert(nproj == 2);
-	for(int i=0; i != lb0.size(); i++)
-	{
-		sc.proj[i].init(lb0[i].first, lb0[i].second);
+		skypixels[i] = skypixel(p.l, p.b, p.X, p.Y, p.projIdx, sqrt(p.pixelArea), coveredFraction);
 	}
 
 	// Load density model configurations, instantiate
@@ -813,10 +778,250 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 	t.use_column("DM");
 }
 
+//
+// Return texcoord that will map x to imgx and y to imgy
+//
+float2 texcoord_from_range(float imgx, float imgy, float x, float y)
+{
+	float2 tc;
+
+	tc.x = (-imgy * x + imgx * y)/(imgx - imgy);
+	tc.y = (imgx - imgy) / (x - y);
+
+	return tc;
+}
+
+#if HAVE_LIBCFITSIO
+#include "fitsio2.h"
+
+void FITS_ERRCHECK(const std::string &h, int s)
+{
+	if((s) != 0)
+	{
+		char errmsg[160];
+		std::ostringstream ss;
+		ss << h << "\n";
+		ss << "CFITSIO: ";
+		bool first = true;
+		while(fits_read_errmsg(errmsg))
+		{
+			if(!first) { ss << "         "; }
+			ss << errmsg << "\n";
+			first = false;
+		}
+		THROW(EAny, ss.str());
+	}
+}
+
+float read_fits_key(fitsfile *fptr, const std::string &key, const std::string &fn, int *status_out = NULL)
+{
+	float ret;
+	int status = 0;
+	fits_read_key(fptr, TFLOAT, (char*)key.c_str(), &ret, NULL, &status);
+	if(status_out)
+		*status_out = status;
+	else
+		FITS_ERRCHECK("Error reading " + key + " key.", status);
+	return ret;
+}
+
+float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *status_out = NULL)
+{
+	// read the mapping from pixels to coordinates from FITS header
+	// This is stored in old-style CRPIXn CRVALn CDELTn keys (see
+	// http://www.aanda.org/index.php?option=article&access=bibcode&bibcode=2002A%2526A...395.1061GPDF
+	// for details)
+	float imgx, x, dx, dummy;
+
+	imgx = read_fits_key(fptr, "CRPIX" + str(n), fn, status_out) - 1; // -1 because of the FITS vs. C indexing convention
+	if(status_out && *status_out) { float2 tc; return tc; }
+
+	   x = read_fits_key(fptr, "CRVAL" + str(n), fn);
+	  dx = read_fits_key(fptr, "CDELT" + str(n), fn);
+
+	int status;
+	fits_read_key(fptr, TFLOAT, (char*)("CROTA" + str(n)).c_str(), &dummy, NULL, &status);
+	if(status != KEY_NO_EXIST)
+	{
+		THROW(EAny, "Axis rotations not supported (CROTA" + str(n) + " keyword present in " + fn + ")");
+	}
+
+	float2 tc = {x - imgx * dx, 1.f/dx};
+	return tc;
+}
+
+/*
+	Generating a test extinction cube in IDL:
+	=========================================
+
+	arr = findgen(20, 30, 40)
+	dim = size(arr)
+
+	mkhdr, hdr, arr
+
+	sxaddpar, hdr, 'CRPIX1',  1, 'Pixel coord'
+	sxaddpar, hdr, 'CRVAL1', -2, 'Lambert coord'
+	sxaddpar, hdr, 'CDELT1', (4.0/(dim[1]-1)), 'Coord increment'
+
+	sxaddpar, hdr, 'CRPIX2',  1, 'Pixel coord'
+	sxaddpar, hdr, 'CRVAL2', -2, 'Lambert coord'
+	sxaddpar, hdr, 'CDELT2', (4.0/(dim[2]-1)), 'Coord increment'
+
+	sxaddpar, hdr, 'CRPIX3',  1, 'Pixel coord'
+	sxaddpar, hdr, 'CRVAL3', -2, 'Distance modulus coord'
+	sxaddpar, hdr, 'CDELT3', (30.0/(dim[3]-1)), 'Coord increment'
+
+	writefits, 'myfile.fits', arr, hdr
+*/
+
+xptr<float> load_extinction_map(const std::string &fn, float2 tc[3])
+{
+	fitsfile *fptr;
+	int status = 0;
+	fits_open_file(&fptr, fn.c_str(), READONLY, &status);
+	FITS_ERRCHECK("Error opening extinction map.", status);
+
+	int bitpix, naxis;
+	long naxes[3];
+	fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+	FITS_ERRCHECK("Error reading extinction map header.", status);
+	if(naxis != 3) { THROW(EAny, "Supplied extinction map file is " + str(naxis) + ", instead of 3-dimensional."); }
+	if(bitpix != FLOAT_IMG) { THROW(EAny, "Supplied extinction map file is not a data cube of 32-bit floats"); }
+
+	xptr<float> img(naxes[0], naxes[1], naxes[2], -1, 1); // allocate a 1-byte aligned floating point 3D cube
+	uint32_t nelem = img.size();
+	long fpixel[3] = { 1, 1, 1 };
+	fits_read_pix(fptr, TFLOAT, fpixel, nelem, NULL, &img(0, 0, 0), NULL, &status);
+	FITS_ERRCHECK("Error reading extinction map.", status);
+
+	// setup texture coordinates
+	tc[0] = texcoord_from_wcs(fptr, 1, fn, &status);
+	if(status == 0)
+	{
+		tc[1] = texcoord_from_wcs(fptr, 2, fn);
+		tc[2] = texcoord_from_wcs(fptr, 3, fn);
+	}
+	else
+	{
+		MLOG(verb1) << "WARNING: Did not find coordinate system keys in " << fn << ", will be using the defaults.";
+		tc[0] = texcoord_from_range(0, img.extent(0)-1, -2,  2);	// X range
+		tc[1] = texcoord_from_range(0, img.extent(1)-1, -2,  2);	// Y range
+		tc[2] = texcoord_from_range(0, img.extent(2)-1, 10, 15);	// DM range
+	}
+
+	fits_close_file(fptr, &status);
+	FITS_ERRCHECK("Error closing extinction map file.", status);
+
+	return img;
+}
+#endif
+
+xptr<float4> resample_extinction_texture(xptr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3]);
+void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3])
+{
+	xptr<float4> res = resample_extinction_texture(tex, tc, crange, npix);
+
+	std::ofstream out(outfn.c_str());
+	FOREACH(res)
+	{
+		float4 v = *i;
+		out << v.x << " " << v.y << " " << v.z << " " << v.w << "\n";
+	}
+}
+
+void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3])
+{
+	float2 tc[3];
+	xptr<float> tex = load_extinction_map(texfn, tc);
+	
+	// compute input texture ranges
+	// autodetect crange and npix if not given
+	float2 irange[3];
+	for(int i = 0; i != 3; i++)
+	{
+		irange[i].x = tc[i].x;
+		irange[i].y = tc[i].x + (tex.extent(i)-1) / tc[i].y;
+
+		if(npix[i] == 0) { npix[i] = tex.extent(i); }
+		if(crange[i].x == crange[i].y) { crange[i] = irange[i]; }
+	}
+
+	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.extent(0) << " pixels)\n";
+	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.extent(1) << " pixels)\n";
+	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.extent(2) << " pixels).\n";
+	MLOG(verb1) << "Output texture : x = [" << crange[0].x << ", " << crange[0].y << "] (" << npix[0] << " pixels)\n";
+	MLOG(verb1) << "               : y = [" << crange[1].x << ", " << crange[1].y << "] (" << npix[1] << " pixels)\n";
+	MLOG(verb1) << "               : z = [" << crange[2].x << ", " << crange[2].y << "] (" << npix[2] << " pixels).\n";
+
+	resample_and_output_texture("northAr.txt", tex, tc, crange, npix);
+
+	MLOG(verb2) << "Resampled.";
+}
+
+void os_skygen::load_extinction_maps(const std::string &econf)
+{
+	if(!econf.size())	// no extinction
+	{
+		xptrng::xptr<float> tex(2, 2, 2);
+		FORj(i, 0, 2) FORj(j, 0, 2) FORj(k, 0, 2)
+			tex(i, j, k) = 0.f;
+		float2 tc = make_float2(-2, 1./4.);
+
+		ext_north = tex; tc_ext_north[0] = tc_ext_north[1] = tc_ext_north[2] = tc;
+		ext_south = tex; tc_ext_south[0] = tc_ext_south[1] = tc_ext_south[2] = tc;
+
+		MLOG(verb2) << "Extinction maps not given, assuming no extinction.";
+
+		return;
+	}
+
+	// load 3D FITS file
+#if HAVE_LIBCFITSIO
+	// econf format: <ext_north.fits> <ext_south.fits> [scaling_factor]
+	std::string northfn, southfn;
+	std::istringstream ss(econf);
+	if(!(ss >> northfn >> southfn))
+	{
+		THROW(EAny, "'<ext_north.fits> <ext_south.fits> [scaling_factor]' format expected for extinction map specification (keyword 'econf')");
+	}
+	float scale = 1.f;
+	ss >> scale;
+
+	ext_north = load_extinction_map(northfn, tc_ext_north);
+	ext_south = load_extinction_map(southfn, tc_ext_south);
+
+	FOREACH(ext_north) { *i *= scale; }
+	FOREACH(ext_south) { *i *= scale; }
+
+	MLOG(verb1) << "Northern sky extinction loaded from " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
+	MLOG(verb1) << "Southern sky extinction loaded from " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
+	MLOG(verb1) << "Values scaled by scale=" << scale << "\n";
+
+#if 1	// debug -- resample the north sky into a text file
+	float2 crange[3];
+	int npix[3];
+	crange[0] = make_float2(-2, 2);
+	crange[1] = make_float2(-2, 2);
+	crange[2] = make_float2(0, 30);
+	npix[0] = 20;
+	npix[1] = 30;
+	npix[2] = 40;
+	resample_and_output_texture("northAr.txt", ext_north, tc_ext_north, crange, npix);
+	abort();
+#endif
+
+#else // HAVE_LIBCFITSIO
+	THROW(EAny, "Cannot load extinction maps from FITS files; recompile with FITS I/O support.");
+#endif // HAVE_LIBCFITSIO
+}
+
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// maximum number of stars skygen is allowed to generate (0 for unlimited)
 	cfg.get(nstarLimit, "nstarlimit", (size_t)100*1000*1000);
+
+	// load extinction volume maps
+	load_extinction_maps(cfg["extinction"]);
 
 	// load PDF/sky pixelization config and prepare the table for output
 	skygenConfig sc;
@@ -832,8 +1037,14 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	return true;
 }
 
+DECLARE_TEXTURE(ext_north, float, 3, cudaReadModeElementType);
+DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
+
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
+	cuxTextureBinder tb_north(::ext_north, ext_north, tc_ext_north);
+	cuxTextureBinder tb_south(::ext_south, ext_south, tc_ext_south);
+
 	size_t nstarsExpected = 0;
 	FOREACH(kernels)
 	{
@@ -907,7 +1118,7 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const		// r
 			x = skymap->x0 + skymap->dx*(i->first.first  + 0.5);
 			y = skymap->y0 + skymap->dx*(i->first.second + 0.5);
 			hemispheres[projIdx].proj.deproject(l, b, x, y);
-			pix.push_back(pixel(l, b, projIdx, i->second.pixelArea, i->second.coveredArea));
+			pix.push_back(pixel(l, b, x, y, projIdx, i->second.pixelArea, i->second.coveredArea));
 		}
 	}
 

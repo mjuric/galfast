@@ -64,7 +64,7 @@ template<typename T, int dim = 1>
 		// Access
 		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 		{
-			return *((T*)((char*)ptr + y * (extent[0] + z * extent[1])) + x);
+			return *((T*)((char*)ptr + y * extent[0] + z * extent[0] * extent[1]) + x);
 		}
 		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
 		{
@@ -277,12 +277,51 @@ namespace xptrng
 		xptr_impl_t *m_impl;
 
 	public:
-		uint32_t elementSize() const { return m_impl->m_elementSize; }	// size of the stored element (typically, sizeof(T))
-		uint32_t width()   const { return m_impl->m_width; }		// logical width of the data array
-		uint32_t height()  const { return m_impl->m_data.extent[1]; }	// logical height of the data array
-		uint32_t depth()   const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
-		uint32_t pitch()   const { return m_impl->m_data.extent[0]; }	// byte width of the data array
-		uint32_t size()    const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
+		// iterator-ish interface (host)
+		struct iterator
+		{
+			xptr<T> *d;
+			uint32_t i, j, k;
+
+			iterator(xptr<T> *d_ = NULL, uint32_t i_ = 0, uint32_t j_ = 0, uint32_t k_ = 0)
+			: d(d_), i(i_), j(j_), k(k_)
+			{}
+
+			T& operator *()  const { return (*d)(i, j, k); }
+			T& operator ->() const { return (*d)(i, j, k); }
+			iterator &operator ++()	// prefix
+			{
+				if(++i >= d->width())
+				{
+					i = 0;
+					if(++j >= d->height())
+					{
+						j = 0;
+						++k;
+					}
+				}
+				return *this;
+			}
+			bool operator==(const iterator &a) const
+			{
+				return a.i == i && a.j == j && a.k == k;
+			}
+			bool operator!=(const iterator &a) const
+			{
+				return !(a == *this);
+			}
+		};
+		iterator begin() { return iterator(this, 0, 0, 0); }
+		iterator end() { return iterator(this, 0, 0, depth()); }
+	public:
+		uint32_t elementSize() const { return m_impl->m_elementSize; }		// size of the stored element (typically, sizeof(T))
+		uint32_t width()       const { return m_impl->m_width; }		// logical width of the data array
+		uint32_t height()      const { return m_impl->m_data.extent[1]; }	// logical height of the data array
+		uint32_t depth()       const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
+		uint32_t pitch()       const { return m_impl->m_data.extent[0]; }	// byte width of the data array
+		uint32_t size()        const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
+		uint32_t extent(int n) const						// logical size (number of elements) of the requested dimension (0=first, 1=second, ...)
+			{ return n == 0 ? width() : m_impl->m_data.extent[n]; }
 
 		xptr(const xptr& t)				// construct a copy of existing pointer
 		{
@@ -308,6 +347,7 @@ namespace xptrng
 			if(copyData)
 			{
 				syncToHost();
+				ret.syncToHost();
 				memcpy(ret.m_impl->m_data.ptr, m_impl->m_data.ptr, m_impl->memsize());
 			}
 			return ret;
@@ -319,19 +359,25 @@ namespace xptrng
  			return (bool)(*m_impl);
  		}
 
-		// host data accessors (note: use hptr<> interface if possible, for speed)
+		// host data accessors (note: use hptr<> interface if maximum speed is needed)
 		T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 		{
+			assert(x < width());
+			assert(y < height());
+			assert(z < depth());
 			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 			return (*(array_ptr<T, 3> *)(&m_impl->m_data))(x, y, z);
 		}
 		T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
 		{
+			assert(x < width());
+			assert(y < height());
 			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 			return (*(array_ptr<T, 2> *)(&m_impl->m_data))(x, y);
 		}
 		T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
 		{
+			assert(x < width());
 			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 			return (*(array_ptr<T, 1> *)(&m_impl->m_data))(x);
 		}
@@ -360,8 +406,9 @@ namespace xptrng
 				return *(gptr<T, dim> *)(&m_impl->m_data);
 			}
 
-		xptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, int elemSize = sizeof(T), uint32_t align = 128)
+		xptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, uint32_t elemSize = 0xffffffff, uint32_t align = 128)
 		{
+			if(elemSize == 0xffffffff) { elemSize = sizeof(T); }
 			m_impl = new xptr_impl_t(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
 		}
 
@@ -419,7 +466,10 @@ using namespace xptrng;
 	the problematic CUDA type. It should be used instead of the CUDA type
 	in structures where this problem may occur.
 */
-struct ALIGN(8) afloat2 : public float2 {};
+struct ALIGN(8) afloat2 : public float2
+{
+	afloat2& operator =(const float2 &a) { (float2&)*this = a; return *this; }
+};
 
 // CPU emulation & management
 template<int dim>
@@ -430,8 +480,32 @@ template<int dim>
 		__host__       float2 &operator[](int i)       { return tc[i]; }
 	};
 
+struct cuxTextureInterface
+{
+	virtual void bind(const void *data_, const float2 *texcoord) = 0;
+	virtual void unbind() = 0;
+};
+
+struct cuxTextureBinder
+{
+	cuxTextureInterface &tex;
+
+	template<typename T>
+	cuxTextureBinder(cuxTextureInterface &tex_, const xptr<T> &data, const float2 *texcoord)
+		: tex(tex_)
+	{
+		tex.bind(&data, texcoord);
+	}
+
+	~cuxTextureBinder()
+	{
+		tex.unbind();
+	}
+};
+
+
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	struct cuxTexture
+	struct cuxTexture : public cuxTextureInterface
 	{
 	public:
 		xptr<T>	data;
@@ -444,7 +518,12 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 		{
 		}
 
-		void bind(const xptr<T> &data_, const afloat2 *texcoord)
+		virtual void bind(const void *xptr_data_, const float2 *texcoord)
+		{
+			bind(*(const xptr<T> *)xptr_data_, texcoord);
+		}
+
+		void bind(const xptr<T> &data_, const float2 *texcoord)
 		{
 			unbind();
 
@@ -455,7 +534,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			data.bind_texture(texref);
 		}
 
-		void unbind()
+		virtual void unbind()
 		{
 			if(!data) { return; }
 
@@ -483,13 +562,31 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 template<typename T, typename Texref>
 	inline __device__ T sample_impl(Texref r, float x, float2 tc)
 	{
-		float xi = (x - tc.x) * tc.y + 0.5;
-		T y = tex1D(r, xi);
-//		T y = 0.01f;
+		float xi = (x - tc.x) * tc.y + 0.5f;
+		T v = tex1D(r, xi);
 #if __DEVICE_EMULATION__
-//		printf("phi=%f\n", y);
+//		printf("phi=%f\n", v);
 #endif
-		return y;
+		return v;
+	}
+
+template<typename T, typename Texref>
+	inline __device__ T sample_impl(Texref r, float x, float y, float2 tcx, float2 tcy)
+	{
+		float xi = (x - tcx.x) * tcx.y + 0.5f;
+		float yi = (y - tcy.x) * tcy.y + 0.5f;
+		T v = tex2D(r, xi, yi);
+		return v;
+	}
+
+template<typename T, typename Texref>
+	inline __device__ T sample_impl(Texref r, float x, float y, float z, float2 tcx, float2 tcy, float2 tcz)
+	{
+		float xi = (x - tcx.x) * tcx.y + 0.5f;
+		float yi = (y - tcy.x) * tcy.y + 0.5f;
+		float zi = (z - tcz.x) * tcz.y + 0.5f;
+		T v = tex3D(r, xi, yi, zi);
+		return v;
 	}
 
 // texture class (GPU and CPU)
@@ -501,12 +598,26 @@ template<typename T, typename Texref>
 	#define DECLARE_TEXTURE(name, T, dim, mode) \
 		DEFINE_TEXTURE(name, T, dim, mode, dummy, dummy, dummy)
 
-	#define TEX1D(name, x) sample(name, x)
+	#define TEX1D(name, x)       sample(name, x)
+	#define TEX2D(name, x, y)    sample(name, x, y)
+	#define TEX3D(name, x, y, z) sample(name, x, y, z)
 
 	template<typename T, enum cudaTextureReadMode mode>
 		inline __device__ T sample(cuxTexture<T, 1, mode> r, float x)
 		{
 			return sample_impl<T, cuxTexture<T, 1, mode> >(r, x, r.tc[0]);
+		}
+
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(cuxTexture<T, 2, mode> r, float x, float y)
+		{
+			return sample_impl<T, cuxTexture<T, 2, mode> >(r, x, y, r.tc[0]);
+		}
+
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(cuxTexture<T, 3, mode> r, float x, float y, float z)
+		{
+			return sample_impl<T, cuxTexture<T, 3, mode> >(r, x, y, z, r.tc[0]);
 		}
 #else
 	// real thing
@@ -515,18 +626,41 @@ template<typename T, typename Texref>
 		__constant__ cuxTexCoords<dim> name##TC; \
 		cuxTexture<T, dim, mode> name##Manager(name, #name "TC")
 
-	#define TEX1D(name, x) sample(name, x, name##TC)
+	#define TEX1D(name, x)       sample(name, x, name##TC)
+	#define TEX2D(name, x, y)    sample(name, x, y, name##TC)
+	#define TEX3D(name, x, y, z) sample(name, x, y, z, name##TC)
 
 	template<typename T, enum cudaTextureReadMode mode>
 		inline __device__ T sample(texture<T, 1, mode> r, float x, float2 tc)
 		{
 			return sample_impl<T, texture<T, 1, mode> >(r, x, tc);
 		}
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 2, mode> r, float x, float y, float2 tcx, float2 tcy)
+		{
+			return sample_impl<T, texture<T, 2, mode> >(r, x, y, tcx, tcy);
+		}
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 3, mode> r, float x, float y, float z, float2 tcx, float2 tcy, float2 tcz)
+		{
+			return sample_impl<T, texture<T, 3, mode> >(r, x, y, z, tcx, tcy, tcz);
+		}
+
 
 	template<typename T, enum cudaTextureReadMode mode>
 		inline __device__ T sample(texture<T, 1, mode> r, float x, cuxTexCoords<1> tc)
 		{
 			return sample(r, x, tc[0]);
+		}
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 2, mode> r, float x, float y, float z, cuxTexCoords<2> tc)
+		{
+			return sample(r, x, y, tc[0], tc[1]);
+		}
+	template<typename T, enum cudaTextureReadMode mode>
+		inline __device__ T sample(texture<T, 3, mode> r, float x, float y, float z, cuxTexCoords<3> tc)
+		{
+			return sample(r, x, y, z, tc[0], tc[1], tc[2]);
 		}
 #endif
 

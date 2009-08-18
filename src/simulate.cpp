@@ -1894,6 +1894,8 @@ void test_pm_conversions()
 	exit(0);
 }
 
+void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3]);
+
 void test_kin();
 void test_tags();
 void test_otable();
@@ -1930,6 +1932,7 @@ try
 		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
 		"postprocess - \tpostprocess the mock catalog (e.g., derive photometry, add instrumental errors, etc.)\n"
 		"  cudaquery - \tquery available cuda devices\n"
+		"       util - \tvarious utilities\n"
 					   );
 	opts.stop_after_final_arg = true;
 	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
@@ -1972,8 +1975,6 @@ try
 	sopts["pdfinfo"]->argument("pdf").bind(pdffile).desc(".pdf.bin file (input)");
 	sopts["pdfinfo"]->add_standard_options();
 
-	sopts["cudaquery"].reset(new Options(argv0 + " cudaquery", progdesc + " Query available CUDA devices.", version, Authorship::majuric));
-
 	bool simpleOutput = true;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Star catalog generation subcommand.", version, Authorship::majuric));
 	sopts["catalog"]->argument("conf").bind(input).desc("Catalog (\"sim\") configuration file (input)");
@@ -1998,6 +1999,38 @@ try
 	sopts["postprocess"]->option("o").bind(out_module).addname("outmodule").param_required().desc("Output file writing module");*/
 	sopts["postprocess"]->add_standard_options();
 
+	std::string util_cmd;
+	sopts["util"].reset(new Options(argv0 + " util", progdesc + " Utilities subcommand.", version, Authorship::majuric));
+	sopts["util"]->argument("utility").bind(util_cmd).desc(
+		"Run a utility. Can be one of:\n"
+		"  cudaquery - \tquery available cuda devices\n"
+		" resample3d - \tresample a 3D FITS file, store output to text table\n"
+					   );
+	sopts["util"]->stop_after_final_arg = true;
+	sopts["util"]->prolog = "For detailed help on a particular subcommand, do `simulate.x util <cmd> -h'";
+	sopts["util"]->add_standard_options();
+	std::map<std::string, boost::shared_ptr<Options> > uopts;
+	
+	//
+	// util sub-subcommands
+	//
+	uopts["cudaquery"].reset(new Options(argv0 + " util cudaquery", progdesc + " Query available CUDA devices.", version, Authorship::majuric));
+
+	float2 crange[3] = { make_float2(0, 0), make_float2(0, 0), make_float2(0, 0) };
+	int npix[3] = { 0 };
+	uopts["resample3d"].reset(new Options(argv0 + " util resample3d", progdesc + " Resample 3D data cube.", version, Authorship::majuric));
+	uopts["resample3d"]->argument("input").bind(input).desc("Input FITS file");
+	uopts["resample3d"]->argument("output").bind(output).desc("Output text file");
+	uopts["resample3d"]->option("x0").bind(crange[0].x).param_required().desc("Minimum x coordinate");
+	uopts["resample3d"]->option("x1").bind(crange[0].y).param_required().desc("Maximum x coordinate");
+	uopts["resample3d"]->option("y0").bind(crange[1].x).param_required().desc("Minimum y coordinate");
+	uopts["resample3d"]->option("y1").bind(crange[1].y).param_required().desc("Maximum y coordinate");
+	uopts["resample3d"]->option("z0").bind(crange[2].x).param_required().desc("Minimum z coordinate");
+	uopts["resample3d"]->option("z1").bind(crange[2].y).param_required().desc("Maximum z coordinate");
+	uopts["resample3d"]->option("nx").bind(npix[0]).param_required().desc("Number of output pixels in x dimension.");
+	uopts["resample3d"]->option("ny").bind(npix[1]).param_required().desc("Number of output pixels in y dimension.");
+	uopts["resample3d"]->option("nz").bind(npix[2]).param_required().desc("Number of output pixels in z dimension.");
+
 	//
 	// Parse
 	//
@@ -2006,6 +2039,11 @@ try
 	if(sopts.count(cmd))
 	{
 		parse_options(*sopts[cmd], optlist);
+		if(cmd == "util")
+		{
+			cmd = cmd + " " + util_cmd;
+			parse_options(*uopts[util_cmd], optlist);
+		}
 	}
 	else
 	{
@@ -2023,9 +2061,14 @@ try
 		return -1;
 	}
 
-	if(cmd == "cudaquery")
+	if(cmd == "util cudaquery")
 	{
 		// The real test was that we successfully passed the cuda_init() step above.
+		return 0;
+	}
+	if(cmd == "util resample3d")
+	{
+		resample_texture(output, input, crange, npix);
 		return 0;
 	}
 

@@ -42,64 +42,27 @@ __device__ __constant__ skyConfigGPU<expModel> expModelSky;
 __device__ __constant__ skyConfigGPU<expDisk> expDiskSky;
 __device__ __constant__ lambert proj[2];
 
-#if 0
-lfTextureManager texLFMgr(texLF);
-lfParams lfTextureManager::set(float *cpu_lf, int lfLen, float M0, float M1, float dM)
-{
-	free();
-
-	// Upload luminosity function as texture
-	par = make_lfParams(M0, M1, dM);
-	cuxErrCheck( cudaMallocArray( &lfArray, &texref.channelDesc, lfLen, 1));
-	cuxErrCheck( cudaMemcpyToArray( lfArray, 0, 0, cpu_lf, lfLen*sizeof(float), cudaMemcpyHostToDevice));
-	bind();
-
-	return par;
-}
-
-void lfTextureManager::bind()
-{
-	//fprintf(stderr, "Binding luminosity function texture.\n");
-	assert(lfArray);
-	cuxErrCheck( cudaBindTextureToArray(&texref, lfArray, &texref.channelDesc) );
-}
-
-void lfTextureManager::free()
-{
-	if(lfArray)
-	{
-		cudaUnbindTexture(&texref);
-		cudaFreeArray(lfArray);
-		lfArray = NULL;
-	}
-}
-#endif
-
 void expModel::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-//	hstate.lf.bind_texture(expModelLF);
 	expModelLFManager.bind(hstate.lf, &hstate.tc_lf);
 }
 
 void expDisk::prerun(host_state_t &hstate, bool draw)
 {
 	// bind the luminosity function texture to texture reference
-//	hstate.lf.bind_texture(expDiskLF);
 	expDiskLFManager.bind(hstate.lf, &hstate.tc_lf);
 }
 
 void expModel::postrun(host_state_t &hstate, bool draw)
 {
 	// unbind LF texture reference
-//	hstate.lf.unbind_texture(expModelLF);
 	expModelLFManager.unbind();
 }
 
 void expDisk::postrun(host_state_t &hstate, bool draw)
 {
 	// unbind LF texture reference
-//	hstate.lf.unbind_texture(expDiskLF);
 	expDiskLFManager.unbind();
 }
 
@@ -167,13 +130,6 @@ void skyConfig<T>::download(bool draw)
 	this->model.postrun(model_host_state, draw);
 }
 
-#if 0
-static const float inf  =  std::numeric_limits<float>::infinity();
-static const float snan =  std::numeric_limits<float>::signaling_NaN();
-static const int smallest_float_int = 0x00000001; // hex representation of the smallest representable positive 32-bit float (IEEE 754)
-static const float feps = *(float *)&smallest_float_int;
-#endif
-
 /********************************************************/
 
 static const float POGSON = 0.4605170185988091f;
@@ -184,8 +140,54 @@ float mmax = 22;
 float mmin = 15;
 #endif
 
+DEFINE_TEXTURE(ext_north, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(ext_south, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+__global__ void resample_extinction_kernel(gptr<float4, 1> out,
+	float2 xrange, float2 yrange, float2 DMrange,
+	int nx, int ny, int nDM)
+{
+	float dx  = ( xrange.y -  xrange.x) / (nx-1);
+	float dy  = ( yrange.y -  yrange.x) / (ny-1);
+	float dDM = (DMrange.y - DMrange.x) / (nDM-1);
+
+	int nthreads = gridDim.x * blockDim.x;
+	int at = blockDim.x * blockIdx.x + threadIdx.x;
+	int end = nx * ny * nDM;
+
+	while(at < end)
+	{
+		int k = at / (nx * ny);
+		int at2 = at - k * nx * ny;
+		int j = at2 / nx;
+		int i = at2 - j * nx;
+
+		float x  =  xrange.x + dx  * (i + 0.);
+		float y  =  yrange.x + dy  * (j + 0.);
+		float DM = DMrange.x + dDM * (k + 0.);
+		float v = TEX3D(ext_north, x, y, DM);
+
+		out(at) = make_float4(x, y, DM, v);
+		at += nthreads;
+	}
+}
+
+xptr<float4> resample_extinction_texture(xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3])
+{
+	cuxTextureBinder tb(ext_northManager, tex, tc);
+
+	xptr<float4> out(npix[0] * npix[1] * npix[2]);
+	//printf("npix = %d %d %d\n", npix[0], npix[1], npix[2]);
+
+	int nblocks = 30;
+	int nthreads = 128;
+	resample_extinction_kernel<<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
+
+	return out;
+}
+
 template<typename T>
-__device__ float3 skyConfigGPU<T>::compute_pos(float &D, float M, const int im, const direction &dir) const
+__device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, const int im, const skypixel &pix) const
 {
 	float m = m0 + im*dm;
 #if 0 && _EMU_DEBUG
@@ -198,8 +200,16 @@ __device__ float3 skyConfigGPU<T>::compute_pos(float &D, float M, const int im, 
 		printf("mmin = %f, im=%d, M=%f\n", mmin, im, M);
 	}
 #endif
-	D = powf(10, 0.2f*(m - M) + 1.);
-	return position(dir, D);
+	float DM = m - M;
+	D = powf(10.f, 0.2f*DM + 1.f);
+
+	// Sample the extinction texture
+	if(pix.projIdx == 0)
+		Am = TEX3D(ext_north, pix.X, pix.Y, DM);
+	else
+		Am = TEX3D(ext_south, pix.X, pix.Y, DM);
+
+	return position(pix, D);
 }
 
 __device__ int ijToDiagIndex(int i, int j, const int x, const int y)
@@ -334,6 +344,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	float3 pos;
 	skypixel pix;
 	int k;
+	float Am;
 
 	double count = 0.f, countCovered = 0.f;
 	float maxCount1 = 0.;
@@ -353,7 +364,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	{
 		if(ks.continuing(tid))
 		{
-			ks.load(tid,   ilb, im, iM, k, bc, pos, D, pix, ms);
+			ks.load(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms);
 		}
 		if(ilb >= npixels) { return; } // this thread has already finished
 		rng.load(tid);
@@ -403,9 +414,9 @@ __device__ void skyConfigGPU<T>::kernel() const
 			// check there was no change in distance unless 'moved' is true
 			if(!moved)
 			{
-				float D2;
+				float D2, Am2;
 				float M = M1 - iM*dM;
-				float3 pos2 = compute_pos(D2, M, im, pix);
+				float3 pos2 = compute_pos(D2, Am2, M, im, pix);
 				if(fabsf(D/D2-1) > 1e-5)
 				{
 					printf("ERROR: Unexpected distance while not moving! Old D = %f, new D = %f\n", D, D2);
@@ -423,11 +434,13 @@ __device__ void skyConfigGPU<T>::kernel() const
 			if(ilb >= npixels) { break; }
 
 			// we moved to a new distance bin. Recompute and reset.
-			pos = compute_pos(D, M, im, pix);
+			pos = compute_pos(D, Am, M, im, pix);
 			model.setpos(ms, pos.x, pos.y, pos.z);
 		}
 
-		// TODO: test for extinction here
+		// Test if this location has been extincted away
+		float m = m0 + dm*im + Am;
+		if(m > m1) { continue; }
 
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
@@ -520,7 +533,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	else
 	{
 		// store execution state
-		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, ms);
+		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms);
 		rng.store(tid);
 	}
 

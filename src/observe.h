@@ -78,11 +78,12 @@ public:
 	struct pixel
 	{
 		double l, b; // in Radians
+		double X, Y; // lambert coordinates
 		int projIdx;
 		float pixelArea, coveredArea;	// area of the nominal pixel, area covered by the footprint within the pixel
 		
-		pixel(double l_, double b_, int projIdx_, float pixelArea_, float coveredArea_)
-			: l(l_), b(b_), projIdx(projIdx_), pixelArea(pixelArea_), coveredArea(coveredArea_) {}
+		pixel(double l_, double b_, double X_, double Y_, int projIdx_, float pixelArea_, float coveredArea_)
+			: X(X_), Y(Y_), l(l_), b(b_), projIdx(projIdx_), pixelArea(pixelArea_), coveredArea(coveredArea_) {}
 	};
 
 public:
@@ -111,6 +112,8 @@ class os_skygen : public osource
 protected:
 	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
 	size_t nstarLimit;	// maximum number of stars to generate
+	xptr<float> ext_north, ext_south;
+	afloat2 tc_ext_north[3], tc_ext_south[3];
 
 public:
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
@@ -123,6 +126,7 @@ protected:
 	skyConfigInterface *create_kernel_for_model(const std::string &model);
 	int load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper);
 	void load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn);
+	void load_extinction_maps(const std::string &econf);
 
 // 	bool init(
 // 		const peyton::system::Config &cfg,

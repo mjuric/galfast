@@ -81,7 +81,7 @@ if test "x$with_cuda" != xno; then
   CUDA_LIBS="-L$with_cuda/lib -lcudart -lcuda"
   NVCC="$with_cuda/bin/nvcc"
   if test "x$cuda_devemu" == xyes; then
-    NVCCFLAGS="-O0 -g --host-compilation 'C++' --device-emulation -arch sm_13"
+    NVCCFLAGS="-O0 -g --host-compilation 'C++' --device-emulation -arch sm_13 -Xcompiler -O0,-g"
     AC_MSG_RESULT([    - WARNING: Targeting GPU code for device emulation])
     CUDA_DEVEMU=yes
     AC_DEFINE(CUDA_DEVEMU, 1, [Targeting CUDA device emulation])

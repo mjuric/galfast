@@ -147,6 +147,7 @@ void *xptrng::xptr_impl_t::syncTo(bool device)
 		else
 		{
 			m_data.ptr = new char[memsize()];
+			//memset(m_data.ptr, 0xff, memsize());	// debugging
 		}
 	}
 
@@ -155,8 +156,9 @@ void *xptrng::xptr_impl_t::syncTo(bool device)
 	{
 		cudaMemcpyKind dir = device ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost;
 		cuxErrCheck( cudaMemcpy(m_data.ptr, slave, memsize(), dir) );
-		onDevice = device;
 	}
+
+	onDevice = device;
 
 	// assume the sync dirtied up the textures
 	cleanCudaArray = false;

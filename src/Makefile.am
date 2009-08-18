@@ -5,16 +5,16 @@ EXTRA_DIST = ri_prior.txt
 ## SUFFIXES = .cu
 if HAVE_CUDA
 .cu.o:
-	$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
-	$(NVCC) -o $@ -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
+	$(NVCC) -o $@ -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $< -v
 	$(NVCC) -M -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $< > $(DEPDIR)/$*.Tpo
 	mv -f $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+	##$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
 
 .cu.lo:
-	$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
 	$(top_srcdir)/cudalt.py $@ $(NVCC) -c $(NVCCFLAGS) -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
 	$(NVCC) -M -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $< > $(DEPDIR)/$*.Tpo
 	mv -f $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+	##$(NVCC) -o $<.ptx -ptx --ptxas-options=-v -arch sm_13 -I$(top_builddir) $(INCLUDES) $(CPPFLAGS) $<
 
 else
 .cu.o:

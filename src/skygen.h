@@ -371,10 +371,11 @@ struct ALIGN(16) skypixel : public direction
 	int projIdx;
 	float coveredFraction;
 	float dx, dA;
+	float X, Y;		// lambert coordinates of this direction (in projIdx projection)
 
 	skypixel() {}
-	skypixel(Radians l_, Radians b_, int projIdx_, float dx_, float coveredFraction_)
-	: direction(l_, b_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_)
+	skypixel(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_)
+	: direction(l_, b_), X(X_), Y(Y_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_)
 	{ }
 };
 
@@ -446,14 +447,14 @@ struct ALIGN(16) runtime_state
 
 	cux_ptr<int> cont, ilb, im, iM, k, bc;
 	cux_ptr<float3> pos;
-	cux_ptr<float> D;
+	cux_ptr<float> D, Am;
 	cux_ptr<skypixel> pix;
 	cux_ptr<ms_t> ms;
 
 	void alloc(int nthreads)
 	{
 		cont.alloc(nthreads); ilb.alloc(nthreads); im.alloc(nthreads); iM.alloc(nthreads); k.alloc(nthreads); bc.alloc(nthreads);
-		pos.alloc(nthreads); D.alloc(nthreads); pix.alloc(nthreads);
+		pos.alloc(nthreads); D.alloc(nthreads); Am.alloc(nthreads); pix.alloc(nthreads);
 		ms.alloc(nthreads);
 
 		cudaMemset(cont.ptr, 0, nthreads*4); // not continuing a previous run
@@ -461,7 +462,7 @@ struct ALIGN(16) runtime_state
 	void free()
 	{
 		cont.free(); ilb.free(); im.free(); iM.free(); k.free(); bc.free();
-		pos.free(); D.free(); pix.free();
+		pos.free(); D.free(); Am.free(); pix.free();
 		ms.free();
 	}
 	void constructor()	// as CUDA doesn't allow real constructors
@@ -479,7 +480,7 @@ struct ALIGN(16) runtime_state
 		free();
 	}
 
-	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, typename Model::state &ms) const
+	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, float &Am, typename Model::state &ms) const
 	{
 		ilb = this->ilb(tid);
 		im  = this->im(tid);
@@ -489,10 +490,11 @@ struct ALIGN(16) runtime_state
 		pos = this->pos(tid);
 		pix = this->pix(tid);
 		D   = this->D(tid);
+		Am  = this->Am(tid);
 		ms  = this->ms(tid);
 	}
 
-	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, typename Model::state ms) const
+	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, float Am, typename Model::state ms) const
 	{
 		this->ilb(tid) = ilb;
 		this->im(tid)  = im;
@@ -502,6 +504,7 @@ struct ALIGN(16) runtime_state
 		this->pos(tid) = pos;
 		this->pix(tid) = pix;
 		this->D(tid)   = D;
+		this->Am(tid)  = Am;
 		this->ms(tid)  = ms;
 
 		this->cont(tid) = 1;
@@ -545,7 +548,7 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 	runtime_state<Model> ks;
 
 	template<int draw> __device__ void kernel() const;
-	__device__ float3 compute_pos(float &D, float M, const int im, const direction &dir) const;
+	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const skypixel &dir) const;
 	__device__ bool advance(int &ilb, int &i, int &j, skypixel &pix, const int x, const int y) const;
 };
 

@@ -143,6 +143,9 @@ float mmin = 15;
 DEFINE_TEXTURE(ext_north, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(ext_south, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
+__constant__ lambert texProj;
+
+template<bool deproject>
 __global__ void resample_extinction_kernel(gptr<float4, 1> out,
 	float2 xrange, float2 yrange, float2 DMrange,
 	int nx, int ny, int nDM)
@@ -165,23 +168,49 @@ __global__ void resample_extinction_kernel(gptr<float4, 1> out,
 		float x  =  xrange.x + dx  * (i + 0.);
 		float y  =  yrange.x + dy  * (j + 0.);
 		float DM = DMrange.x + dDM * (k + 0.);
-		float v = TEX3D(ext_north, x, y, DM);
+
+		float v;
+		if(deproject)
+		{
+			float xim, yim;
+			texProj.convert(direction(x, y), xim, yim);
+			if(!(-2.f < xim && xim < 2.f) || !(-2.f < yim && yim < 2.f))
+			{
+				// back away from the pole
+				xim = 2.0;
+				yim = 0.f;
+			}
+			v = TEX3D(ext_north, xim, yim, DM);
+			x = deg(x);
+			y = deg(y);
+		}
+		else
+		{
+			v = TEX3D(ext_north, x, y, DM);
+		}
 
 		out(at) = make_float4(x, y, DM, v);
 		at += nthreads;
 	}
 }
 
-xptr<float4> resample_extinction_texture(xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3])
+xptr<float4> resample_extinction_texture(xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3], lambert *proj)
 {
 	cuxTextureBinder tb(ext_northManager, tex, tc);
 
 	xptr<float4> out(npix[0] * npix[1] * npix[2]);
-	//printf("npix = %d %d %d\n", npix[0], npix[1], npix[2]);
+	if(proj != NULL)
+	{
+		cuxUploadConst(texProj, *proj);
+	}
 
 	int nblocks = 30;
 	int nthreads = 128;
-	resample_extinction_kernel<<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
+	
+	if(proj != NULL)
+		resample_extinction_kernel<true><<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
+	else
+		resample_extinction_kernel<false><<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
 
 	return out;
 }

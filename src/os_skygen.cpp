@@ -868,7 +868,7 @@ float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *stat
 	sxaddpar, hdr, 'CDELT2', (4.0/(dim[2]-1)), 'Coord increment'
 
 	sxaddpar, hdr, 'CRPIX3',  1, 'Pixel coord'
-	sxaddpar, hdr, 'CRVAL3', -2, 'Distance modulus coord'
+	sxaddpar, hdr, 'CRVAL3',  0, 'Distance modulus coord'
 	sxaddpar, hdr, 'CDELT3', (30.0/(dim[3]-1)), 'Coord increment'
 
 	writefits, 'myfile.fits', arr, hdr
@@ -916,10 +916,10 @@ xptr<float> load_extinction_map(const std::string &fn, float2 tc[3])
 }
 #endif
 
-xptr<float4> resample_extinction_texture(xptr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3]);
-void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3])
+xptr<float4> resample_extinction_texture(xptr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj);
+void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj)
 {
-	xptr<float4> res = resample_extinction_texture(tex, tc, crange, npix);
+	xptr<float4> res = resample_extinction_texture(tex, tc, crange, npix, proj);
 
 	std::ofstream out(outfn.c_str());
 	FOREACH(res)
@@ -929,7 +929,7 @@ void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, flo
 	}
 }
 
-void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3])
+void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0)
 {
 	float2 tc[3];
 	xptr<float> tex = load_extinction_map(texfn, tc);
@@ -943,17 +943,49 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 		irange[i].y = tc[i].x + (tex.extent(i)-1) / tc[i].y;
 
 		if(npix[i] == 0) { npix[i] = tex.extent(i); }
-		if(crange[i].x == crange[i].y) { crange[i] = irange[i]; }
+		if(crange[i].x == crange[i].y)
+		{
+			if(!deproject || i == 2)
+			{
+				crange[i] = irange[i];
+			}
+			else
+			{
+				// deprojecting. i=0 is longitude, i=1 is latitude
+				switch(i)
+				{
+				case 0:
+					crange[0] = make_float2(0, ctn::twopi);
+					break;
+				case 1:
+					crange[1] = make_float2(-ctn::halfpi, ctn::halfpi);
+					break;
+				}
+			}
+		}
 	}
+
+	::lambert proj;
+	proj.init(l0, b0);
 
 	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.extent(0) << " pixels)\n";
 	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.extent(1) << " pixels)\n";
 	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.extent(2) << " pixels).\n";
-	MLOG(verb1) << "Output texture : x = [" << crange[0].x << ", " << crange[0].y << "] (" << npix[0] << " pixels)\n";
-	MLOG(verb1) << "               : y = [" << crange[1].x << ", " << crange[1].y << "] (" << npix[1] << " pixels)\n";
+	MLOG(verb1) << "     Deproject : " << (deproject ? "yes" : "no");
+	if(deproject)
+	{
+		MLOG(verb1) << "     Proj. pole : l0=" << deg(proj.l0) << ", b0=" << deg(proj.b0);
+		MLOG(verb1) << "Output texture : l = [" << deg(crange[0].x) << ", " << deg(crange[0].y) << "] (" << npix[0] << " pixels)\n";
+		MLOG(verb1) << "               : b = [" << deg(crange[1].x) << ", " << deg(crange[1].y) << "] (" << npix[1] << " pixels)\n";
+	}
+	else
+	{
+		MLOG(verb1) << "Output texture : x = [" << crange[0].x << ", " << crange[0].y << "] (" << npix[0] << " pixels)\n";
+		MLOG(verb1) << "               : y = [" << crange[1].x << ", " << crange[1].y << "] (" << npix[1] << " pixels)\n";
+	}
 	MLOG(verb1) << "               : z = [" << crange[2].x << ", " << crange[2].y << "] (" << npix[2] << " pixels).\n";
 
-	resample_and_output_texture("northAr.txt", tex, tc, crange, npix);
+	resample_and_output_texture("northAr.txt", tex, tc, crange, npix, deproject ? &proj : NULL);
 
 	MLOG(verb2) << "Resampled.";
 }
@@ -1006,7 +1038,7 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	npix[0] = 20;
 	npix[1] = 30;
 	npix[2] = 40;
-	resample_and_output_texture("northAr.txt", ext_north, tc_ext_north, crange, npix);
+	resample_and_output_texture("northAr.txt", ext_north, tc_ext_north, crange, npix, NULL);
 	abort();
 #endif
 

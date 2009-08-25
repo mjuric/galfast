@@ -34,6 +34,10 @@
 
 #include "simulate_base.h"
 
+#ifdef __CUDACC__
+using namespace cudacc;
+#endif
+
 //======================================================================
 //======================================================================
 //    FeH
@@ -183,11 +187,11 @@ namespace float_galequ_constants
 float inline __device__ sqrf(float x) { return x*x; }	
 
 //static const float flt_d2r = (float)ctn::d2r;
-static const float flt_r2d = (float)(1./ctn::d2r);
-inline __device__ float deg(float radians)
-{
-	return flt_r2d * radians;
-}
+//static const float flt_r2d = (float)(1./ctn::d2r);
+// inline __device__ float deg(float radians)
+// {
+// 	return flt_r2d * radians;
+// }
 
 /*
 	Convert proper motions in one coordinate system to de. The coordinate

@@ -27,6 +27,22 @@ AC_caolan_CHECK_PACKAGE(cfitsio, ffpss, cfitsio, fitsio.h,
    AC_MSG_RESULT([cfitsio found.]),
    AC_MSG_RESULT([cfitsio 2.4 or later NOT found]) )
 
+AC_CHECK_LIB(X11,main)
+AC_CHECK_LIB(utils,main)
+AC_CHECK_LIB(devices,main)
+AC_CHECK_LIB(plotsub,main)
+AC_CHECK_LIB(parser,main)
+AC_CHECK_LIB(bz2,main)
+AC_caolan_CHECK_PACKAGE(sm, sm_parser, parser, sm_declare.h,
+   [
+#     SM_LIBS="-lplotsub -ldevices -lutils"
+     AC_MSG_RESULT([SM callable interface found.])
+   ],[
+#     SM_LIBS=
+     AC_MSG_RESULT([SM callable interface NOT found])
+   ]
+)
+
 RS_BOOST([1.33.0],
 	[
 	  CXXFLAGS="$CXXFLAGS $BOOST_CPPFLAGS"
@@ -109,7 +125,7 @@ AM_CONDITIONAL(CUDA_DEVEMU, test "x$CUDA_DEVEMU" = "xyes")
 
 #####################
 
-LIBS="$LIBS $BOOST_LIBS $CUDA_LIBS"
+LIBS="$LIBS $BOOST_LIBS $CUDA_LIBS $SM_LIBS"
 CPPFLAGS="-DDATADIR=\"\\\"\$(pkgdatadir)\\\"\" $CPPFLAGS"
 
 AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile)

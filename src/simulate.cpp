@@ -1894,7 +1894,7 @@ void test_pm_conversions()
 	exit(0);
 }
 
-void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3]);
+void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
 
 void test_kin();
 void test_tags();
@@ -1927,11 +1927,11 @@ try
 //		"       foot - \tcalculate footprint given a config file\n"
 //		"  footprint - \tcalculate footprint of a set of runs on the sky (deprecated)\n"
 //		"       beam - \tcalculate footprint of a single conical beam (deprecated)\n"
-		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
-		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
-		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
+//		"        pdf - \tcalculate cumulative probability density functions (CPDF) for a given model and footprint\n"
+//		"    pdfinfo - \tget information about the contents of a .pdf.bin file\n"
+//		"    catalog - \tcreate a mock catalog given a set of CPDFs\n"
 		"postprocess - \tpostprocess the mock catalog (e.g., derive photometry, add instrumental errors, etc.)\n"
-		"  cudaquery - \tquery available cuda devices\n"
+//		"  cudaquery - \tquery available cuda devices\n"
 		"       util - \tvarious utilities\n"
 					   );
 	opts.stop_after_final_arg = true;
@@ -2005,7 +2005,8 @@ try
 		"Run a utility. Can be one of:\n"
 		"  cudaquery - \tquery available cuda devices\n"
 		" resample3d - \tresample a 3D FITS file, store output to text table\n"
-					   );
+		"   footplot - \tmake a PostScript plot of the footprints\n"
+	);
 	sopts["util"]->stop_after_final_arg = true;
 	sopts["util"]->prolog = "For detailed help on a particular subcommand, do `simulate.x util <cmd> -h'";
 	sopts["util"]->add_standard_options();
@@ -2018,6 +2019,8 @@ try
 
 	float2 crange[3] = { make_float2(0, 0), make_float2(0, 0), make_float2(0, 0) };
 	int npix[3] = { 0 };
+	bool deproject = false;
+	double l0 = 90., b0 = 90.;
 	uopts["resample3d"].reset(new Options(argv0 + " util resample3d", progdesc + " Resample 3D data cube.", version, Authorship::majuric));
 	uopts["resample3d"]->argument("input").bind(input).desc("Input FITS file");
 	uopts["resample3d"]->argument("output").bind(output).desc("Output text file");
@@ -2027,9 +2030,18 @@ try
 	uopts["resample3d"]->option("y1").bind(crange[1].y).param_required().desc("Maximum y coordinate");
 	uopts["resample3d"]->option("z0").bind(crange[2].x).param_required().desc("Minimum z coordinate");
 	uopts["resample3d"]->option("z1").bind(crange[2].y).param_required().desc("Maximum z coordinate");
-	uopts["resample3d"]->option("nx").bind(npix[0]).param_required().desc("Number of output pixels in x dimension.");
-	uopts["resample3d"]->option("ny").bind(npix[1]).param_required().desc("Number of output pixels in y dimension.");
-	uopts["resample3d"]->option("nz").bind(npix[2]).param_required().desc("Number of output pixels in z dimension.");
+	uopts["resample3d"]->option("nx").bind(npix[0]).param_required().desc("Number of output pixels in x dimension");
+	uopts["resample3d"]->option("ny").bind(npix[1]).param_required().desc("Number of output pixels in y dimension");
+	uopts["resample3d"]->option("nz").bind(npix[2]).param_required().desc("Number of output pixels in z dimension");
+	uopts["resample3d"]->option("d").bind(deproject).value("true").desc("Deproject to (l,b). If this option is active, the x coordinate is l, and y is b. Projection pole can be changed using --l0 and --b0 options.");
+	uopts["resample3d"]->option("l0").bind(l0).param_required().desc("Longitude of projection pole, degrees");
+	uopts["resample3d"]->option("b0").bind(b0).param_required().desc("Latitude of projection pole, degrees");
+
+	std::vector<std::string> footprint_confs;
+	std::string outputps = "foot.ps";
+	uopts["footplot"].reset(new Options(argv0 + " util footplot", progdesc + " Make a PostScript plot of covered footprint.", version, Authorship::majuric));
+	uopts["footplot"]->argument("footprints").bind(footprint_confs).gobble().desc("Footprint configuration files, or a single skygen.conf configuration file.");
+	uopts["footplot"]->option("o").addname("output").bind(outputps).param_required().desc("Output PostScript file");
 
 	//
 	// Parse
@@ -2068,7 +2080,7 @@ try
 	}
 	if(cmd == "util resample3d")
 	{
-		resample_texture(output, input, crange, npix);
+		resample_texture(output, input, crange, npix, deproject, rad(l0), rad(b0));
 		return 0;
 	}
 

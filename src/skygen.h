@@ -350,8 +350,15 @@ public:
 static const double dbl_pi  = 3.14159265358979323846264338;
 static const double dbl_d2r = 0.01745329251994329576923691; // (pi/180.0)
 static const double dbl_r2d = 57.2957795130823208767981548; // (180.0/pi)
-static const double flt_pi  = 3.14159265358979323846264338;
-static const double flt_d2r = 0.01745329251994329576923691; // (pi/180.0)
+static const float flt_pi  = 3.14159265358979323846264338f;
+static const float flt_d2r = 0.01745329251994329576923691f; // (pi/180.0)
+static const float flt_r2d = 57.2957795130823208767981548f; // (180.0/pi)
+
+namespace cudacc
+{
+	inline __device__ float deg(float rd) { return flt_r2d * rd; }
+	inline __device__ float rad(float dg) { return flt_d2r * dg; }
+}
 
 // inline double rad(double dgr) { return dgr * dbl_d2r; }
 // inline double deg(double rd)  { return rd  / dbl_d2r; }

@@ -222,22 +222,17 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 	cfloat_t &Msys  = in.col<float>(absmagSys);
 	cint_t   &ncomp = in.col<int>(absmagSys+"Ncomp");
 
-	::secProb.bind  (secProb,  &tc_secProb);
-	::cumLF.bind    (cumLF,    &tc_cumLF);
-	::invCumLF.bind (invCumLF, &tc_invCumLF);
+	{
+		cuxTextureBinder
+			t1(::secProb,	secProb),
+			t2(::cumLF,	cumLF),
+			t3(::invCumLF,	invCumLF);
 
-	CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, comp0, comp1, algo);
-
-	::secProb.unbind();
-	::cumLF.unbind();
-	::invCumLF.unbind();
+		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, comp0, comp1, algo);
+	}
 	
 	return nextlink->process(in, begin, end, rng);
 }
-
-xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024);
-xptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100);
-xptr<float> construct_1D_texture_by_resampling(float2 &texCoords, double *X, double *Y, int ndata, int nsamp = 1024);
 
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
@@ -260,12 +255,12 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 	// Load binary fraction
 	if(!binaryFractionFile.empty())
 	{
-		secProb = load_and_resample_1D_texture(tc_secProb, binaryFractionFile.c_str(), 64);
+		secProb = load_and_resample_1D_texture(binaryFractionFile.c_str(), 64);
 	}
 	else
 	{
 		// 100% binary fraction across all plausible absolute magnitudes
-		secProb = load_constant_texture(tc_secProb, 1, -100, +100);
+		secProb = load_constant_texture(1, -100, +100);
 	}
 
 	// Load luminosity function
@@ -311,8 +306,8 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 
 	// NOTE: WARNING: because of resampling, invCumLF(cumLF(x)) != x,
 	// so DONT EVER DEPEND ON IT!
-	cumLF    = construct_1D_texture_by_resampling(tc_cumLF,    &xcum[0], &ycum[0], xcum.size(), NPIX);
-	invCumLF = construct_1D_texture_by_resampling(tc_invCumLF, &ycum[0], &xcum[0], xcum.size(), NPIX);
+	cumLF    = construct_1D_texture_by_resampling(&xcum[0], &ycum[0], xcum.size(), NPIX);
+	invCumLF = construct_1D_texture_by_resampling(&ycum[0], &xcum[0], xcum.size(), NPIX);
 	//FOR(0, xcum.size()) { std::cerr << xcum[i] << " " << ycum[i] << " " << cumLFManager.sample(xcum[i]) << "\n"; }
 
 // 	for(float u=0; u <=1; u += 0.01)

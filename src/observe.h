@@ -112,6 +112,7 @@ class os_skygen : public osource
 protected:
 	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
 	size_t nstarLimit;	// maximum number of stars to generate
+	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
 	xptr<float> ext_north, ext_south;
 	afloat2 tc_ext_north[3], tc_ext_south[3];
 
@@ -127,17 +128,6 @@ protected:
 	int load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper);
 	void load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn);
 	void load_extinction_maps(const std::string &econf);
-
-// 	bool init(
-// 		const peyton::system::Config &cfg,
-// 		const peyton::system::Config &pdf_cfg,
-// 		const peyton::system::Config &foot_cfg,
-// 		const peyton::system::Config &model_cfg,
-// 		otable &t,
-// 		opipeline &pipe);
-
-/*	os_skygen() : skygen(NULL) {};
-	virtual ~os_skygen() { delete skygen; }*/
 };
 
 // add Fe/H information
@@ -182,8 +172,7 @@ class os_unresolvedMultiples : public osink
 		std::string absmagSys;
 		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
-		xptr<float> secProb, cumLF, invCumLF;		// probability and LF texture data ...
-		afloat2 tc_secProb, tc_cumLF, tc_invCumLF;	// ... and their texture coordinates
+		texptr<float> secProb, cumLF, invCumLF;		// probability and LF texture data
 	public:
 		virtual bool runtime_init(otable &t);
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);

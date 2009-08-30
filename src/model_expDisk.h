@@ -18,38 +18,68 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef io_h__
-#define io_h__
+#ifndef expDisk_h__
+#define expDisk_h__
 
-#include <iostream>
-#include <boost/iostreams/filtering_stream.hpp>
+#include "skygen.h"
 
-class flex_output
+// luminosity function texture reference
+DEFINE_TEXTURE(expDiskLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+// exponential disk model
+struct ALIGN(16) expDisk : public modelConcept
 {
+public:
+	struct ALIGN(16) host_state_t
+	{
+		texptr<float> lf;
+	};
+
 protected:
-	std::ostream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::output> *sbout;
+	float f, l, h, z0;
+	float r_cut2;
+
+	int comp;
 
 public:
-	flex_output(const std::string &fn = "") { open(fn); }
-	~flex_output();
+	struct state
+	{
+		float rho;
+	};
+	void load(host_state_t &hstate, const peyton::system::Config &cfg);
+	void prerun(host_state_t &hstate, bool draw);
+	void postrun(host_state_t &hstate, bool draw);
 
-	std::ostream *open(const std::string &fn);
-	std::ostream &out() { return *this->stream; }
-};
-
-class flex_input
-{
 protected:
-	std::istream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::input> *sbin;
+	__device__ float rho(float x, float y, float z, float M) const
+	{
+		float r2 = x*x + y*y;
+		if(r2 + z*z > r_cut2) { return 0.f; }
+
+		float r = sqrtf(r2);
+		float rho = f * expf((Rg()-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
+
+		return rho;
+	}
 
 public:
-	flex_input(const std::string &fn = "") { open(fn); }
-	~flex_input();
+	__device__ void setpos(state &s, float x, float y, float z) const
+	{
+		s.rho = rho(x, y, z, 0.f);
+	}
 
-	std::istream *open(const std::string &fn);
-	std::istream &in() { return *this->stream; }
+	__device__ float rho(state &s, float M) const
+	{
+		float phi = TEX1D(expDiskLF, M);
+		return phi * s.rho;
+	}
+
+	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
+	{
+		return comp;
+	}
 };
 
-#endif // ifndef io_h__
+MODEL_IMPLEMENTATION(expDisk);
+
+#endif // #ifndef expDisk_h__

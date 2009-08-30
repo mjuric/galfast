@@ -38,97 +38,7 @@
 #include <gsl/gsl_statistics_float.h>
 
 __device__ __constant__ gpuRng::constant rng;
-__device__ __constant__ skyConfigGPU<expModel> expModelSky;
-__device__ __constant__ skyConfigGPU<expDisk> expDiskSky;
 __device__ __constant__ lambert proj[2];
-
-void expModel::prerun(host_state_t &hstate, bool draw)
-{
-	// bind the luminosity function texture to texture reference
-	expModelLFManager.bind(hstate.lf, &hstate.tc_lf);
-}
-
-void expDisk::prerun(host_state_t &hstate, bool draw)
-{
-	// bind the luminosity function texture to texture reference
-	expDiskLFManager.bind(hstate.lf, &hstate.tc_lf);
-}
-
-void expModel::postrun(host_state_t &hstate, bool draw)
-{
-	// unbind LF texture reference
-	expModelLFManager.unbind();
-}
-
-void expDisk::postrun(host_state_t &hstate, bool draw)
-{
-	// unbind LF texture reference
-	expDiskLFManager.unbind();
-}
-
-template<typename T>
-void skyConfig<T>::download(bool draw)
-{
-	if(draw)
-	{
-		this->nstars.download(&stars_generated, 1);
-
-		// this is for debugging purposes mostly
-		int *ilb = new int[this->nthreads];
-		int *im = new int[this->nthreads];
-		int *iM = new int[this->nthreads];
-		delete [] cpu_state;
-		cpu_state = new int3[this->nthreads];
-		this->ks.ilb.download(ilb, this->nthreads);
-		this->ks.im.download(im,   this->nthreads);
-		this->ks.iM.download(iM,   this->nthreads);
-		for(int i=0; i != this->nthreads; i++)
-		{
-			cpu_state[i] = make_int3(ilb[i], im[i], iM[i]);
-		}
-		delete [] ilb; delete [] im, delete [] iM;
-	}
-	else
-	{
-		float *cpu_counts = new float[this->nthreads];
-		float *cpu_countsCovered = new float[this->nthreads];
-		this->counts.download(cpu_counts, this->nthreads);
-		this->countsCovered.download(cpu_countsCovered, this->nthreads);
-
-		// sum up the total expected number of stars
-		nstarsExpectedToGenerate = 0;
-		nstarsExpected = 0;
-		for(int i=0; i != this->nthreads; i++)
-		{
-			nstarsExpectedToGenerate += cpu_counts[i];
-			nstarsExpected += cpu_countsCovered[i];
-		}
-		delete [] cpu_counts;
-		delete [] cpu_countsCovered;
-
-		int *cpu_rhoHistograms = new int[this->nthreads*this->nhistbins];
-		this->rhoHistograms.download(cpu_rhoHistograms, this->nthreads*this->nhistbins);
-
-		// sum up the total
-		cpu_hist = new int[this->nhistbins];
-		memset(cpu_hist, 0, sizeof(float)*this->nhistbins);
-		for(int i=0; i != this->nthreads; i++)
-		{
-			for(int j=0; j != this->nhistbins; j++)
-			{
-				cpu_hist[j] += cpu_rhoHistograms[this->nthreads*j + i];
-			}
-		}
-		delete [] cpu_rhoHistograms;
-
-		// Download list of maximum densities encountered by each thread
-		delete [] cpu_maxCount;
-		cpu_maxCount = new float[this->nthreads];
-		this->maxCount.download(cpu_maxCount, this->nthreads);
-	}
-
-	this->model.postrun(model_host_state, draw);
-}
 
 /********************************************************/
 
@@ -473,6 +383,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
+		rho *= norm;
 #if __DEVICE_EMULATION__
 //		printf("dN=%f dA=%f dm=%f dM=%f D=%f\n", rho, dA, dm, dM, D);
 #endif
@@ -585,16 +496,8 @@ __device__ void skyConfigGPU<T>::kernel() const
 }
 
 // default kernels (do nothing)
-template<typename T> __global__ void compute_sky() { }
-template<typename T> __global__ void draw_sky() { }
-
-// expModel overriden kernels
-template<> __global__ void compute_sky<expModel>() { expModelSky.kernel<0>(); }
-template<> __global__ void draw_sky<expModel>() { expModelSky.kernel<1>(); }
-
-// expModel overriden kernels
-template<> __global__ void compute_sky<expDisk>() { expDiskSky.kernel<0>(); }
-template<> __global__ void draw_sky<expDisk>() { expDiskSky.kernel<1>(); }
+template<typename T> __global__ void compute_sky();
+template<typename T> __global__ void draw_sky();
 
 template<typename T>
 void skyConfig<T>::compute(bool draw)
@@ -615,6 +518,6 @@ void skyConfig<T>::compute(bool draw)
 	swatch.stop();
 }
 
-// Explicit instantiations
-template class skyConfig<expModel>;
-template class skyConfig<expDisk>;
+#include "model_J08.h"
+#include "model_expDisk.h"
+#include "model_densityCube.h"

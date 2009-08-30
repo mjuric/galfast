@@ -18,38 +18,50 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef io_h__
-#define io_h__
+#include "config.h"
 
-#include <iostream>
-#include <boost/iostreams/filtering_stream.hpp>
+#include "model_expDisk.h"
+#include "skyconfig_impl.h"
 
-class flex_output
+#include <astro/system/config.h>
+
+void expDisk::prerun(host_state_t &hstate, bool draw)
 {
-protected:
-	std::ostream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::output> *sbout;
+	// bind the luminosity function texture to texture reference
+	expDiskLF.bind(hstate.lf);
+}
 
-public:
-	flex_output(const std::string &fn = "") { open(fn); }
-	~flex_output();
-
-	std::ostream *open(const std::string &fn);
-	std::ostream &out() { return *this->stream; }
-};
-
-class flex_input
+void expDisk::postrun(host_state_t &hstate, bool draw)
 {
-protected:
-	std::istream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::input> *sbin;
+	// unbind LF texture reference
+	expDiskLF.unbind();
+}
 
-public:
-	flex_input(const std::string &fn = "") { open(fn); }
-	~flex_input();
+void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
+{
+	// density distribution parameters
+	l     = cfg.get("l");
+	h     = cfg.get("h");
+	z0    = cfg.get("z0");
+	f     = cfg.get("f");
+	comp  = cfg.get("comp");
 
-	std::istream *open(const std::string &fn);
-	std::istream &in() { return *this->stream; }
-};
+	// luminosity function
+	if(cfg.count("lumfunc"))
+	{
+		hstate.lf = load_and_resample_1D_texture(cfg["lumfunc"].c_str());
+	}
+	else
+	{
+		hstate.lf = load_constant_texture(1.f);
+	}
 
-#endif // ifndef io_h__
+	// cutoff radius (default: 1Mpc)
+	cfg.get(r_cut2,  "rcut",   1e6f);
+	r_cut2 *= r_cut2;
+}
+
+extern "C" skyConfigInterface *create_model_exponentialdisk()
+{
+	return new skyConfig<expDisk>();
+}

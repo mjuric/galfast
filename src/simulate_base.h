@@ -130,6 +130,7 @@ struct skyConfigInterface
 		const skypixel *pixels) = 0;
 	virtual void initRNG(rng_t &rng) = 0;	// initialize the random number generator from CPU RNG
 	virtual double integrateCounts() = 0;	// return the expected starcounts contributed by this model
+	virtual void setDensityNorm(float norm) = 0;
 	virtual size_t run(otable &in, osink *nextlink) = 0;
 	virtual ~skyConfigInterface() {};
 };

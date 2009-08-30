@@ -20,65 +20,48 @@
 
 #include "config.h"
 
+#include "analysis.h"
 #include "observe.h"
 #include "simulate.h"
-#include "io.h"
 #include "skygen.h"
-#include "analysis.h"
-#include <iomanip>
+
 #include <fstream>
-#include <vector>
-#include <ext/numeric>	// for iota
+#include <iomanip>
 
 #include <astro/useall.h>
 
 /***********************************************************************/
 
-xptrng::xptr<float> load_constant_texture(float2 &texCoords, float val, float X0 = -100, float X1 = 100)
+texptr<float, 1> load_constant_texture(float val, float X0, float X1)
 {
-#if 1
-	xptrng::xptr<float> tex(2);
-	tex(0U) = val;
-	tex(1U) = val;
-	texCoords.x = X0;
-	texCoords.y = 1./(X1 - X0);
-#else
-	// resample to texture
-	int nsamp = 32768;
-	xptrng::xptr<float> tex(nsamp);
-	float dX = (X1 - X0) / (nsamp-1);
-	for(int i=0; i != nsamp; i++)
-	{
-		tex(i) = .02f;
-	}
-
-	// construct 
-	texCoords.x = X0;
-	texCoords.y = 1./dX;
-#endif
+	texptr<float, 1> tex(2);
+	tex.tex(0U) = val;
+	tex.tex(1U) = val;
+	tex.coords[0].x = X0;
+	tex.coords[0].y = 1./(X1 - X0);
 	return tex;
 }
 
-xptr<float> construct_1D_texture_by_resampling(float2 &texCoords, double *X, double *Y, int ndata, int nsamp = 1024)
+texptr<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
 {
 	spline tx;
 	tx.construct(X, Y, ndata);
 
 	// resample to texture
-	xptrng::xptr<float> tex(nsamp);
+	texptr<float, 1> tex(nsamp);
 	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
-		tex(i) = tx(X0 + i*dX);
+		tex.tex(i) = tx(X0 + i*dX);
 	}
 
 	// construct 
-	texCoords.x = X0;
-	texCoords.y = 1./dX;
+	tex.coords[0].x = X0;
+	tex.coords[0].y = 1./dX;
 	return tex;
 }
 
-xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int nsamp = 1024)
+texptr<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
 {
 	// load the points from the file, and construct
 	// a spline to resample from
@@ -86,192 +69,22 @@ xptr<float> load_and_resample_1D_texture(float2 &texCoords, const char *fn, int 
 	std::vector<double> X, Y;
 	::load(txin, X, 0, Y, 1);
 
-	return construct_1D_texture_by_resampling(texCoords, &X[0], &Y[0], X.size(), nsamp);
+	return construct_1D_texture_by_resampling(&X[0], &Y[0], X.size(), nsamp);
 }
 
-void expModel::load(host_state_t &hstate, const peyton::system::Config &cfg)
+//
+// Return texcoord that will map x to imgx and y to imgy
+//
+float2 texcoord_from_range(float imgx, float imgy, float x, float y)
 {
-	// density distribution parameters
-	rho0  = cfg.get("rho0");
-	l     = cfg.get("l");
-	h     = cfg.get("h");
-	z0    = cfg.get("z0");
-	f     = cfg.get("f");
-	lt    = cfg.get("lt");
-	ht    = cfg.get("ht");
-	fh    = cfg.get("fh");
-	q     = cfg.get("q");
-	n     = cfg.get("n");
+	float2 tc;
 
-	// luminosity function
-	if(cfg.count("lumfunc"))
-	{
-		hstate.lf = load_and_resample_1D_texture(hstate.tc_lf, cfg["lumfunc"].c_str());
-	}
-	else
-	{
-		hstate.lf = load_constant_texture(hstate.tc_lf, 1.f);
-	}
+	tc.x = (-imgy * x + imgx * y)/(imgx - imgy);
+	tc.y = (imgx - imgy) / (x - y);
 
-	// cutoff radius (default: 1Mpc)
-	cfg.get(r_cut2,  "rcut",   1e6f);
-	r_cut2 *= r_cut2;
-
-	// component IDs
-	cfg.get(comp_thin,  "comp_thin",  0);
-	cfg.get(comp_thick, "comp_thick", 1);
-	cfg.get(comp_halo,  "comp_halo",  2);
+	return tc;
 }
 
-void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
-{
-	// density distribution parameters
-	l     = cfg.get("l");
-	h     = cfg.get("h");
-	z0    = cfg.get("z0");
-	f     = cfg.get("f");
-	comp  = cfg.get("comp");
-
-	// luminosity function
-	if(cfg.count("lumfunc"))
-	{
-		hstate.lf = load_and_resample_1D_texture(hstate.tc_lf, cfg["lumfunc"].c_str());
-	}
-	else
-	{
-		hstate.lf = load_constant_texture(hstate.tc_lf, 1.f);
-	}
-
-	// cutoff radius (default: 1Mpc)
-	cfg.get(r_cut2,  "rcut",   1e6f);
-	r_cut2 *= r_cut2;
-}
-
-/***********************************************************************/
-
-template<typename T>
-skyConfig<T>::skyConfig()
-{
-	cpu_pixels = NULL;
-	cpu_hist = NULL;
-	cpu_maxCount = NULL;
-	cpu_state = NULL;
-	rng = NULL;
-	cpurng = NULL;
-
-	this->pixels = 0;
-	this->lock = 0;
-	this->counts = 0;
-	this->countsCovered = 0;
-	this->nstars = 0;
-
-	this->ks.constructor();
-}
-
-template<typename T>
-skyConfig<T>::~skyConfig()
-{
-	delete [] cpu_pixels;
-	delete [] cpu_hist;
-	delete [] cpu_maxCount;
-	delete [] cpu_state;
-	delete rng;
-
-	this->lock.free();
-	this->pixels.free();
-	this->counts.free();
-	this->countsCovered.free();
-	this->nstars.free();
-
-	this->ks.destructor();
-}
-
-template<typename T>
-int skyConfig<T>::bufferSafetyMargin()
-{
-	// Compute the extra padding necessary to make buffer overfilling
-	// exceedingly unlikely
-
-	if(cpu_maxCount == NULL) { abort(); }
-
-	float maxCount = std::accumulate(cpu_maxCount, cpu_maxCount + this->nthreads, 0.f);
-	int bufsize = (int)ceil(maxCount + 7.*sqrt(maxCount))	// for maxCount > 100, P(k > k+7sqrt(k)) ~ nthreads*7e-11
-			 + 3*this->nthreads;			// and this part is to cover the selection effect that we only break if k>1
-
-#if 0
-	// some diagnostic info
-	sort(cpu_maxCount, cpu_maxCount + this->nthreads, std::greater<float>());
-	for(int i = 0; i != 3 && i != this->nthreads; i++)
-	{
-		std::cerr << "rho" << i << " = " << cpu_maxCount[i] << "\n";
-	}
-	std::cerr << "Total of max density bins: " << maxCount << "\n";
-	std::cerr << "Buffer safety margin: " << bufsize << "\n";
-#endif
-
-	return bufsize;
-}
-
-template<typename T>
-void skyConfig<T>::upload_generic(bool draw)
-{
-	// Upload pixels to be processed
-	this->pixels.upload(cpu_pixels, this->npixels);
-
-	// prepare locks and outputs
-	int zero = 0;
-
-	if(!draw)
-	{
-		this->lock.upload(&zero, 1);
-
-		this->rhoHistograms.alloc(this->nthreads*this->nhistbins);
-		cudaMemset(this->rhoHistograms.ptr, 0, this->nthreads*this->nhistbins*4);
-
-		this->maxCount.alloc(this->nthreads);
-		cudaMemset(this->maxCount.ptr, 0, this->nthreads*4);
-
-		this->counts.alloc(this->nthreads);
-		cudaMemset(this->counts.ptr, 0, this->nthreads*4);
-		this->countsCovered.alloc(this->nthreads);
-		cudaMemset(this->countsCovered.ptr, 0, this->nthreads*4);
-	}
-	else
-	{
-		this->nstars.upload(&zero, 1);
-
-		this->stopstars = Kbatch - bufferSafetyMargin();
-		assert(this->stopstars > 0);
-	}
-
-	cuxUploadConst("Rg_gpu", this->Rg);
-	cuxUploadConst("rng", *this->rng);
-	cuxUploadConst("proj", this->proj);
-
-	this->model.prerun(model_host_state, draw);
-}
-
-template<typename T>
-void skyConfig<T>::upload(bool draw)
-{
-	assert(0); // Generic version of upload should _never_ be called
-}
-
-template<>
-void skyConfig<expModel>::upload(bool draw)
-{
-	this->upload_generic(draw);
-
-	cuxUploadConst("expModelSky", (skyConfigGPU<expModel>&)*this); // upload thyself (note: this MUST come last)
-}
-
-template<>
-void skyConfig<expDisk>::upload(bool draw)
-{
-	this->upload_generic(draw);
-
-	cuxUploadConst("expDiskSky", (skyConfigGPU<expDisk>&)*this); // upload thyself (note: this MUST come last)
-}
 
 int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION);
 Radians clip_zone_of_avoidance(std::list<sph_polygon> &poly, int npoly, const Config &cfg)
@@ -434,228 +247,6 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 	return skymap;
 }
 
-
-
-template<typename T>
-bool skyConfig<T>::init(
-		otable &t,
-		const peyton::system::Config &cfg,	// model cfg file
-		const skygenConfig &sc,
-		const skypixel *pixels
-)
-{
-	// Galactic center distance (in pc)
-	Rg = 8000.;
-
-	// load the model
-	this->model.load(model_host_state, cfg);
-
-	// setup config & pixels
-	(skygenConfig &)*this = sc;
-	cpu_pixels = new skypixel[this->npixels];
-	FOR(0, this->npixels) { cpu_pixels[i] = pixels[i]; }
-
-	// For debugging/stats
-	this->lrho0 = -3.5f;
-	this->dlrho = 1.0f;
-
-	// GPU kernel execution setup (TODO: should I load this through skygenConfig?)
-	blockDim.x = 64; //256;
-	gridDim.x = 120; // 30;
-	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
-	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
-
-	DLOG(verb1) << "nthreads=" << this->nthreads;
-	DLOG(verb1) << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels;
-
-	return true;
-}
-
-struct star_comp
-{
-	cdouble_t::host_t	lb;
-	cint_t::host_t		projIdx;
-	cfloat_t::host_t	XYZ;
-	cint_t::host_t		comp;
-	cfloat_t::host_t	M;
-	cfloat_t::host_t	DM;
-
-	star_comp(otable &in)
-	{
-		lb      = in.col<double>("lb");
-		projIdx = in.col<int>("projIdx");
-		XYZ     = in.col<float>("XYZ");
-		comp    = in.col<int>("comp");
-		M       = in.col<float>("absmag");
-		DM      = in.col<float>("DM");
-	}
-
-	bool operator()(const size_t a, const size_t b) const	// less semantics
-	{
-		return	lb(a, 0) <  lb(b, 0)	||	lb(a, 0) == lb(b, 0) && (
-			lb(a, 1) <  lb(b, 1)	||	lb(a, 1) == lb(b, 1) && (
-			DM(a)    <  DM(b)	||	DM(a)    == DM(b) && (
-			M(a)     <  M(b)
-			)));
-	}
-};
-
-template<typename T>
-void skyConfig<T>::initRNG(rng_t &cpurng)	// initialize the random number generator from CPU RNG
-{
-	// initialize rng
-	this->cpurng = &cpurng;
-	rng = new gpu_rng_t(cpurng);
-}
-
-template<typename T>
-double skyConfig<T>::integrateCounts()
-{
-	//
-	// First pass: compute total expected starcounts
-	//
-	upload(false);
-	compute(false);
-	download(false);
-
-	std::ostringstream ss;
-	ss << "Histogram:     log(rho) |";
-	for(int i=0; i != this->nhistbins; i++)
-	{
-		ss << std::setw(8) << this->lrho0+i*this->dlrho << "|";
-	}
-	MLOG(verb2) << ss.str();
-	ss.str("");
-	ss << "Histogram: rho=" << pow10f(this->lrho0 - this->dlrho*0.5) << "-->|";
-	for(int i=0; i != this->nhistbins; i++)
-	{
-		ss << std::setw(8) << this->cpu_hist[i] << "|";
-	}
-	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
-	MLOG(verb2) << ss.str();
-
-	MLOG(verb1) << "Expected starcount: " << std::setprecision(9) << this->nstarsExpected;
-	MLOG(verb2) << "Total expected star count: " <<
-		std::setprecision(9) << this->nstarsExpected <<
-		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";
-	DLOG(verb1) << "Skygen kernel runtime: " << this->swatch.getAverageTime();
-
-	return this->nstarsExpected;
-}
-
-template<typename T>
-size_t skyConfig<T>::run(otable &in, osink *nextlink)
-{
-	//
-	// Second pass: draw stars
-	//
-	this->Kbatch = in.capacity();
-
-	this->ks.alloc(this->nthreads);
-	uint64_t total = 0;
-	do
-	{
-		// setup output destination
-		this->stars.lb      = in.col<double>("lb");
-		this->stars.projIdx = in.col<int>("projIdx");
-		this->stars.XYZ     = in.col<float>("XYZ");
-		this->stars.comp    = in.col<int>("comp");
-		this->stars.M       = in.col<float>("absmag");
-		this->stars.DM      = in.col<float>("DM");
-
-		this->upload(true);
-		this->compute(true);
-		this->download(true);
-		in.set_size(this->stars_generated);
-
-		{
-			// sort the generated stars by l,b,DM,M
-			std::vector<size_t> s(this->stars_generated);
-			__gnu_cxx::iota(s.begin(), s.end(), size_t(0));
-			std::vector<size_t> h2a(s), a2h(s);
-			star_comp sc(in);
-			std::sort(s.begin(), s.end(), sc);
-			
-			FOR(0, s.size())
-			{
-				#define  SWAP(arr)    std::swap(sc.arr(i),    sc.arr(j))
-				#define SWAP1(arr, k) std::swap(sc.arr(i, k), sc.arr(j, k))
-
-				int hi = a2h[i];
-				int hj = s[i];
-				int j = h2a[hj];
-
-				SWAP1(lb, 0);	SWAP1(lb, 1);
-				SWAP(projIdx);
-				SWAP1(XYZ, 0);	SWAP1(XYZ, 1);	SWAP1(XYZ, 2);
-				SWAP(comp);
-				SWAP(M);
-				SWAP(DM);
-
-				std::swap(h2a[hi], h2a[hj]);
-				std::swap(a2h[i],  a2h[j]);
-
-				#undef SWAP
-				#undef SWAP1
-			}
-		}
-
-		DLOG(verb1) << "Skygen generated " << this->stars_generated << " stars ";
-		DLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
-
-		if(in.size())
-		{
-			total += nextlink->process(in, 0, in.size(), *cpurng);
-		}
-		
-		double pctdone = 100. * total / this->nstarsExpected;
-		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
-		MLOG(verb1) << "Skygen progress: " << pcts << "% done.";
-
-#if 0
-		// write out where each thread stopped
-		for(int i=0; i != this->nthreads; i++)
-		{
-			printf("Thread %d: %d %d %d\n", i, this->cpu_state[i].x, this->cpu_state[i].y, this->cpu_state[i].z);
-		}
-#endif
-
-#if 0
-		// write out the results
-		static bool first = true;
-		FILE *fp = fopen("result.txt", first ? "w" : "a");
-		if(first)
-		{
-			first = false;
-			fprintf(fp, "# lb[2] absSDSSr{alias=absmag;alias=color;} SDSSr{alias=mag;} XYZ[3] comp\n");
-		}
-		column_types::cdouble::host_t lb = in.col<double>("lb");
-		column_types::cfloat::host_t XYZ = in.col<float>("XYZ");
-		column_types::cint::host_t comp  = in.col<int>("comp");
-		column_types::cfloat::host_t M   = in.col<float>("absmag");
-		column_types::cfloat::host_t m   = in.col<float>("mag");
-		for(int row=0; row != in.size(); row++)
-		{
-			fprintf(fp, "%13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
-				lb(row, 0), lb(row, 1), M[row], m[row], XYZ(row, 0), XYZ(row, 1), XYZ(row, 2), comp[row]);
-		}
-		fclose(fp);
-#endif
-	} while(this->stars_generated >= this->stopstars);
-
-	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
-	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
-	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
-
-	#if _EMU_DEBUG
-	long long voxelsVisitedExpected = this->npixels;
-	voxelsVisitedExpected *= this->nm*this->nM;
-	std::cout << "voxels visited = " << voxelsVisited << " (expected: " << voxelsVisitedExpected << ").";
-	#endif
-
-	return total;
-}
-
 ////////////////////////////////////////////////////////////////////////////
 
 std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_polygon> &foot, const peyton::math::lambert &proj, Radians dx);
@@ -689,12 +280,31 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	return clipper;
 }
 
+#include <dlfcn.h>
+typedef skyConfigInterface *(*modelFactory_t)();
+
 skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 {
-	if(model == "BahcallSoneira")
-		return new skyConfig<expModel>();
-	if(model == "ExponentialDisk")
-		return new skyConfig<expDisk>();
+	void *me = dlopen(NULL, RTLD_LAZY);
+	if(me == NULL)
+	{
+		const char *err = dlerror();
+		THROW(EAny, err);
+	}
+
+	std::string factory_name = "create_model_";
+	FOREACH(model)
+	{
+		if(!isalnum(*i)) { continue; }
+		factory_name += tolower(*i);
+	}
+
+	modelFactory_t factory = (modelFactory_t)dlsym(me, factory_name.c_str());
+	if(factory)
+	{
+		skyConfigInterface *ret = factory();
+		if(ret) { return ret; }
+	}
 
 	THROW(EAny, "Unknow density model '" + model + "'");
 	return NULL;
@@ -776,19 +386,6 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 				  t.alias_column(absmagName, "M1");
 				  t.set_column_property("absmag", "band", bandName);
 	t.use_column("DM");
-}
-
-//
-// Return texcoord that will map x to imgx and y to imgy
-//
-float2 texcoord_from_range(float imgx, float imgy, float x, float y)
-{
-	float2 tc;
-
-	tc.x = (-imgy * x + imgx * y)/(imgx - imgy);
-	tc.y = (imgx - imgy) / (x - y);
-
-	return tc;
 }
 
 #if HAVE_LIBCFITSIO
@@ -874,7 +471,11 @@ float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *stat
 	writefits, 'myfile.fits', arr, hdr
 */
 
-xptr<float> load_extinction_map(const std::string &fn, float2 tc[3])
+//
+// (l0,phi1) will be loaded from (LAMBDA0,PHI1) keywords. If any of the two are not present,
+//           both shall be set to -100 on return from the subroutine.
+//
+xptr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0, Radians &phi1)
 {
 	fitsfile *fptr;
 	int status = 0;
@@ -909,6 +510,11 @@ xptr<float> load_extinction_map(const std::string &fn, float2 tc[3])
 		tc[2] = texcoord_from_range(0, img.extent(2)-1, 10, 15);	// DM range
 	}
 
+	// load lambert projection pole (if specified)
+	l0   = rad(read_fits_key(fptr, "LAMBDA0", fn, &status));
+	phi1 = rad(read_fits_key(fptr, "PHI1",    fn, &status));
+	if(status) { l0 = phi1 = -100; status = 0; }
+
 	fits_close_file(fptr, &status);
 	FITS_ERRCHECK("Error closing extinction map file.", status);
 
@@ -921,19 +527,21 @@ void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, flo
 {
 	xptr<float4> res = resample_extinction_texture(tex, tc, crange, npix, proj);
 
+	std::cerr << "Writing output to " << outfn << "\n";
 	std::ofstream out(outfn.c_str());
 	FOREACH(res)
 	{
 		float4 v = *i;
-		out << v.x << " " << v.y << " " << v.z << " " << v.w << "\n";
+		out << io::format("%12.8f %12.8f %12.8f   %8.5f\n") << v.x << v.y << v.z << v.w;
 	}
 }
 
-void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0)
+void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0req, Radians b0req)
 {
 	float2 tc[3];
-	xptr<float> tex = load_extinction_map(texfn, tc);
-	
+	Radians l0, b0;
+	xptr<float> tex = load_extinction_map(texfn, tc, l0, b0);
+
 	// compute input texture ranges
 	// autodetect crange and npix if not given
 	float2 irange[3];
@@ -966,15 +574,38 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 	}
 
 	::lambert proj;
-	proj.init(l0, b0);
 
 	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.extent(0) << " pixels)\n";
 	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.extent(1) << " pixels)\n";
 	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.extent(2) << " pixels).\n";
 	MLOG(verb1) << "     Deproject : " << (deproject ? "yes" : "no");
+
 	if(deproject)
 	{
-		MLOG(verb1) << "     Proj. pole : l0=" << deg(proj.l0) << ", b0=" << deg(proj.b0);
+		std::string pole;
+		if(l0 == -100.)
+		{
+			if(l0req == -100.)
+			{
+				l0 = rad(90);
+				b0 = rad(90);
+				pole = "(default)";
+			}
+			else
+			{
+				l0 = l0req;
+				b0 = b0req;
+				pole = "(manually set)";
+			}
+		}
+		else
+		{
+			pole = "(read from file header)";
+		}
+
+		proj.init(l0, b0);
+
+		MLOG(verb1) << "     Proj. pole : l0=" << deg(proj.l0) << ", b0=" << deg(proj.b0) << " " << pole;
 		MLOG(verb1) << "Output texture : l = [" << deg(crange[0].x) << ", " << deg(crange[0].y) << "] (" << npix[0] << " pixels)\n";
 		MLOG(verb1) << "               : b = [" << deg(crange[1].x) << ", " << deg(crange[1].y) << "] (" << npix[1] << " pixels)\n";
 	}
@@ -983,9 +614,10 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 		MLOG(verb1) << "Output texture : x = [" << crange[0].x << ", " << crange[0].y << "] (" << npix[0] << " pixels)\n";
 		MLOG(verb1) << "               : y = [" << crange[1].x << ", " << crange[1].y << "] (" << npix[1] << " pixels)\n";
 	}
+
 	MLOG(verb1) << "               : z = [" << crange[2].x << ", " << crange[2].y << "] (" << npix[2] << " pixels).\n";
 
-	resample_and_output_texture("northAr.txt", tex, tc, crange, npix, deproject ? &proj : NULL);
+	resample_and_output_texture(outfn, tex, tc, crange, npix, deproject ? &proj : NULL);
 
 	MLOG(verb2) << "Resampled.";
 }
@@ -1019,17 +651,33 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	float scale = 1.f;
 	ss >> scale;
 
-	ext_north = load_extinction_map(northfn, tc_ext_north);
-	ext_south = load_extinction_map(southfn, tc_ext_south);
+	Radians l0, b0;
+	ext_north = load_extinction_map(northfn, tc_ext_north, l0, b0);
+	if(
+		(l0 != -100. && fabs(l0 - ctn::halfpi) > 1e-5) ||
+		(b0 != -100. && fabs(b0 - ctn::halfpi) > 1e-5)
+	)
+	{
+		MLOG(verb1) << "WARNING: Expecting l=90, b=90 as pole of northern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+	}
+	ext_south = load_extinction_map(southfn, tc_ext_south, l0, b0);
+	if(
+		(l0 != -100. && fabs(l0 + ctn::halfpi) > 1e-5) ||
+		(b0 != -100. && fabs(b0 + ctn::halfpi) > 1e-5)
+	)
+	{
+		MLOG(verb1) << "WARNING: Expecting l=-90, b=-90 as pole of southern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+	}
 
 	FOREACH(ext_north) { *i *= scale; }
 	FOREACH(ext_south) { *i *= scale; }
 
-	MLOG(verb1) << "Northern sky extinction loaded from " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
-	MLOG(verb1) << "Southern sky extinction loaded from " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
-	MLOG(verb1) << "Values scaled by scale=" << scale << "\n";
+	MLOG(verb1) << "Extinction maps: " << northfn << " (north), " << southfn << " (south).";
+	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
+	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
+	MLOG(verb2) << "Ext. scale factor: " << scale << "\n";
 
-#if 1	// debug -- resample the north sky into a text file
+#if 0	// debug -- resample the north sky into a text file
 	float2 crange[3];
 	int npix[3];
 	crange[0] = make_float2(-2, 2);
@@ -1051,6 +699,8 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// maximum number of stars skygen is allowed to generate (0 for unlimited)
 	cfg.get(nstarLimit, "nstarlimit", (size_t)100*1000*1000);
+	// mean number of stars skygen should generate (0 to leave it to the model to determine this)
+	cfg.get(nstars, "nstars", 0.f);
 
 	// load extinction volume maps
 	load_extinction_maps(cfg["extinction"]);
@@ -1077,11 +727,27 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 	cuxTextureBinder tb_north(::ext_north, ext_north, tc_ext_north);
 	cuxTextureBinder tb_south(::ext_south, ext_south, tc_ext_south);
 
-	size_t nstarsExpected = 0;
+	double nstarsExpected = 0;
 	FOREACH(kernels)
 	{
 		(*i)->initRNG(rng);
 		nstarsExpected += (*i)->integrateCounts();
+	}
+
+	//
+	// Adjust normalization, if nstars is given
+	//
+	if(nstars != 0)
+	{
+		double norm = nstars / nstarsExpected;
+		FOREACH(kernels) { (*i)->setDensityNorm(norm); }
+		nstarsExpected = nstars;
+
+		MLOG(verb1) << "Stars expected: " << nstarsExpected << " (forced)\n";
+	}
+	else
+	{
+		MLOG(verb1) << "Stars expected: " << nstarsExpected << "\n";
 	}
 
 	//

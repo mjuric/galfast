@@ -210,6 +210,7 @@ int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radia
 	}
 
 	sph_contourX &c = poly.add_contour(op);
+	c.dx = dl;
 
 	// Construct the rectangle (in spherical coordinates)
 	int nl = (int)ceil((l1 - l0)/dl);
@@ -309,12 +310,12 @@ void writeGPCPolygon(const std::string &output, const gpc_polygon &sky, const la
 	if(smOutput)
 	{
 		sm_write(output, sky);
-		MLOG(verb1) << "Output stored in SM-readable format in " << output << " file.";
+		MLOG(verb2) << "Output stored in SM-readable format in " << output << " file.";
 	}
 	else
 	{
 		xgpc_write(output, sky, proj);
-		MLOG(verb1) << "Output stored in .xgpc format in " << output << " file.";
+		MLOG(verb2) << "Output stored in .xgpc format in " << output << " file.";
 	}
 
 }
@@ -964,8 +965,8 @@ std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_p
 	DLOG(verb2) << "Hemisphere areas, preclip (north, south) = (" << polygon_area_deg(sky.first) << ", " << polygon_area_deg(sky.second) << ")\n";
 
 	// DEBUGGING
-	writeGPCPolygon("north.foot.txt", sky.first,  proj,  true);
-	writeGPCPolygon("south.foot.txt", sky.second, sproj, true);
+	// writeGPCPolygon("north.foot.txt", sky.first,  proj,  true);
+	// writeGPCPolygon("south.foot.txt", sky.second, sproj, true);
 
 	//
 	// Clip north/south along the equator
@@ -2020,7 +2021,7 @@ try
 	float2 crange[3] = { make_float2(0, 0), make_float2(0, 0), make_float2(0, 0) };
 	int npix[3] = { 0 };
 	bool deproject = false;
-	double l0 = 90., b0 = 90.;
+	double l0 = -100., b0 = -100.;
 	uopts["resample3d"].reset(new Options(argv0 + " util resample3d", progdesc + " Resample 3D data cube.", version, Authorship::majuric));
 	uopts["resample3d"]->argument("input").bind(input).desc("Input FITS file");
 	uopts["resample3d"]->argument("output").bind(output).desc("Output text file");

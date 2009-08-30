@@ -471,6 +471,49 @@ struct ALIGN(8) afloat2 : public float2
 	afloat2& operator =(const float2 &a) { (float2&)*this = a; return *this; }
 };
 
+//
+// Convenience class -- holds both the pointer to texture data
+// and the texture coordinates
+//
+template<typename T, int dim=1>
+struct texptr
+{
+	xptr<T> 	tex;
+	afloat2		coords[dim];
+
+	texptr()
+	{
+	}
+
+	texptr(const texptr<T, dim>& a)
+	{
+		*this = a;
+	}
+
+	texptr(const xptr<T>& a)
+		: tex(a)
+	{
+	}
+
+	texptr<T, dim>& operator =(const texptr<T, dim>& a)
+	{
+		tex = a.tex;
+
+		if(dim >= 1) { coords[0] = a.coords[0]; }
+		if(dim >= 2) { coords[1] = a.coords[1]; }
+		if(dim >= 3) { coords[2] = a.coords[2]; }
+		if(dim >= 4)
+		{
+			for(int i=4; i != dim; i++)
+			{
+				coords[i] = a.coords[i];
+			}
+		}
+
+		return *this;
+	}
+};
+
 // CPU emulation & management
 template<int dim>
 	struct cuxTexCoords
@@ -497,13 +540,20 @@ struct cuxTextureBinder
 		tex.bind(&data, texcoord);
 	}
 
+	template<typename T>
+	cuxTextureBinder(cuxTextureInterface &tex_, const texptr<T> &tptr)
+		: tex(tex_)
+	{
+		tex.bind(&tptr.tex, tptr.coords);
+	}
+
 	~cuxTextureBinder()
 	{
 		tex.unbind();
 	}
 };
 
-
+// FIXME: This class hasn't been debugged (at all!)
 template<typename T, int dim, enum cudaTextureReadMode mode>
 	struct cuxTexture : public cuxTextureInterface
 	{
@@ -534,6 +584,11 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			data.bind_texture(texref);
 		}
 
+		void bind(const texptr<T, dim> &tex)
+		{
+			bind(tex.tex, tex.coords);
+		}
+
 		virtual void unbind()
 		{
 			if(!data) { return; }
@@ -542,20 +597,57 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			data = 0U;
 		}
 
+		float clamp(float i, int d) const
+		{
+			if(i < 0.f) { i = 0.f; }
+			else if(i >= data.extent(d)) { i = data.extent(d)-1; }
+
+			return i;
+		}
+
 		T tex1D(float x) const		// sample a 1D texture
 		{
 			// FIXME: implement interpolation, clamp modes, normalized coordinates
-			uint32_t i = (uint32_t)x;
-			if(i < 0) { i = 0; }
-			if(i >= data.width()) { i = data.width()-1; }
+			uint32_t i = (uint32_t)clamp(x, 0);
+
 			return data(i);
 		}
-	};
+
+		T tex2D(float x, float y) const		// sample from 3D texture
+		{
+			// FIXME: implement interpolation, clamp modes, normalized coordinates
+			uint32_t i = (uint32_t)clamp(x, 0);
+			uint32_t j = (uint32_t)clamp(y, 1);
+
+			return data(i, j);
+		}
+		T tex3D(float x, float y, float z) const		// sample from 3D texture
+		{
+			// FIXME: implement interpolation, clamp modes, normalized coordinates
+			uint32_t i = (uint32_t)clamp(x, 0);
+			uint32_t j = (uint32_t)clamp(y, 1);
+			uint32_t k = (uint32_t)clamp(z, 2);
+
+			return data(i, j, k);
+		}
+};
 
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	T tex1D(const cuxTexture<T, dim, mode> &texref, float x)
+	inline T tex1D(const cuxTexture<T, dim, mode> &texref, float x)
 	{
 		return texref.tex1D(x);
+	}
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	inline T tex2D(const cuxTexture<T, dim, mode> &texref, float x, float y)
+	{
+		return texref.tex2D(x, y);
+	}
+
+template<typename T, int dim, enum cudaTextureReadMode mode>
+	inline T tex3D(const cuxTexture<T, dim, mode> &texref, float x, float y, float z)
+	{
+		return texref.tex3D(x, y, z);
 	}
 
 // Sampler routines
@@ -586,6 +678,10 @@ template<typename T, typename Texref>
 		float yi = (y - tcy.x) * tcy.y + 0.5f;
 		float zi = (z - tcz.x) * tcz.y + 0.5f;
 		T v = tex3D(r, xi, yi, zi);
+		if(z > 500 && v != 0)
+		{
+//			printf("%f %f %f -> %f %f %f -> %f\n", x, y, z, xi, yi, zi, v);
+		}
 		return v;
 	}
 
@@ -611,13 +707,13 @@ template<typename T, typename Texref>
 	template<typename T, enum cudaTextureReadMode mode>
 		inline __device__ T sample(cuxTexture<T, 2, mode> r, float x, float y)
 		{
-			return sample_impl<T, cuxTexture<T, 2, mode> >(r, x, y, r.tc[0]);
+			return sample_impl<T, cuxTexture<T, 2, mode> >(r, x, y, r.tc[0], r.tc[1]);
 		}
 
 	template<typename T, enum cudaTextureReadMode mode>
 		inline __device__ T sample(cuxTexture<T, 3, mode> r, float x, float y, float z)
 		{
-			return sample_impl<T, cuxTexture<T, 3, mode> >(r, x, y, z, r.tc[0]);
+			return sample_impl<T, cuxTexture<T, 3, mode> >(r, x, y, z, r.tc[0], r.tc[1], r.tc[2]);
 		}
 #else
 	// real thing
@@ -663,5 +759,13 @@ template<typename T, typename Texref>
 			return sample(r, x, y, z, tc[0], tc[1], tc[2]);
 		}
 #endif
+
+//
+// Texturing utilities
+//
+texptr<float, 1> construct_1D_texture_by_resampling	(double *X, double *Y, int ndata, int nsamp = 1024);
+texptr<float, 1> load_constant_texture			(float val, float X0 = -100, float X1 = 100);
+texptr<float, 1> load_and_resample_1D_texture		(const char *fn, int nsamp = 1024);
+float2           texcoord_from_range			(float imgx, float imgy, float x, float y);
 
 #endif // _gpu2_h__

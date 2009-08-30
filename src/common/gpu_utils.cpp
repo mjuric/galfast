@@ -192,6 +192,7 @@ cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 
 		// array size in elements (we're going to need this later)
 		cudaExtent ex = make_cudaExtent(m_width, m_data.extent[1], m_data.extent[2]);
+		ASSERT(ex.width > 0);
 
 		if(!cuArray)	// allocate if needed
 		{

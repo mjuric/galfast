@@ -37,243 +37,8 @@ using peyton::Radians;
 	__device__ __constant__ float Rg_gpu;
 	__device__ inline float Rg() { return Rg_gpu; }
 #else
-	//inline float Rg() { return Rg_cpu; }
 	#include "paralax.h"
 #endif
-
-#if 0
-struct ALIGN(16) lfParams
-{
-	float M0, M1, inv_dM;
-	int isLoaded;
-
-	template<typename T>
-	__device__ float sample(T &texref, float M) const
-	{
-		float val, iMr;
-/*		if(!isLoaded)
-		{
-			val = 1.f;
-		}
-		else
-		{
-*/			iMr  = (M  -  M0) * inv_dM + 0.5;
-			val = tex1D(texref, iMr);
-//		}
-		return val;
-	}
-};
-inline lfParams make_lfParams(float M0, float M1, float dM)
-{
-	int isLoaded = 0; //M0 < M1;
-	lfParams lfp = { M0, M1, 1.f/dM, isLoaded };
-	return lfp;
-}
-
-struct lfTextureManager
-{
-	lfParams par;
-	textureReference &texref;
-	cudaArray *lfArray;
-
-	lfTextureManager(textureReference &tr) : texref(tr), lfArray(0) { par = make_lfParams(0, 0, 1.); }
-	~lfTextureManager() { free(); }
-
-	lfParams set(float *cpu_lf, int lfLen, float M0, float M1, float dM);
-	lfParams load(const char *fn);
-	lfParams loadConstant(float val);
-	void bind();
-	void free();
-};
-
-// luminosity function texture and manager
-#ifdef __CUDACC__
-texture<float, 1, cudaReadModeElementType> texLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
-#else
-extern lfTextureManager texLFMgr;
-#endif
-#endif
-
-#if 0
-	////////////////////////////////////////////////
-	//  Texturing support, next generation
-	////////////////////////////////////////////////
-
-	// host interface
-	template<typename T, int dim = 1>
-	class cuxTexture
-	{
-	public:
-		xptrng::xptr<T> m_data;
-		float x0[dim], dx[dim];
-
-		void init(T *data, int n0, float x0, float dx0, int n1 = 0, float x1 = 0, float dx1 = 0, int n2 = 0, float x2 = 0, float dx2 = 0);
-	};
-
-	template<typename T, int dim>
-	void cuxTexture<T, dim>::init(T *data, int n0, float x0a, float dx0, int n1, float x1, float dx1, int n2, float x2, float dx2)
-	{
-		if(dim >= 1) { x0[0] = x0a; dx[0] = dx0; }
-		if(dim >= 2) { x0[1] = x1;  dx[1] = dx1; }
-		if(dim >= 3) { x0[2] = x2;  dx[2] = dx2; }
-
-		dim3 d = {n0, n1, n2};
-		m_data = xptrng::xptr<T>(d);
-		m_data.copyFrom(data);
-	};
-
-#if !__CUDACC__
-	template<typename T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
-	class texture
-	{
-	};
-#endif
-#endif
-/*
-	// GPU interface
-	template<typename T, int dim = 1, enum cudaTextureReadMode mode = cudaReadModeElementType>
-	class cuxTextureReference
-	{
-	public:
-		typedef texture<T, dim, mode> gpu_t;
-
-	protected:
-		float x0[dim], dx[dim];
-
-	public:
-		// binds the texture, uploads texture coordinate offset and dx parameters
-		bool bind(cuxTexture<T, dim> &texref);
-
-		__device__ T sample(reference &r, float x)
-		{
-			float xx = x0[0] + dx[0]*x;
-			return tex1D(r, xx);
-		}
-	};
-*/
-
-
-#ifdef __CUDACC__
-//texture<float, 1, cudaReadModeElementType> expModelLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
-#endif
-DEFINE_TEXTURE(expModelLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
-
-// double-exponential+powerlaw Halo model
-struct ALIGN(16) expModel
-{
-	struct ALIGN(16) host_state_t
-	{
-		xptrng::xptr<float> lf;
-		afloat2 tc_lf;
-	};
-	struct state
-	{
-		float rho;
-	};
-	float rho0, l, h, z0, f, lt, ht, fh, q, n;
-	float r_cut2;
-
-	int comp_thin, comp_thick, comp_halo;
-
-	// Management functions
-	void load(host_state_t &hstate, const peyton::system::Config &cfg);
-	void prerun(host_state_t &hstate, bool draw);
-	void postrun(host_state_t &hstate, bool draw);
-
-protected:
- 	// Model functions
- 	__device__ float sqr(float x) const { return x*x; }
-	__device__ float halo_denom(float r, float z) const { return sqr(r) + sqr(q*(z + z0)); }
-
-	__device__ float rho_thin(float r, float z)  const
-	{
-		float rho = expf((Rg()-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
-		//fprintf(stderr, "rho=%f\n", rho);
-		return rho;
-	}
-	__device__ float rho_thick(float r, float z) const
-	{
-		float rho = f * expf((Rg()-r)/lt + (fabsf(z0) - fabsf(z + z0))/ht);
-		//fprintf(stderr, "rho=%f\n", rho);
-		return rho;
-	}
-	__device__ float rho_halo(float r, float z)  const
-	{
-		float rho = fh * powf(Rg()/sqrtf(halo_denom(r,z)),n);
-		//fprintf(stderr, "rho=%f\n", rho);
-		return rho;
-	}
-	__device__ float rho(float r, float z)       const
-	{
-		if(sqr(r) + sqr(z) > r_cut2) { return 0.f; }
-
-		float rho = rho0 * (rho_thin(r, z) + rho_thick(r, z) + rho_halo(r, z));
-		//fprintf(stderr, "rho=%f\n", rho);
-		return rho;
-	}
-
-public:
-	__device__ float rho(float x, float y, float z, float M) const
-	{
-		float rh = rho(sqrtf(x*x + y*y), z);
-		//fprintf(stderr, "rho=%f\n", rh);
-		return rh;
-	}
-
-#ifdef __CUDACC__
-	__device__ void setpos(state &s, float x, float y, float z) const
-	{
-//		x = 7720.f; y= -770.1f; z = 2252.f;
-//		((float*)shmem)[threadIdx.x] = rho(x, y, z, 0.f);
-		s.rho = rho(x, y, z, 0.f);
-#if __DEVICE_EMULATION__
-//		printf("rho_A=%f\n", s.rho);
-#endif
-	}
-
-	__device__ float rho(state &s, float M) const
-	{
-//		return 1.f;
-//		return 1.f * ((float*)shmem)[threadIdx.x];
-//		return 0.05f * s.rho;
-//		M = 5.80;
-//		float phi = sample(expModelLF, M, lf);
-		float phi = TEX1D(expModelLF, M);
-#if __DEVICE_EMULATION__
-//		printf("phi=%f rho=%f\n", phi, phi*s.rho);
-#endif
-		return phi * s.rho;
-	}
-
-/*	static const int THIN  = 0;
-	static const int THICK = 1;
-	static const int HALO  = 2;*/
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
-	{
-		float r = sqrtf(x*x + y*y);
-
-		float thin = rho_thin(r, z);
-		float thick = rho_thick(r, z);
-		float halo = rho_halo(r, z);
-		float rho = thin+thick+halo;
-
-		float pthin  = thin / rho;
-		float pthick = (thin + thick) / rho;
-
-		float u = rng.uniform();
-		if(u < pthin) { return comp_thin; }
-		else if(u < pthick) { return comp_thick; }
-		else { return comp_halo; }
-	}
-#endif
-};
-
-
-// exponential disk model
-#ifdef __CUDACC__
-//texture<float, 1, cudaReadModeElementType> expDiskLF(false, cudaFilterModeLinear, cudaAddressModeClamp);
-#endif
-DEFINE_TEXTURE(expDiskLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 // these must be overloaded by models
 struct modelConcept
@@ -288,63 +53,6 @@ struct modelConcept
 	__device__ void setpos(state &s, float x, float y, float z) const;
 	__device__ float rho(state &s, float M) const;
 	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const;
-};
-
-struct ALIGN(16) expDisk : public modelConcept
-{
-public:
-	struct ALIGN(16) host_state_t
-	{
-		xptrng::xptr<float> lf;
-		afloat2 tc_lf;
-	};
-
-protected:
-	float f, l, h, z0;
-	float r_cut2;
-
-	int comp;
-
-public:
-	struct state
-	{
-		float rho;
-	};
-	void load(host_state_t &hstate, const peyton::system::Config &cfg);
-	void prerun(host_state_t &hstate, bool draw);
-	void postrun(host_state_t &hstate, bool draw);
-
-protected:
-	__device__ float rho(float x, float y, float z, float M) const
-	{
-		float r2 = x*x + y*y;
-		if(r2 + z*z > r_cut2) { return 0.f; }
-
-		float r = sqrtf(r2);
-		float rho = f * expf((Rg()-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
-
-		return rho;
-	}
-
-public:
-#ifdef __CUDACC__
-	__device__ void setpos(state &s, float x, float y, float z) const
-	{
-		s.rho = rho(x, y, z, 0.f);
-	}
-
-	__device__ float rho(state &s, float M) const
-	{
-//		float phi = sample(expDiskLF, M, lf);
-		float phi = TEX1D(expDiskLF, M);
-		return phi * s.rho;
-	}
-
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
-	{
-		return comp;
-	}
-#endif
 };
 
 static const double dbl_pi  = 3.14159265358979323846264338;
@@ -531,6 +239,10 @@ struct ALIGN(16) skygenConfig
 	lambert proj[2];		// north/south sky lambert projections
 };
 
+//
+// Device functions and data for skygen (instantiated/defined in skygen.cu.h)
+// This piece gets uploaded as a __constant__ to the GPU
+//
 template<typename Model>
 struct ALIGN(16) skyConfigGPU : public skygenConfig
 {
@@ -539,7 +251,6 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 	Model_t model;
 
 	cux_ptr<skypixel> pixels;	// pixels on the sky to process
-//	float dx, dA;			// linear scale and angular area of each pixel (rad, rad^2)
 
 	cux_ptr<int> lock;
 	cux_ptr<int> nstars;
@@ -550,11 +261,13 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 	cux_ptr<int> rhoHistograms;	// nthreads*nbins sized array
 	float lrho0, dlrho;		// histogram array start (bin midpoint), bin size
 
-	cux_ptr<float> maxCount;		// [nthreads] sized array, returning the maximum density found by each thread
+	cux_ptr<float> maxCount;	// [nthreads] sized array, returning the maximum density found by each thread
 
 	runtime_state<Model> ks;
+	float norm;			// normalization of overall density (usually 1.f)
 
-	template<int draw> __device__ void kernel() const;
+	template<int draw>
+	__device__ void kernel() const;
 	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const skypixel &dir) const;
 	__device__ bool advance(int &ilb, int &i, int &j, skypixel &pix, const int x, const int y) const;
 };
@@ -588,7 +301,7 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	int Kbatch;
 
 	int bufferSafetyMargin();
-	void upload_generic(bool draw = false);
+	void upload_self(bool draw = false);
 
 	void compute(bool draw = false);
 	void upload(bool draw = false);
@@ -600,23 +313,41 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	// external interface
 	virtual void initRNG(rng_t &rng);	// initialize the random number generator from CPU RNG
 	virtual double integrateCounts();	// return the expected starcounts contributed by this model
+	virtual void setDensityNorm(float norm);// set the density normalization of the model
 	virtual bool init(
 		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenConfig &sc,
 		const skypixel *pixels);
-/*	virtual bool init(
-			const peyton::system::Config &cfg,
-			const peyton::system::Config &pdf_cfg,
-			const peyton::system::Config &foot_cfg,
-			const peyton::system::Config &model_cfg,
-			otable &t,
-			opipeline &pipe);*/
 	virtual size_t run(otable &in, osink *nextlink);
 };
 
 #if _EMU_DEBUG
 extern long long voxelsVisited;
+#endif
+
+//
+// Some generic stub code to instantiate the GPU kernels, the class,
+// and a specialized upload method for the model in question
+//
+// Active only when compiled with nvcc
+//
+#ifdef __CUDACC__
+	#define MODEL_IMPLEMENTATION(name) \
+		__device__ __constant__ skyConfigGPU<name> name##Sky; \
+		\
+		template<> __global__ void compute_sky<name>() { name##Sky.kernel<0>(); } \
+		template<> __global__ void    draw_sky<name>() { name##Sky.kernel<1>(); } \
+		\
+		template<> \
+		void skyConfig<name>::upload_self(bool draw) \
+		{ \
+			cuxUploadConst(name##Sky, (skyConfigGPU<name>&)*this); \
+		} \
+		\
+		template class skyConfig<name>
+#else
+	#define MODEL_IMPLEMENTATION(name)
 #endif
 
 #endif

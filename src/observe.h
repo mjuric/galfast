@@ -180,7 +180,7 @@ class os_unresolvedMultiples : public osink
 		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
 		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
 
-		os_unresolvedMultiples() : osink(), comp0(0.), comp1(0xffffffff)
+		os_unresolvedMultiples() : osink(), comp0(0), comp1(0xffffffff)
 		{
 			req.insert("absmag");
 			req.insert("comp");

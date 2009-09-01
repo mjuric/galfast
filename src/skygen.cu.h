@@ -37,6 +37,8 @@
 
 #include <gsl/gsl_statistics_float.h>
 
+using namespace cudacc;
+
 __device__ __constant__ gpuRng::constant rng;
 __device__ __constant__ lambert proj[2];
 
@@ -498,8 +500,11 @@ __device__ void skyConfigGPU<T>::kernel() const
 }
 
 // default kernels (do nothing)
-template<typename T> __global__ void compute_sky();
-template<typename T> __global__ void draw_sky();
+// NOTE: CUDA compatibility -- in principle, we could only _declare_, but 
+// not define these functions to ensure they can never be instantiated without
+// specialization. However, nvcc then fails to compile this code.
+template<typename T> __global__ void compute_sky() {  }
+template<typename T> __global__ void draw_sky() {  }
 
 template<typename T>
 void skyConfig<T>::compute(bool draw)

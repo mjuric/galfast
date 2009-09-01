@@ -24,7 +24,7 @@ public:
 	// of the argument column
 	void reshape(const column<T> &t)
 	{
-		(xptr_t &)(*this) = xptr_t(t.nrows(), t.width(), 1., t.elementSize());
+		(xptr_t &)(*this) = xptr_t(t.nrows(), t.width(), 1, t.elementSize());
 	}
 
 	// Resize the column to have the given number of rows, width and
@@ -33,7 +33,7 @@ public:
 	{
 		if(!es) { es = this->elementSize(); }
 		if(!width) { width = this->width(); }
-		(xptr_t&)(*this) = xptr_t(nrows, width, 1., es);
+		(xptr_t&)(*this) = xptr_t(nrows, width, 1, es);
 	}
 
 	// Return the base of the host memory containing the column data

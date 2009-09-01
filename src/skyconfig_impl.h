@@ -95,6 +95,7 @@ skyConfig<T>::~skyConfig()
 	this->ks.destructor();
 }
 
+#if 0
 template<typename T>
 int skyConfig<T>::bufferSafetyMargin()
 {
@@ -121,6 +122,7 @@ int skyConfig<T>::bufferSafetyMargin()
 
 	return bufsize;
 }
+#endif
 
 template<typename T>
 void skyConfig<T>::download(bool draw)
@@ -128,6 +130,7 @@ void skyConfig<T>::download(bool draw)
 	if(draw)
 	{
 		this->nstars.download(&stars_generated, 1);
+		stars_generated = std::min(stars_generated, this->stopstars);
 
 		// this is for debugging purposes mostly
 		int *ilb = new int[this->nthreads];
@@ -214,7 +217,8 @@ void skyConfig<T>::upload(bool draw)
 	{
 		this->nstars.upload(&zero, 1);
 
-		this->stopstars = Kbatch - bufferSafetyMargin();
+//		this->stopstars = Kbatch - bufferSafetyMargin();
+		this->stopstars = Kbatch;
 		assert(this->stopstars > 0);
 	}
 
@@ -249,9 +253,9 @@ bool skyConfig<T>::init(
 	this->lrho0 = -3.5f;
 	this->dlrho = 1.0f;
 
-	// GPU kernel execution setup (TODO: should I load this through skygenConfig?)
-	blockDim.x = 64; //256;
-	gridDim.x = 120; // 30;
+	// GPU kernel execution setup (TODO: should I load this through skygenConfig? Or autodetect based on the GPU?)
+	blockDim.x = 1; // 64; //256;
+	gridDim.x = 1; // 120; // 30;
 	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
 	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
 

@@ -1698,7 +1698,8 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 500000;
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
-	static const size_t Kbatch = 5000000;
+//	static const size_t Kbatch = 5000000;
+	static const size_t Kbatch = 23;
 	DLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 

@@ -44,7 +44,8 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	h     = cfg.get("h");
 	z0    = cfg.get("z0");
 	f     = cfg.get("f");
-	comp  = cfg.get("comp");
+
+	cfg.get(comp, "comp", 0);
 
 	// luminosity function
 	if(cfg.count("lumfunc"))

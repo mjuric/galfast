@@ -276,6 +276,49 @@ long long voxelsVisited = 0;
 #endif
 
 template<typename T>
+__device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const skypixel &pix) const
+{
+	if(!ndraw) { return; }
+
+	int idx = atomicAdd(nstars.ptr, ndraw);
+
+	for(; ndraw && idx < stopstars; idx++)
+	{
+		float Mtmp, mtmp, DMtmp;
+		stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
+		mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
+		DMtmp = mtmp - Mtmp;
+		stars.DM(idx) = DMtmp;
+		float D = powf(10, 0.2f*DMtmp + 1.f);
+
+		float x, y;
+		stars.projIdx(idx) = pix.projIdx;
+		proj[pix.projIdx].convert(pix, x, y);
+		x += pix.dx*(rng.uniform() - 0.5f);
+		y += pix.dx*(rng.uniform() - 0.5f);
+
+		double l, b;
+		proj[pix.projIdx].inverse(x, y, l, b);
+		direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
+
+		l *= dbl_r2d;
+		if(l < 0.) l += 360.;
+		if(l > 360.) l -= 360.;
+		b *= dbl_r2d;
+		stars.lb(idx, 0) = l;
+		stars.lb(idx, 1) = b;
+
+		float3 pos = position(dir2, D);
+		stars.XYZ(idx, 0) = pos.x;
+		stars.XYZ(idx, 1) = pos.y;
+		stars.XYZ(idx, 2) = pos.z;
+		stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
+
+		ndraw--;
+	}
+}
+
+template<typename T>
 template<int draw>
 __device__ void skyConfigGPU<T>::kernel() const
 {
@@ -283,6 +326,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 	float3 pos;
 	skypixel pix;
 	int k;
+	int ndraw = 0;
 	float Am;
 
 	double count = 0.f, countCovered = 0.f;
@@ -303,13 +347,20 @@ __device__ void skyConfigGPU<T>::kernel() const
 	{
 		if(ks.continuing(tid))
 		{
-			ks.load(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms);
+			ks.load(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms, ndraw);
 		}
 		if(ilb >= npixels) { return; } // this thread has already finished
 		rng.load(tid);
+
+		// finish an incomplete previous invocation
+		if(ndraw)
+		{
+			float M = M1 - iM*dM;
+			draw_stars(ndraw, M, im, pix);
+		}
 	}
 
-	while(true)
+	while(ndraw == 0)
 	{
 		// advance the index
 		bool moved;
@@ -384,68 +435,17 @@ __device__ void skyConfigGPU<T>::kernel() const
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
 		rho *= norm;
-#if __DEVICE_EMULATION__
-//		printf("dN=%f dA=%f dm=%f dM=%f D=%f\n", rho, dA, dm, dM, D);
-#endif
 		rho *= D*D*D; // multiply by volume (part one)
 		rho *= pix.dA * POGSON * dm * dM; // multiply by volume (part two)
-#if __DEVICE_EMULATION__
-//		printf("dN=%g dA=%f dm=%f dM=%f\n", rho, dA, dm, dM); abort();
-#endif
+
 		if(draw) // draw stars
 		{
-			int k = rng.poisson(rho);
-
-			if(k)
+			if(ndraw == 0)
 			{
-				int idx = atomicAdd(nstars.ptr, k);
-
-				do
-				{
-					float Mtmp, mtmp, DMtmp;
-					stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
-//					stars.m[idx] = mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
-					mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
-					DMtmp = mtmp - Mtmp;
-					stars.DM(idx) = DMtmp;
-					float D = powf(10, 0.2f*DMtmp + 1.f);
-
-					float x, y;
-					stars.projIdx(idx) = pix.projIdx;
-					proj[pix.projIdx].convert(pix, x, y);
-					x += pix.dx*(rng.uniform() - 0.5f);
-					y += pix.dx*(rng.uniform() - 0.5f);
-
-					double l, b;
-					proj[pix.projIdx].inverse(x, y, l, b);
-					direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
-
-					l *= dbl_r2d;
-					if(l < 0.) l += 360.;
-					if(l > 360.) l -= 360.;
-					b *= dbl_r2d;
-					stars.lb(idx, 0) = l;
-					stars.lb(idx, 1) = b;
-
-					float3 pos = position(dir2, D);
-					stars.XYZ(idx, 0) = pos.x;
-					stars.XYZ(idx, 1) = pos.y;
-					stars.XYZ(idx, 2) = pos.z;
-					stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
-
-// 					printf("%3d %5d %13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
-// 						sizeof(s), idx, deg(s.l), deg(s.b), s.M, s.m, s.pos.x, s.pos.y, s.pos.z, s.comp);
-
-					idx++;
-					k--;
-				} while(k);
-
-				if(idx >= stopstars)
-				{
-					// memory buffer filled. Exit.
-					break;
-				}
+				ndraw = rng.poisson(rho);
 			}
+
+			draw_stars(ndraw, M, im, pix);
 		}
 		else
 		{
@@ -473,25 +473,27 @@ __device__ void skyConfigGPU<T>::kernel() const
 	else
 	{
 		// store execution state
-		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms);
+		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms, ndraw);
 		rng.store(tid);
 	}
 
 #if _EMU_DEBUG
-	int locked;
-	do {
-		locked = atomicCAS(lock.ptr, 0, 1);
-	} while(locked != 0);
-	voxelsVisited += voxelsVisited1;
-	lock[0] = 0;
+	{
+		int locked;
+		do {
+			locked = atomicCAS(lock.ptr, 0, 1);
+		} while(locked != 0);
+		voxelsVisited += voxelsVisited1;
+		lock[0] = 0;
 
-	#if 0
-		if(draw) {
-			printf("%d stars after thread %d/%d done (in %d voxels).\n", locked, tid, nthreads, voxelsVisited1);
-		} else {
-			printf("Thread %d/%d done (sampled %d voxels).\n", tid, nthreads, voxelsVisited1);
-		}
-	#endif
+		#if 0
+			if(draw) {
+				printf("%d stars after thread %d/%d done (in %d voxels).\n", locked, tid, nthreads, voxelsVisited1);
+			} else {
+				printf("Thread %d/%d done (sampled %d voxels).\n", tid, nthreads, voxelsVisited1);
+			}
+		#endif
+	}
 #endif
 }
 

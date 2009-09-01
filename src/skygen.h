@@ -160,7 +160,7 @@ struct ALIGN(16) runtime_state
 {
 	typedef typename Model::state ms_t;
 
-	cux_ptr<int> cont, ilb, im, iM, k, bc;
+	cux_ptr<int> cont, ilb, im, iM, k, bc, ndraw;
 	cux_ptr<float3> pos;
 	cux_ptr<float> D, Am;
 	cux_ptr<skypixel> pix;
@@ -168,7 +168,7 @@ struct ALIGN(16) runtime_state
 
 	void alloc(int nthreads)
 	{
-		cont.alloc(nthreads); ilb.alloc(nthreads); im.alloc(nthreads); iM.alloc(nthreads); k.alloc(nthreads); bc.alloc(nthreads);
+		cont.alloc(nthreads); ilb.alloc(nthreads); im.alloc(nthreads); iM.alloc(nthreads); k.alloc(nthreads); bc.alloc(nthreads); ndraw.alloc(nthreads);
 		pos.alloc(nthreads); D.alloc(nthreads); Am.alloc(nthreads); pix.alloc(nthreads);
 		ms.alloc(nthreads);
 
@@ -176,13 +176,13 @@ struct ALIGN(16) runtime_state
 	}
 	void free()
 	{
-		cont.free(); ilb.free(); im.free(); iM.free(); k.free(); bc.free();
+		cont.free(); ilb.free(); im.free(); iM.free(); k.free(); bc.free(); ndraw.free();
 		pos.free(); D.free(); Am.free(); pix.free();
 		ms.free();
 	}
 	void constructor()	// as CUDA doesn't allow real constructors
 	{
-		cont = ilb = im = iM = k = bc = 0;
+		cont = ilb = im = iM = k = bc = ndraw = 0;
 		pos = 0; D = 0; pix = 0;
 		ms = 0;
 	}
@@ -195,7 +195,7 @@ struct ALIGN(16) runtime_state
 		free();
 	}
 
-	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, float &Am, typename Model::state &ms) const
+	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, float &Am, typename Model::state &ms, int &ndraw) const
 	{
 		ilb = this->ilb(tid);
 		im  = this->im(tid);
@@ -207,20 +207,22 @@ struct ALIGN(16) runtime_state
 		D   = this->D(tid);
 		Am  = this->Am(tid);
 		ms  = this->ms(tid);
+		ndraw  = this->ndraw(tid);
 	}
 
-	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, float Am, typename Model::state ms) const
+	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, float Am, typename Model::state ms, int ndraw) const
 	{
-		this->ilb(tid) = ilb;
-		this->im(tid)  = im;
-		this->iM(tid)  = iM;
-		this->k(tid)   = k;
-		this->bc(tid)  = bc;
-		this->pos(tid) = pos;
-		this->pix(tid) = pix;
-		this->D(tid)   = D;
-		this->Am(tid)  = Am;
-		this->ms(tid)  = ms;
+		this->ilb(tid)   = ilb;
+		this->im(tid)    = im;
+		this->iM(tid)    = iM;
+		this->k(tid)     = k;
+		this->bc(tid)    = bc;
+		this->pos(tid)   = pos;
+		this->pix(tid)   = pix;
+		this->D(tid)     = D;
+		this->Am(tid)    = Am;
+		this->ms(tid)    = ms;
+		this->ndraw(tid) = ndraw;
 
 		this->cont(tid) = 1;
 	}
@@ -266,10 +268,10 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 	runtime_state<Model> ks;
 	float norm;			// normalization of overall density (usually 1.f)
 
-	template<int draw>
-	__device__ void kernel() const;
+	template<int draw> __device__ void kernel() const;
 	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const skypixel &dir) const;
 	__device__ bool advance(int &ilb, int &i, int &j, skypixel &pix, const int x, const int y) const;
+	__device__ void draw_stars(int &ndraw, const float &M, const int &im, const skypixel &pix) const;
 };
 
 class opipeline;

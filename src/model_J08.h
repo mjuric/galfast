@@ -31,7 +31,7 @@ struct ALIGN(16) J08 : public modelConcept
 {
 	struct ALIGN(16) host_state_t
 	{
-		texptr<float> lf;
+		cuxTexture<float> lf;
 	};
 	struct state
 	{

@@ -18,16 +18,21 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef _gpu2_h__
-#define _gpu2_h__
+#ifndef cuda_cux__
+#define cuda_cux__
 
-//#include "gpu.h"
 #include <assert.h>
 #include <map>
 #include <set>
 #include <algorithm>
 
+//
 // CUDA API wrappers
+//
+
+/**
+	cuxException -- thrown if a CUDA-related error is detected
+*/
 struct cuxException
 {
 	cudaError err;
@@ -35,86 +40,66 @@ struct cuxException
 	const char *msg() const { return cudaGetErrorString(err); }
 };
 
+/**
+	cuxErrCheck macro -- aborts with message if the enclosed call returns != cudaSuccess
+*/
 void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const int line);
 #define cuxErrCheck(expr) \
 	cuxErrCheck_impl(expr, __PRETTY_FUNCTION__, __FILE__, __LINE__)
 
+
+/**
+	Compute the size, in bytes, of an aligned (strided) 1/2/3D array.
+*/
+size_t arrayMemSize_impl(size_t nx, size_t ny, size_t nz, size_t align, size_t elementSize);
 template<typename T>
-	T *cuxNew(uint32_t size = 1)
+	size_t arrayMemSize(size_t nx, size_t ny = 1, size_t nz = 1, size_t align = 128)
 	{
-		T *v;
-		cuxErrCheck( cudaMalloc((void**)&v, sizeof(T)*size) );
-		return v;
+		return arrayMemSize_impl(nx, ny, nz, align, sizeof(T));
 	}
 
+/**
+	cuxNew<T> -- Allocate an array on the current device
+
+	Low level API -- cuxDevicePtr<> should be used instead.
+
+	If 2D or 3D array is requested, the first dimension will be byte aligned
+	according to the align argument (default: 128 bytes).
+
+	Hides the raw CUDA API.
+*/
+template<typename T>
+	T* cuxNew(size_t nx, size_t ny = 1, size_t nz = 1, size_t align = 128)
+	{
+		size_t size = arrayMemSize<T>(nx, ny, nz, align);
+
+		T *devptr;
+		cuxErrCheck( cudaMalloc((void**)&devptr, size) );
+		return devptr;
+	}
+
+/**
+	cuxFree() -- Free memory on the current device
+
+	Low level API -- cuxDevicePtr<> should be used instead.
+
+	Hides the raw CUDA API.
+*/
 template<typename T>
 	void cuxFree(T *v)
 	{
 		cuxErrCheck( cudaFree(v) );
 	}
 
-template<typename T, int dim = 1>
-	struct array_ptr
-	{
-		T *ptr;
-		uint32_t extent[dim-1];	// extent[0] == width of a row of data, in bytes
-					// extent[1] == number of rows of data in a slice of a 3D data cube
-					// extent[2] == number of slices in a 3D data sub-cube of a 4D data cube (etc...)
 
-		// Access
-		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
-		{
-			return *((T*)((char*)ptr + y * extent[0] + z * extent[0] * extent[1]) + x);
-		}
-		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
-		{
-			return *((T*)((char*)ptr + y * extent[0]) + x);
-		}
-		__host__ __device__ T &operator()(const uint32_t i) const			// 1D accessor (valid only if dim >= 2)
-		{
-			return ptr[i];
-		}
-		__host__ __device__ operator bool() const
-		{
-			return ptr != NULL;
-		}
-		__host__ __device__ array_ptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
-		{
-			ptr = NULL;
-			return *this;
-		}
-	};
+/**
+	cuxUploadConst -- Copy a variable to __constant__ memory variable
 
-template<typename T>
-	inline array_ptr<T, 2> make_array_ptr(T *data, uint32_t pitch)
-	{
-		array_ptr<T, 2> ptr;
-		ptr.ptr = data;
-		ptr.extent[0] = pitch;
-		return ptr;
-	}
+	The __constant__ variable can be given via address (if compiling with nvcc)
+	or a string name (if called from gcc-compiled code)
 
-template<typename T>
-	inline array_ptr<T, 3> make_array_ptr(T *data, uint32_t pitch, uint32_t ydim)
-	{
-		array_ptr<T, 3> ptr;
-		ptr.ptr = data;
-		ptr.extent[0] = pitch;
-		ptr.extent[1] = ydim;
-		return ptr;
-	}
-
-template<typename T, int dim = 1>
-	struct cux_ptr : public array_ptr<T, dim>
-	{
-		void   upload(const T* src, int count = 1)  { if(!this->ptr) { alloc(count); } cuxErrCheck( cudaMemcpy(this->ptr,  src, count*sizeof(T), cudaMemcpyHostToDevice) ); }
-		void download(T* dest, int count = 1) const {                            cuxErrCheck( cudaMemcpy(dest, this->ptr, count*sizeof(T), cudaMemcpyDeviceToHost) ); }
-		void alloc(int count) { this->ptr = cuxNew<T>(count); }
-		void free() { cuxFree(this->ptr); }
-
-		cux_ptr<T> operator =(T *p) { this->ptr = p; return *this; }
-		cux_ptr<T> operator =(const cux_ptr<T> &p) { this->ptr = p.ptr; return *this; }
-	};
+	Hides the raw CUDA API.
+*/
 
 template<typename T>
 	void cuxUploadConst(T &dest, const T &source)
@@ -138,316 +123,517 @@ template<typename T>
 		cuxErrCheck( cudaMemcpyToSymbol(symbol, &source, size) );
 	}
 
-////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+	arrayPtr -- Multidimensional strided array interface.
 
-namespace xptrng
-{
-	// Pointer to n-D array in global GPU memory
-	//	- Used to obtain a pointer to and access device memory (in kernels)
-	//	- Thin veneer over array_ptr, to facilitate obtaining by cast from xptr<>
-	//	- Must be obtained via cast from xptr<>
-	//	- Remains valid until a hptr<> or a texture_bind is called for the parent xptr<>
-	template<typename T, int dim = 2>
-	struct gptr : public array_ptr<T, dim>
+	Size: sizeof(T*) + sizeof(size_t)*(dim-1)
+
+	Stores the pointer to the array, and the size (in bytes) of first dim-1
+	dimensions. If dim > 1, ensures the first dimension occupies is a
+	multiple of aling bytes. If dim == 1, it becomes equivalent (in size
+	and usage) to a simple C pointer.
+
+	The user is responsible for memory allocation/deallocation, using the
+	make_arrayPtr() functions (see below), or using cuxDevicePtr<> class (below).
+
+	The array may be in either host or device memory and must be accessed
+	accordingly; arrays in device memory can only be accessed in kernel
+	code, arrays in host memory can only be accessed from host code.
+*/
+template<typename T, int dim = 1>
+	struct arrayPtr
 	{
-		__device__ __host__ gptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
+		T *ptr;
+		uint32_t extent[dim-1];	// extent[0] == width of a row of data, in bytes
+					// extent[1] == number of rows of data in a slice of a 3D data cube
+					// extent[2] == number of slices in a 3D data sub-cube of a 4D data cube (etc...)
+
+		// Access
+		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim >= 3)
 		{
-			this->ptr = NULL;
+			return *((T*)((char*)ptr + y * extent[0] + z * extent[0] * extent[1]) + x);
+		}
+		__host__ __device__ T &operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
+		{
+			return *((T*)((char*)ptr + y * extent[0]) + x);
+		}
+		__host__ __device__ T &operator()(const uint32_t i) const			// 1D accessor (valid only if dim >= 1)
+		{
+			return ptr[i];
+		}
+		__host__ __device__ T &operator[](const uint32_t i) const			// 1D accessor (valid only if dim >= 1)
+		{
+			return ptr[i];
+		}
+		__host__ __device__ operator bool() const					// comparison with NULL
+		{
+			return ptr != NULL;
+		}
+		__host__ __device__ arrayPtr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
+		{
+			ptr = NULL;
 			return *this;
 		}
 	};
 
-	// Pointer to n-D array in host memory
-	//	- Used to obtain a pointer to and access host memory
-	//	- Thin veneer over array_ptr, to facilitate obtaining by cast from xptr<>
-	//	- Must be obtained via cast from xptr<>
-	//	- Remains valid until a gptr<> or a texture_bind is called for the parent xptr<>
-	template<typename T, int dim = 2>
-	struct hptr : public array_ptr<T, dim>
+#if 0
+/**
+	make_arrayPtr() -- load an allocated pointer and size information to arrayPtr
+
+	Construct an arrayPtr object out of an existing pointer and size. The size of
+	the first dimension must be in bytes, and include any padding that may exist.
+	
+	DEPRECATED: You should allocate arrays using cuxSmartPtr.
+*/
+template<typename T, int dim>
+	inline arrayPtr<T, dim> make_arrayPtr(T *data, uint32_t pitch, uint32_t ny = 1, uint32_t nz = 1)
 	{
-		hptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
-		{
-			this->ptr = NULL;
-			return *this;
-		}
-	};
+		arrayPtr<T, 3> ptr;
+		ptr.ptr = data;
+		if(dim > 1) { ptr.extent[0] = pitch; }
+		if(dim > 2) { ptr.extent[1] = ny; }
+		if(dim > 3) { ptr.extent[2] = nz; }
+		return ptr;
+	}
+#endif
 
-	// Inner part, low level implementation of xptr<T>. See the documentation of xptr<T>
-	// for more details.
-	//     - only meant to be used from xptr
-	//     - points to a well-formed block 3D block of elements of size m_elementSize,
-	//	 with byte dimensions in m_data.extent[0-2], and logical width given in
-	//	 m_width.
-	//     - is reference counted, auto de-allocates on all devices upon final release
-	struct xptr_impl_t
+/**
+	cuxDevicePtr<T, dim, align> -- n-dimensional array on the device
+
+	Size: sizeof(T*) + sizeof(size_t)*(dim-1)
+
+	Derived from arrayPtr. Encapsulates a pointer to array on the device,
+	simplifying upload, download, allocation and deallocation and abstracting
+	it from the CUDA APIs.
+
+	Provides NO automatic memory management (e.g., RAII); must be allocated
+	and deallocated manually via member functions. For a smart pointer, see
+	cuxSmartPtr (below).
+**/
+
+template<typename T, int dim = 1, int align = 128>
+	struct cuxDevicePtr : public arrayPtr<T, dim>
 	{
-	public:
-		// data members
-		array_ptr<char, 4> m_data;	// master copy of the data (can be on host or device, depending on onDevice)
-		char *slave;			// slave copy of the data  (can be on host or device, depending on onDevice)
-		cudaArray* cuArray;		// CUDA array copy of the data
-
-		bool onDevice;			// true if the "master copy" of the data is on the device
-		bool cleanCudaArray;		// true if the last access operation was obtaining a reference to cudaArray
-
-		uint32_t m_elementSize;		// size of the array element (bytes)
-		uint32_t m_width;		// logical width of the array (in elements)
-
-		int refcnt;			// number of xptrs pointing to this m_impl
-
-		std::set<textureReference *> boundTextures;	// list of textures bound to the cuArray
-
-	public:
-		// constructors
-		xptr_impl_t(size_t es, size_t pitch, size_t width, size_t height = 1, size_t depth = 1);
-		~xptr_impl_t();
-
-		// aux methods
-		operator bool() const					// true if the pointer is considered non-null (effectively defines what non-null means)
+	protected:
+#if 0
+		void alloc(size_t nlastdim)
 		{
-			return m_data.extent[0] != 0;
+			assert(dim <= 4); // not implemented for dim > 4
+
+			if(this->ptr) { return; }
+
+			switch(dim)
+			{
+				case 1:
+					alloc(nlastdim); break;
+				case 2:
+					alloc(this->extent[0], nlastdim); break;
+				case 3:
+					alloc(this->extent[0], this->extent[1], nlastdim); break;
+				default:
+					assert(dim <= 3);
+			}
+			}
+
+			size_t size;	// size of the memory to be transfered, in bytes
+
+			if(dim == 1) { size = nlastdim*sizeof(T); }
+			else
+			{
+				size = 1;
+				for(int i = 0; i != dim; i++)
+				{
+					size *= this->extent[i];
+				}
+			}
+
+			switch(direction)
+			{
+				case cudaMemcpyHostToDevice:
+					cuxErrCheck( cudaMemcpy(this->ptr, hostptr, size, cudaMemcpyHostToDevice) );
+					break;
+				case cudaMemcpyDeviceToHost:
+					cuxErrCheck( cudaMemcpy(hostptr, this->ptr, size, cudaMemcpyDeviceToHost) );
+					break;
+			}
 		}
-		uint32_t memsize() const				// number of bytes allocated
+#endif
+
+		size_t memsize(size_t lastdim)
 		{
-			uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
+			if(dim == 1) return lastdim*sizeof(T);
+
+			size_t size = lastdim;
+			for(int i = 0; i != dim-1; i++)
+			{
+				size *= this->extent[i];
+			}
 			return size;
 		}
-
-		// reference management
-		xptr_impl_t *addref() { ++refcnt; return this; }
-		int release()
+	public:
+		void upload(const T* src, size_t lastdim)
 		{
-			--refcnt;
-			if(refcnt == 0) { delete this; return 0; }
-			return refcnt;
+			if(!this->ptr)
+			{
+				if(dim == 1) { alloc(lastdim); }	// auto-allocation allowed only for 1D arrays (convenience)
+				else { assert(this->ptr); }
+			}
+
+			size_t size = memsize(lastdim);
+			cuxErrCheck( cudaMemcpy(this->ptr, src, size, cudaMemcpyHostToDevice) );
 		}
 
-		// upload/download to/from the device
-		void *syncTo(bool device);
-		void *syncToDevice() { return syncTo(true); }
-		void *syncToHost() { return syncTo(false); }
-
-		// texture access
-		void bind_texture(textureReference &texref);
-		void unbind_texture(textureReference &texref);
-
-	private:
-		// garbage collection facilities
-		struct allocated_pointers : public std::set<xptr_impl_t *>
+		void download(T* dest, size_t lastdim)
 		{
-			~allocated_pointers();
-		};
-		static allocated_pointers all_xptrs;
-		static void global_gc();
+			if(!this->ptr)
+			{
+				if(dim == 1) { alloc(lastdim); }	// auto-allocation allowed only for 1D arrays (convenience)
+				else { assert(this->ptr); }
+			}
 
-	private:
-		cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc);
+			size_t size = memsize(lastdim);
+			cuxErrCheck( cudaMemcpy(dest, this->ptr, size, cudaMemcpyDeviceToHost) );
+		}
 
-		// garbage collection -- release all unused copies of this pointer
-		// on devices other than master
-		void gc();
+		void alloc(size_t nx, size_t ny = 1, size_t nz = 1)
+		{
+			assert(dim <= 4); // not implemented for dim > 4
 
-		// ensure no shenanigans (no copy constructor & operator)
-		xptr_impl_t(const xptr_impl_t &);
-		xptr_impl_t& operator=(const xptr_impl_t &);
+			if(dim >  1) { this->extent[0] = roundUpModulo(nx*sizeof(T), align); }
+			if(dim >  2) { this->extent[1] = ny; }
+			if(dim >  3) { this->extent[2] = nz; }
+
+			this->ptr = cuxNew<T>(nx, ny, nz, align);
+		}
+		void free()
+		{
+			cuxFree(this->ptr);
+		}
+
+		cuxDevicePtr<T> operator =(T *p) { this->ptr = p; return *this; }
+		cuxDevicePtr<T> operator =(const cuxDevicePtr<T> &p) { this->ptr = p.ptr; return *this; }
 	};
 
-	// Smart GPU/CPU memory pointer with on-demand garbage collection
-	//	- Points to a sized (up to three-dimensional) block of memory
-	//	- At any given time, the block is either on GPU, CPU, or bound to texture
-	//	- To access the block on host/device, obtain a hptr<> or gptr<> via cast.
-	//	  Obtaining either moves the block to the apropriate device, and invalidates
-	//	  any previously obtained pointers of the other type. The pointer is then
-	//	  "locked" to that particular device.
-	//	- Accessing the data with operator() is equivalent to obtaining a hptr<>
-	//	- Blocks remain allocated on device and host (for speed) until an OOM
-	//	  condition is reached on the device. Garbage collection will then remove
-	//	  all unlocked device pointers, and retry the allocation.
-	//	- The block can be bound to texture using bind_texture, and must be unbound
-	//	  before the pointer is deallocated
-	//	- The pointer is reference-counted, and automatically releases all memory
-	//	  when the reference count falls to zero.
-	template<typename T>
-	struct xptr
+////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Pointer to an n-D array in device memory, obtained from cuxSmartPtr
+//	- Used to obtain a pointer to and access device memory (in kernels)
+//	- Should be passed to device kernels
+//	- Thin veneer over arrayPtr, to facilitate obtaining by cast from cuxSmartPtr<>
+//	- Must be obtained via cast from cuxSmartPtr<>
+//	- Remains valid until a hptr<> or a texture_bind is called for the parent cuxSmartPtr<>
+//	- Must not be manually deallocated
+template<typename T, int dim = 2>
+struct gptr : public arrayPtr<T, dim>
+{
+	__device__ __host__ gptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
 	{
-	protected:
-		xptr_impl_t *m_impl;
+		this->ptr = NULL;
+		return *this;
+	}
+};
 
-	public:
-		// iterator-ish interface (host)
-		struct iterator
+// Pointer to n-D array in host memory, obtained from cuxSmartPtr
+//	- Used to obtain a pointer to and access host memory
+//	- Thin veneer over arrayPtr, to facilitate obtaining by cast from cuxSmartPtr<>
+//	- Must be obtained via cast from cuxSmartPtr<>
+//	- Remains valid until a gptr<> or a texture_bind is called for the parent cuxSmartPtr<>
+//	- Must not be manually deallocated
+template<typename T, int dim = 2>
+struct hptr : public arrayPtr<T, dim>
+{
+	hptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
+	{
+		this->ptr = NULL;
+		return *this;
+	}
+};
+
+// Inner part, low level implementation of cuxSmartPtr<T>. See the documentation of cuxSmartPtr<T>
+// for more details.
+//     - only meant to be used from cuxSmartPtr
+//     - points to a well-formed block 3D block of elements of size m_elementSize,
+//	 with byte dimensions in m_data.extent[0-2], and logical width given in
+//	 m_width.
+//     - is reference counted, auto de-allocates on all devices upon final release
+struct cuxSmartPtr_impl_t
+{
+public:
+	// data members
+	arrayPtr<char, 4> m_data;	// master copy of the data (can be on host or device, depending on onDevice)
+	char *slave;			// slave copy of the data  (can be on host or device, depending on onDevice)
+	cudaArray* cuArray;		// CUDA array copy of the data
+
+	bool onDevice;			// true if the "master copy" of the data is on the device
+	bool cleanCudaArray;		// true if the last access operation was obtaining a reference to cudaArray
+
+	uint32_t m_elementSize;		// size of the array element (in bytes)
+	uint32_t m_width;		// logical width of the array (in elements)
+
+	int refcnt;			// number of cuxSmartPtrs pointing to this m_impl
+
+	std::set<textureReference *> boundTextures;	// list of textures bound to the cuArray
+
+public:
+	// constructors/destructors
+	cuxSmartPtr_impl_t(size_t elementSize, size_t pitch, size_t width, size_t height = 1, size_t depth = 1);
+	~cuxSmartPtr_impl_t();
+
+	// aux methods
+	operator bool() const					// true if the pointer is considered non-null (effectively defines what non-null means)
+	{
+		return m_data.extent[0] != 0;
+	}
+	uint32_t memsize() const				// number of bytes allocated
+	{
+		uint32_t size = m_data.extent[0]*m_data.extent[1]*m_data.extent[2];
+		return size;
+	}
+
+	// reference management
+	cuxSmartPtr_impl_t *addref() { ++refcnt; return this; }
+	int release()
+	{
+		--refcnt;
+		if(refcnt == 0) { delete this; return 0; }
+		return refcnt;
+	}
+
+	// upload/download to/from the device
+	void *syncTo(bool device);
+	void *syncToDevice() { return syncTo(true); }
+	void *syncToHost() { return syncTo(false); }
+
+	// texture access
+	void bind_texture(textureReference &texref);
+	void unbind_texture(textureReference &texref);
+
+private:
+	// garbage collection facilities
+	struct allocated_pointers : public std::set<cuxSmartPtr_impl_t *>
+	{
+		~allocated_pointers();
+	};
+	static allocated_pointers all_cuxSmartPtrs;
+	static void global_gc();
+
+private:
+	// constructs a CUDA array. Used by bind_texture
+	cudaArray *getCUDAArray(cudaChannelFormatDesc &channelDesc);
+
+	// garbage collection -- release all unused copies of this pointer
+	// on devices other than master
+	void gc();
+
+	// ensure no shenanigans (no copy constructor & operator)
+	cuxSmartPtr_impl_t(const cuxSmartPtr_impl_t &);
+	cuxSmartPtr_impl_t& operator=(const cuxSmartPtr_impl_t &);
+};
+
+/**
+	Smart pointer to an array in GPU or CPU memory, with on-demand garbage collection, and auto-syncing of CPU/GPU copies
+
+		- Points to an arrayPtr<>-styled n-dimensional block of memory
+		- Is reference-counted, and automatically releases all memory when
+		the reference count falls to zero.
+		- At any given time, the block is either on GPU, CPU, or bound to texture (in a CUDA array)
+		- To access the block on host/device, obtain a hptr<> or gptr<> via cast.
+		Obtaining will moves the block to the host/device if necessary, invalidating
+		any previously obtained pointers to device/host. The pointer is then
+		"locked" to that particular device.
+		- For convenience, data on the host can be accessed directly off this object,
+		with the() operator. This is equivalent to obtaining a hptr<>.
+		- Blocks remain allocated on device and host (for speed) until an OOM
+		condition is reached on the device. Garbage collection will then remove
+		all unlocked device pointers, and retry the allocation.
+
+		- Can be bound to a texture using bind_texture. Must be unbound
+		before deallocation. Direct use is discouraged; use cuxTextureBinder
+		where possible.
+*/
+template<typename T>
+struct cuxSmartPtr
+{
+protected:
+	cuxSmartPtr_impl_t *m_impl;
+
+public:
+	//
+	// iterator-ish interface (host)
+	//
+	struct iterator
+	{
+		cuxSmartPtr<T> *d;
+		uint32_t i, j, k;
+
+		iterator(cuxSmartPtr<T> *d_ = NULL, uint32_t i_ = 0, uint32_t j_ = 0, uint32_t k_ = 0)
+		: d(d_), i(i_), j(j_), k(k_)
+		{}
+
+		T& operator *()  const { return (*d)(i, j, k); }
+		T& operator ->() const { return (*d)(i, j, k); }
+		iterator &operator ++()	// prefix
 		{
-			xptr<T> *d;
-			uint32_t i, j, k;
-
-			iterator(xptr<T> *d_ = NULL, uint32_t i_ = 0, uint32_t j_ = 0, uint32_t k_ = 0)
-			: d(d_), i(i_), j(j_), k(k_)
-			{}
-
-			T& operator *()  const { return (*d)(i, j, k); }
-			T& operator ->() const { return (*d)(i, j, k); }
-			iterator &operator ++()	// prefix
+			if(++i >= d->width())
 			{
-				if(++i >= d->width())
+				i = 0;
+				if(++j >= d->height())
 				{
-					i = 0;
-					if(++j >= d->height())
-					{
-						j = 0;
-						++k;
-					}
+					j = 0;
+					++k;
 				}
-				return *this;
-			}
-			bool operator==(const iterator &a) const
-			{
-				return a.i == i && a.j == j && a.k == k;
-			}
-			bool operator!=(const iterator &a) const
-			{
-				return !(a == *this);
-			}
-		};
-		iterator begin() { return iterator(this, 0, 0, 0); }
-		iterator end() { return iterator(this, 0, 0, depth()); }
-	public:
-		uint32_t elementSize() const { return m_impl->m_elementSize; }		// size of the stored element (typically, sizeof(T))
-		uint32_t width()       const { return m_impl->m_width; }		// logical width of the data array
-		uint32_t height()      const { return m_impl->m_data.extent[1]; }	// logical height of the data array
-		uint32_t depth()       const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
-		uint32_t pitch()       const { return m_impl->m_data.extent[0]; }	// byte width of the data array
-		uint32_t size()        const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
-		uint32_t extent(int n) const						// logical size (number of elements) of the requested dimension (0=first, 1=second, ...)
-			{ return n == 0 ? width() : m_impl->m_data.extent[n]; }
-
-		xptr(const xptr& t)				// construct a copy of existing pointer
-		{
-			m_impl = t.m_impl->addref();
-		}
-		xptr &operator =(const xptr &t)			// construct a copy of existing pointer
-		{
-			if(t.m_impl != m_impl)
-			{
-				m_impl->release();
-				m_impl = t.m_impl->addref();
 			}
 			return *this;
 		}
-		~xptr()
- 		{
- 			m_impl->release();
- 		}
-
-		xptr<T> clone(bool copyData = false) const	// make the exact copy of this pointer, optionally copying the data as well
+		bool operator==(const iterator &a) const
 		{
-			xptr<T> ret(new xptr_impl_t(elementSize(), pitch(), width(), height(), depth()));
-			if(copyData)
-			{
-				syncToHost();
-				ret.syncToHost();
-				memcpy(ret.m_impl->m_data.ptr, m_impl->m_data.ptr, m_impl->memsize());
-			}
-			return ret;
+			return a.i == i && a.j == j && a.k == k;
 		}
-
-		// comparisons/tests
- 		operator bool() const			// return true if this is not a null pointer
- 		{
- 			return (bool)(*m_impl);
- 		}
-
-		// host data accessors (note: use hptr<> interface if maximum speed is needed)
-		T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
+		bool operator!=(const iterator &a) const
 		{
-			assert(x < width());
-			assert(y < height());
-			assert(z < depth());
-			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 3> *)(&m_impl->m_data))(x, y, z);
-		}
-		T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
-		{
-			assert(x < width());
-			assert(y < height());
-			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 2> *)(&m_impl->m_data))(x, y);
-		}
-		T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
-		{
-			assert(x < width());
-			if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
-			return (*(array_ptr<T, 1> *)(&m_impl->m_data))(x);
-		}
-
-		// texture access
-		void bind_texture(textureReference &texref)
-		{
-			m_impl->bind_texture(texref);
-		}
-		void unbind_texture(textureReference &texref)
-		{
-			m_impl->unbind_texture(texref);
-		}
-	public:
-		template<int dim>
-			operator hptr<T, dim>()			// request access to data on the host
-			{
-				syncToHost();
-				return *(hptr<T, dim> *)(&m_impl->m_data);
-			}
-
-		template<int dim>
-			operator gptr<T, dim>()			// request access to data on the GPU
-			{
-				syncToDevice();
-				return *(gptr<T, dim> *)(&m_impl->m_data);
-			}
-
-		xptr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, uint32_t elemSize = 0xffffffff, uint32_t align = 128)
-		{
-			if(elemSize == 0xffffffff) { elemSize = sizeof(T); }
-			m_impl = new xptr_impl_t(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
-		}
-
-
-	protected:
-		// multi-device support. Don't call these directly; use gptr instead.
-		T* syncToHost() const { return (T*)const_cast<xptr<T> *>(this)->m_impl->syncToHost(); }
-		T* syncToDevice() { return (T*)m_impl->syncToDevice(); }
-
-		// protected constructors
-		xptr(xptr_impl_t *d)
-		{
-			m_impl = d;
+			return !(a == *this);
 		}
 	};
+	iterator begin() { return iterator(this, 0, 0, 0); }
+	iterator end() { return iterator(this, 0, 0, depth()); }
+public:
+	uint32_t elementSize() const { return m_impl->m_elementSize; }		// size of the stored element (typically, sizeof(T))
+	uint32_t width()       const { return m_impl->m_width; }		// logical width of the data array
+	uint32_t pitch()       const { return m_impl->m_data.extent[0]; }	// byte width of the data array
+	uint32_t height()      const { return m_impl->m_data.extent[1]; }	// logical height of the data array
+	uint32_t depth()       const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
+	uint32_t size()        const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
+	uint32_t extent(int n) const						// logical size (number of elements) of the requested dimension (0=first, 1=second, ...)
+		{ return n == 0 ? width() : m_impl->m_data.extent[n]; }
 
-	template<typename T>
-	void copy(xptr<T> &p, const T* data)	// copy data from a C pointer to an xptr<>. Assumes the argument has the required number of elements.
+	cuxSmartPtr(const cuxSmartPtr& t)				// construct a copy of existing pointer
 	{
-		if(data == NULL) { return; }
-
-		hptr<T, 3> v = p;
-		for(int i = 0; i != p.width(); i++)
+		m_impl = t.m_impl->addref();
+	}
+	cuxSmartPtr &operator =(const cuxSmartPtr &t)			// construct a copy of existing pointer
+	{
+		if(t.m_impl != m_impl)
 		{
-			for(int j = 0; j != p.height(); j++)
+			m_impl->release();
+			m_impl = t.m_impl->addref();
+		}
+		return *this;
+	}
+	~cuxSmartPtr()
+	{
+		m_impl->release();
+	}
+
+	cuxSmartPtr<T> clone(bool copyData = false) const	// make an exact copy of this pointer (the array shape), optionally copying the data as well
+	{
+		cuxSmartPtr<T> ret(new cuxSmartPtr_impl_t(elementSize(), pitch(), width(), height(), depth()));
+		if(copyData)
+		{
+			syncToHost();
+			ret.syncToHost();
+			memcpy(ret.m_impl->m_data.ptr, m_impl->m_data.ptr, m_impl->memsize());
+		}
+		return ret;
+	}
+
+	// comparisons/tests
+	operator bool() const			// return true if this is not a null pointer
+	{
+		return (bool)(*m_impl);
+	}
+
+	// host data accessors (note: use hptr<> interface if maximum speed is needed)
+	T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
+	{
+		assert(x < width());
+		assert(y < height());
+		assert(z < depth());
+		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+		return (*(arrayPtr<T, 3> *)(&m_impl->m_data))(x, y, z);
+	}
+	T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
+	{
+		assert(x < width());
+		assert(y < height());
+		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+		return (*(arrayPtr<T, 2> *)(&m_impl->m_data))(x, y);
+	}
+	T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
+	{
+		assert(x < width());
+		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
+		return (*(arrayPtr<T, 1> *)(&m_impl->m_data))(x);
+	}
+
+	// texture access
+	void bind_texture(textureReference &texref)
+	{
+		m_impl->bind_texture(texref);
+	}
+	void unbind_texture(textureReference &texref)
+	{
+		m_impl->unbind_texture(texref);
+	}
+public:
+	template<int dim>
+		operator hptr<T, dim>()			// request access to data on the host
+		{
+			syncToHost();
+			return *(hptr<T, dim> *)(&m_impl->m_data);
+		}
+
+	template<int dim>
+		operator gptr<T, dim>()			// request access to data on the GPU
+		{
+			syncToDevice();
+			return *(gptr<T, dim> *)(&m_impl->m_data);
+		}
+
+	cuxSmartPtr(uint32_t width = 0, uint32_t height = 1, uint32_t depth = 1, uint32_t elemSize = 0xffffffff, uint32_t align = 128)
+	{
+		if(elemSize == 0xffffffff) { elemSize = sizeof(T); }
+		m_impl = new cuxSmartPtr_impl_t(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
+	}
+
+
+protected:
+	// multi-device support. Don't call these directly; use gptr instead.
+	T* syncToHost() const { return (T*)const_cast<cuxSmartPtr<T> *>(this)->m_impl->syncToHost(); }
+	T* syncToDevice() { return (T*)m_impl->syncToDevice(); }
+
+	// protected constructors
+	cuxSmartPtr(cuxSmartPtr_impl_t *d)
+	{
+		m_impl = d;
+	}
+};
+
+// copy data from a host C pointer to an cuxSmartPtr<>. Assumes the host array has the
+// required number of elements and no stride.
+template<typename T>
+void copy(cuxSmartPtr<T> &p, const T* data)
+{
+	if(data == NULL) { return; }
+
+	hptr<T, 3> v = p;
+	for(int i = 0; i != p.width(); i++)
+	{
+		for(int j = 0; j != p.height(); j++)
+		{
+			for(int k = 0; k != p.depth(); k++)
 			{
-				for(int k = 0; k != p.depth(); k++)
-				{
-					v(i, j, k) = *data;
-					data++;
-				}
+				v(i, j, k) = *data;
+				data++;
 			}
 		}
 	}
-};
-using namespace xptrng;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-// Simplified texturing support
+// Texturing support
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 /*
@@ -471,31 +657,33 @@ struct ALIGN(8) afloat2 : public float2
 	afloat2& operator =(const float2 &a) { (float2&)*this = a; return *this; }
 };
 
-//
-// Convenience class -- holds both the pointer to texture data
-// and the texture coordinates
-//
-template<typename T, int dim=1>
-struct texptr
-{
-	xptr<T> 	tex;
-	afloat2		coords[dim];
+/**
+	cuxTexture<T,dim> -- host copy of texture data and associated texture coordinates
 
-	texptr()
+	Convenience class -- holds both the pointer to texture data
+	and the texture coordinates in a same object.
+*/
+template<typename T, int dim=1>
+struct cuxTexture
+{
+	cuxSmartPtr<T> 	tex;		// texture array
+	afloat2		coords[dim];	// texture coordinates
+
+	cuxTexture()
 	{
 	}
 
-	texptr(const texptr<T, dim>& a)
+	cuxTexture(const cuxTexture<T, dim>& a)
 	{
 		*this = a;
 	}
 
-	texptr(const xptr<T>& a)
+	cuxTexture(const cuxSmartPtr<T>& a)
 		: tex(a)
 	{
 	}
 
-	texptr<T, dim>& operator =(const texptr<T, dim>& a)
+	cuxTexture<T, dim>& operator =(const cuxTexture<T, dim>& a)
 	{
 		tex = a.tex;
 
@@ -514,6 +702,20 @@ struct texptr
 	}
 };
 
+/**
+	cuxTextureReferenceInterface -- abstract bind/unbind interface for textures
+
+	Common, type-independent base class for textures, permitting cuxTextureBinder
+	to bind/unbind the texture without the need to know the texture type.
+
+	Base class of cuxTextureReference.
+*/
+struct cuxTextureReferenceInterface
+{
+	virtual void bind(const void *data_, const float2 *texcoord) = 0;
+	virtual void unbind() = 0;
+};
+
 // CPU emulation & management
 template<int dim>
 	struct cuxTexCoords
@@ -523,84 +725,68 @@ template<int dim>
 		__host__       float2 &operator[](int i)       { return tc[i]; }
 	};
 
-struct cuxTextureInterface
-{
-	virtual void bind(const void *data_, const float2 *texcoord) = 0;
-	virtual void unbind() = 0;
-};
+/**
+	cuxTextureReference<T,dim,readmode> -- host texture reference interface
 
-struct cuxTextureBinder
-{
-	cuxTextureInterface &tex;
+	Holds the pointer to CUDA texture reference, and implements host emulation
+	of texture sampling. There is a 1-to-1 relationship between a cuxTextureReference<>
+	object and a CUDA texture refrence.
 
-	template<typename T>
-	cuxTextureBinder(cuxTextureInterface &tex_, const xptr<T> &data, const float2 *texcoord)
-		: tex(tex_)
-	{
-		tex.bind(&data, texcoord);
-	}
+	Use bind() and unbind() methods to bind a cuxSmartPtr/cuxTexture to the
+	texture reference (or, preferably, cuxTextureBinder).
 
-	template<typename T>
-	cuxTextureBinder(cuxTextureInterface &tex_, const texptr<T> &tptr)
-		: tex(tex_)
-	{
-		tex.bind(&tptr.tex, tptr.coords);
-	}
-
-	~cuxTextureBinder()
-	{
-		tex.unbind();
-	}
-};
-
-// FIXME: This class hasn't been debugged (at all!)
+	You should NEVER have to explicitly instantiate a cuxTextureReference<> object;
+	use DEFINE_TEXTURE and DECLARE_TEXTURE macros instead.
+*/
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	struct cuxTexture : public cuxTextureInterface
+	struct cuxTextureReference : public cuxTextureReferenceInterface
 	{
 	public:
-		xptr<T>	data;
-		textureReference &texref;
-		cuxTexCoords<dim> tc;
-		const char *tcSymbolName;
+/*		cuxSmartPtr<T>	data;
+		cuxTexCoords<dim> tc;*/
+		cuxTexture<T, dim> tex;		// the texture from which we're going to sample
+		textureReference &texref;	// the CUDA texture reference to which the current texture will be bound
+		const char *tcSymbolName;	// the symbol name of the __constant__ variable that holds the texture
+						// coordinates on device
 	public:
-		cuxTexture(textureReference &texref_, const char *tcSymbolName)
+		cuxTextureReference(textureReference &texref_, const char *tcSymbolName)
 			: texref(texref_), tcSymbolName(tcSymbolName)
 		{
 		}
 
-		virtual void bind(const void *xptr_data_, const float2 *texcoord)
+		virtual void bind(const void *cuxSmartPtr_data_, const float2 *texcoord)
 		{
-			bind(*(const xptr<T> *)xptr_data_, texcoord);
+			bind(*(const cuxSmartPtr<T> *)cuxSmartPtr_data_, texcoord);
 		}
 
-		void bind(const xptr<T> &data_, const float2 *texcoord)
+		void bind(const cuxSmartPtr<T> &data_, const float2 *texcoord)
 		{
 			unbind();
 
-			data = data_;
-			for(int i=0; i != dim; i++) { tc[i] = texcoord[i]; }
+			tex.tex = data_;
+			for(int i=0; i != dim; i++) { tex.coords[i] = texcoord[i]; }
 
-			cuxUploadConst(tcSymbolName, tc);
-			data.bind_texture(texref);
+			cuxUploadConst(tcSymbolName, tex.coords);
+			tex.tex.bind_texture(texref);
 		}
 
-		void bind(const texptr<T, dim> &tex)
+		void bind(const cuxTexture<T, dim> &tex)
 		{
 			bind(tex.tex, tex.coords);
 		}
 
 		virtual void unbind()
 		{
-			if(!data) { return; }
+			if(!tex.tex) { return; }
 
-			data.unbind_texture(texref);
-			data = 0U;
+			tex.tex.unbind_texture(texref);
+			tex.tex = 0U;
 		}
 
 		float clamp(float i, int d) const
 		{
 			if(i < 0.f) { i = 0.f; }
-			else if(i >= data.extent(d)) { i = data.extent(d)-1; }
+			else if(i >= tex.tex.extent(d)) { i = tex.tex.extent(d)-1; }
 
 			return i;
 		}
@@ -610,7 +796,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			// FIXME: implement interpolation, clamp modes, normalized coordinates
 			uint32_t i = (uint32_t)clamp(x, 0);
 
-			return data(i);
+			return tex.tex(i);
 		}
 
 		T tex2D(float x, float y) const		// sample from 3D texture
@@ -619,7 +805,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			uint32_t i = (uint32_t)clamp(x, 0);
 			uint32_t j = (uint32_t)clamp(y, 1);
 
-			return data(i, j);
+			return tex.tex(i, j);
 		}
 		T tex3D(float x, float y, float z) const		// sample from 3D texture
 		{
@@ -628,37 +814,51 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			uint32_t j = (uint32_t)clamp(y, 1);
 			uint32_t k = (uint32_t)clamp(z, 2);
 
-			return data(i, j, k);
+			return tex.tex(i, j, k);
 		}
 };
 
+/**
+	tex1D/2D/3D -- Host implementation of texture sampling, source-compat w. CUDA
+
+	These are here primarely for source-compabitbility with CUDA tex?D calls,
+	so that the same kernel code can be recompiled on the host without
+	modifications. They simply forward the call to apropriate cuxTextureReference
+	methods.
+*/
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	inline T tex1D(const cuxTexture<T, dim, mode> &texref, float x)
+	inline T tex1D(const cuxTextureReference<T, dim, mode> &texref, float x)
 	{
 		return texref.tex1D(x);
 	}
 
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	inline T tex2D(const cuxTexture<T, dim, mode> &texref, float x, float y)
+	inline T tex2D(const cuxTextureReference<T, dim, mode> &texref, float x, float y)
 	{
 		return texref.tex2D(x, y);
 	}
 
 template<typename T, int dim, enum cudaTextureReadMode mode>
-	inline T tex3D(const cuxTexture<T, dim, mode> &texref, float x, float y, float z)
+	inline T tex3D(const cuxTextureReference<T, dim, mode> &texref, float x, float y, float z)
 	{
 		return texref.tex3D(x, y, z);
 	}
 
+/**
+	sample_impl -- GPU implementation of sampling with texture coordinates
+
+	Transforms the "real space" coordinates (x,y,z), to texture-space
+	coordinates, based on the offset and scale given in tc, and samples
+	the texture.
+
+	Must not be called directly, but through TEX?D() macros (below).
+*/
 // Sampler routines
 template<typename T, typename Texref>
 	inline __device__ T sample_impl(Texref r, float x, float2 tc)
 	{
 		float xi = (x - tc.x) * tc.y + 0.5f;
 		T v = tex1D(r, xi);
-#if __DEVICE_EMULATION__
-//		printf("phi=%f\n", v);
-#endif
 		return v;
 	}
 
@@ -678,18 +878,50 @@ template<typename T, typename Texref>
 		float yi = (y - tcy.x) * tcy.y + 0.5f;
 		float zi = (z - tcz.x) * tcz.y + 0.5f;
 		T v = tex3D(r, xi, yi, zi);
-		if(z > 500 && v != 0)
-		{
-//			printf("%f %f %f -> %f %f %f -> %f\n", x, y, z, xi, yi, zi, v);
-		}
 		return v;
 	}
 
-// texture class (GPU and CPU)
+/**
+	Macros to declare, define and sample from CUDA texture references, on device or the host.
+
+	DEFINE_TEXTURE(name...) -- if compiled with nvcc, defines a CUDA textureReference,
+	__constant__ storage for texture coordinates, and a host cuxTextureReference<> object named
+	'name##Manager'. The host object handles host-based texture sampling, and
+	binding/unbinding of textures to the CUDA texture reference.
+	If compiled with gcc, declares an extern reference to the name##Manager object.
+
+	DECLARE_TEXTURE(name...) -- Declares an extern reference to the name##Manager
+	object (see DEFINE_TEXTURE).
+
+	TEX?D() -- samples from a textures, taking into account the texture coordinates
+	bound with the texture
+
+	Sample usage:
+	============
+		// in .cu file (defining and sampling)
+		DEFINE_TEXTURE(mytexture, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+		__global__ somekernel(...)
+		{
+			float x, y, z;
+			...
+			float val = TEX3D(mytexture, x, y, z)
+		}
+
+		// in .cpp file (binding)
+		DECLARE_TEXTURE(mytexture, float, 3, cudaReadModeElementType);
+
+		void somefunction(cuxTexture<float, 3> &tex)
+		{
+			cuxTextureBinder tb_mytexture(mytexture, tex);
+			... call CUDA kernel ...
+		}
+
+*/
 #if !__CUDACC__
 	#define DEFINE_TEXTURE(name, T, dim, mode, norm, fMode, aMode) \
-		extern cuxTexture<T, dim, mode> name##Manager; \
-		static cuxTexture<T, dim, mode> &name = name##Manager
+		extern cuxTextureReference<T, dim, mode> name##Manager; \
+		static cuxTextureReference<T, dim, mode> &name = name##Manager
 
 	#define DECLARE_TEXTURE(name, T, dim, mode) \
 		DEFINE_TEXTURE(name, T, dim, mode, dummy, dummy, dummy)
@@ -699,28 +931,28 @@ template<typename T, typename Texref>
 	#define TEX3D(name, x, y, z) sample(name, x, y, z)
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTexture<T, 1, mode> r, float x)
+		inline __device__ T sample(cuxTextureReference<T, 1, mode> r, float x)
 		{
-			return sample_impl<T, cuxTexture<T, 1, mode> >(r, x, r.tc[0]);
+			return sample_impl<T, cuxTextureReference<T, 1, mode> >(r, x, r.tex.coords[0]);
 		}
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTexture<T, 2, mode> r, float x, float y)
+		inline __device__ T sample(cuxTextureReference<T, 2, mode> r, float x, float y)
 		{
-			return sample_impl<T, cuxTexture<T, 2, mode> >(r, x, y, r.tc[0], r.tc[1]);
+			return sample_impl<T, cuxTextureReference<T, 2, mode> >(r, x, y, r.tex.coords[0], r.tex.coords[1]);
 		}
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTexture<T, 3, mode> r, float x, float y, float z)
+		inline __device__ T sample(cuxTextureReference<T, 3, mode> r, float x, float y, float z)
 		{
-			return sample_impl<T, cuxTexture<T, 3, mode> >(r, x, y, z, r.tc[0], r.tc[1], r.tc[2]);
+			return sample_impl<T, cuxTextureReference<T, 3, mode> >(r, x, y, z, r.tex.coords[0], r.tex.coords[1], r.tex.coords[2]);
 		}
 #else
 	// real thing
 	#define DEFINE_TEXTURE(name, T, dim, mode, norm, fMode, aMode) \
 		texture<T, dim, mode> name(norm, fMode, aMode); \
 		__constant__ cuxTexCoords<dim> name##TC; \
-		cuxTexture<T, dim, mode> name##Manager(name, #name "TC")
+		cuxTextureReference<T, dim, mode> name##Manager(name, #name "TC")
 
 	#define TEX1D(name, x)       sample(name, x, name##TC)
 	#define TEX2D(name, x, y)    sample(name, x, y, name##TC)
@@ -760,12 +992,45 @@ template<typename T, typename Texref>
 		}
 #endif
 
-//
-// Texturing utilities
-//
-texptr<float, 1> construct_1D_texture_by_resampling	(double *X, double *Y, int ndata, int nsamp = 1024);
-texptr<float, 1> load_constant_texture			(float val, float X0 = -100, float X1 = 100);
-texptr<float, 1> load_and_resample_1D_texture		(const char *fn, int nsamp = 1024);
+/**
+	texture loading/construction utilities
+*/
+cuxTexture<float, 1> construct_1D_texture_by_resampling	(double *X, double *Y, int ndata, int nsamp = 1024);
+cuxTexture<float, 1> load_constant_texture			(float val, float X0 = -100, float X1 = 100);
+cuxTexture<float, 1> load_and_resample_1D_texture		(const char *fn, int nsamp = 1024);
 float2           texcoord_from_range			(float imgx, float imgy, float x, float y);
 
-#endif // _gpu2_h__
+/**
+	cuxTextureBinder -- RAII style texture binding/unbinding
+
+	Use the cuxTextureBinder to binds a cuxTexture<> to a cuxTextureReference<>. The object's
+	constructor will upload the texture coordinates, and bind the texture. The destructor will
+	automatically unbind the texture.
+
+	It is recommended to use this mechanism to bind a texture just before a kernel call.
+*/
+struct cuxTextureBinder
+{
+	cuxTextureReferenceInterface &tex;
+
+	template<typename T>
+	cuxTextureBinder(cuxTextureReferenceInterface &tex_, const cuxSmartPtr<T> &data, const float2 *texcoord)
+		: tex(tex_)
+	{
+		tex.bind(&data, texcoord);
+	}
+
+	template<typename T>
+	cuxTextureBinder(cuxTextureReferenceInterface &tex_, const cuxTexture<T> &tptr)
+		: tex(tex_)
+	{
+		tex.bind(&tptr.tex, tptr.coords);
+	}
+
+	~cuxTextureBinder()
+	{
+		tex.unbind();
+	}
+};
+
+#endif // cuda_cux__

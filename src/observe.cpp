@@ -719,8 +719,8 @@ class os_photometry : public osink
 		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 ///		std::vector<std::vector<float> > clt;
-		std::vector<xptrng::xptr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
-		std::vector<xptrng::xptr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
+		std::vector<cuxSmartPtr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
+		std::vector<cuxSmartPtr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
 /*		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
 		std::vector<std::vector<cbool> > eclt;	// extrapolation flags*/
 		int nMr, nFeH;
@@ -903,8 +903,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
 //	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
 //	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
-	isochrones.resize(ncolors); FOREACH(isochrones)  { *i = xptrng::xptr<float>(nFeH, nMr); }
-	eflags.resize(ncolors);     FOREACH(eflags)      { *i = xptrng::xptr<uint>(nFeH, nMr); }
+	isochrones.resize(ncolors); FOREACH(isochrones)  { *i = cuxSmartPtr<float>(nFeH, nMr); }
+	eflags.resize(ncolors);     FOREACH(eflags)      { *i = cuxSmartPtr<uint>(nFeH, nMr); }
 
 	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
 	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
@@ -949,7 +949,7 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	{
 //		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 		nextrap[i] = 0;
-		xptrng::hptr<uint> ptr = eflags[i];
+		hptr<uint> ptr = eflags[i];
 /*		FOREACHj(cf, ptr)
 		{
 			if(*cf != 0) { nextrap[i] += 1; }
@@ -988,8 +988,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
 DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
-void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs);
-void os_photometry_cleanup_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs);
+void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
+void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
 
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
@@ -1299,7 +1299,7 @@ struct write_fits_rows_state
 
 	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
 	{
-		hidden = NULL; // xptrng::make_hptr2D<int>(NULL, 0);
+		hidden = NULL; // make_hptr2D<int>(NULL, 0);
 		rowswritten = 0;
 
 		columns = columns_;

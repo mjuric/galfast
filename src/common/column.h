@@ -4,27 +4,27 @@
 #include "gpu.h"
 
 template<typename T>
-struct column : public xptrng::xptr<T>
+struct column : public cuxSmartPtr<T>
 {
 public:
-	typedef xptrng::xptr<T> xptr_t;
+	typedef cuxSmartPtr<T> cuxSmartPtr_t;
 
-	typedef xptrng::gptr<T, 2> gpu_t;
-	typedef xptrng::hptr<T, 2> host_t;
+	typedef gptr<T, 2> gpu_t;
+	typedef hptr<T, 2> host_t;
 
 public:
 	// NOTE: WARNING: The meaning of width/height is being _inverted_ here
 	// to bring it in line with the typical table metaphore. In memory, however
 	// the array is stored such that nrows() is its width. This allows the GPU
 	// to coalesce memory accesses to adjacent rows of the table.
-	uint32_t nrows() const { return xptr_t::width(); }
-	uint32_t width() const { return xptr_t::height(); }
+	uint32_t nrows() const { return cuxSmartPtr_t::width(); }
+	uint32_t width() const { return cuxSmartPtr_t::height(); }
 
 	// Change the width/height/element size of this column to match that
 	// of the argument column
 	void reshape(const column<T> &t)
 	{
-		(xptr_t &)(*this) = xptr_t(t.nrows(), t.width(), 1, t.elementSize());
+		(cuxSmartPtr_t &)(*this) = cuxSmartPtr_t(t.nrows(), t.width(), 1, t.elementSize());
 	}
 
 	// Resize the column to have the given number of rows, width and
@@ -33,7 +33,7 @@ public:
 	{
 		if(!es) { es = this->elementSize(); }
 		if(!width) { width = this->width(); }
-		(xptr_t&)(*this) = xptr_t(nrows, width, 1, es);
+		(cuxSmartPtr_t&)(*this) = cuxSmartPtr_t(nrows, width, 1, es);
 	}
 
 	// Return the base of the host memory containing the column data

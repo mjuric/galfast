@@ -113,7 +113,7 @@ protected:
 	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
 	size_t nstarLimit;	// maximum number of stars to generate
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
-	xptr<float> ext_north, ext_south;
+	cuxSmartPtr<float> ext_north, ext_south;
 	afloat2 tc_ext_north[3], tc_ext_south[3];
 
 public:
@@ -172,7 +172,7 @@ class os_unresolvedMultiples : public osink
 		std::string absmagSys;
 		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
-		texptr<float> secProb, cumLF, invCumLF;		// probability and LF texture data
+		cuxTexture<float> secProb, cumLF, invCumLF;		// probability and LF texture data
 	public:
 		virtual bool runtime_init(otable &t);
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);

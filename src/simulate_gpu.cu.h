@@ -780,11 +780,11 @@ KERNEL(
 #include <vector>
 
 #if BUILD_FOR_CPU && HAVE_CUDA
-extern __TLS std::vector<xptrng::xptr<float> > *locuses;
-extern __TLS std::vector<xptrng::xptr<uint> >   *flags;
+extern __TLS std::vector<cuxSmartPtr<float> > *locuses;
+extern __TLS std::vector<cuxSmartPtr<uint> >   *flags;
 #else
-__TLS std::vector<xptrng::xptr<float> > *locuses;
-__TLS std::vector<xptrng::xptr<uint> >   *flags;
+__TLS std::vector<cuxSmartPtr<float> > *locuses;
+__TLS std::vector<cuxSmartPtr<uint> >   *flags;
 #endif
 
 #if HAVE_CUDA && !BUILD_FOR_CPU
@@ -840,14 +840,14 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 
 #if HAVE_CUDA && BUILD_FOR_CPU
 #include <map>
-std::map<std::string, xptrng::xptr<float4> > os_photometry_tex_c;
-std::map<std::string, xptrng::xptr<uint4> >  os_photometry_tex_f;
-void os_photometry_tex_get(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f)
+std::map<std::string, cuxSmartPtr<float4> > os_photometry_tex_c;
+std::map<std::string, cuxSmartPtr<uint4> >  os_photometry_tex_f;
+void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f)
 {
 	c = os_photometry_tex_c[id];
 	f = os_photometry_tex_f[id];
 }
-void os_photometry_tex_set(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f)
+void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f)
 {
 	os_photometry_tex_c[id] = c;
 	os_photometry_tex_f[id] = f;
@@ -856,10 +856,10 @@ void os_photometry_tex_set(const char *id, xptrng::xptr<float4> &c, xptrng::xptr
 
 #if !BUILD_FOR_CPU || !HAVE_CUDA
 
-void os_photometry_tex_get(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f);
-void os_photometry_tex_set(const char *id, xptrng::xptr<float4> &c, xptrng::xptr<uint4> &f);
+void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
+void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
 
-void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs)
+void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs)
 {
 	locuses = loc;
 	flags = flgs;
@@ -881,8 +881,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 	// The packed textures are built on first use, and are cached across subsequent
 	// kernel calls.
 	//
-	xptrng::xptr<float4> texc;
-	xptrng::xptr<uint4>  texf;
+	cuxSmartPtr<float4> texc;
+	cuxSmartPtr<uint4>  texf;
 	int texid = 0;
 	for(int i=0; i < loc->size(); i += 4)
 	{
@@ -892,8 +892,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 		os_photometry_tex_get(idx, texc, texf);
 		if(!texc || !texf)
 		{
-			texc = xptrng::xptr<float4>(width, height);
-			texf =  xptrng::xptr<uint4>(width, height);
+			texc = cuxSmartPtr<float4>(width, height);
+			texf =  cuxSmartPtr<uint4>(width, height);
 
 			// Pack the lookups to float4
 			for(int y=0; y != height; y++)
@@ -955,14 +955,14 @@ void os_photometry_set_isochrones(const char *id, std::vector<xptrng::xptr<float
 }
 
 // Unbind photometry textures
-void os_photometry_cleanup_isochrones(const char *id, std::vector<xptrng::xptr<float> > *loc, std::vector<xptrng::xptr<uint> > *flgs)
+void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs)
 {
 #if HAVE_CUDA
 	activeDevice dev(gpuExecutionEnabled("os_photometry_kernel")? 0 : -1);
 	if(gpuGetActiveDevice() < 0) { return; }
 
-	xptrng::xptr<float4> texc;
-	xptrng::xptr<uint4>  texf;
+	cuxSmartPtr<float4> texc;
+	cuxSmartPtr<uint4>  texf;
 	int texid = 0;
 	for(int i=0; i < loc->size(); i += 4)
 	{

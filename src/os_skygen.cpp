@@ -32,9 +32,9 @@
 
 /***********************************************************************/
 
-texptr<float, 1> load_constant_texture(float val, float X0, float X1)
+cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
 {
-	texptr<float, 1> tex(2);
+	cuxTexture<float, 1> tex(2);
 	tex.tex(0U) = val;
 	tex.tex(1U) = val;
 	tex.coords[0].x = X0;
@@ -42,13 +42,13 @@ texptr<float, 1> load_constant_texture(float val, float X0, float X1)
 	return tex;
 }
 
-texptr<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
+cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
 {
 	spline tx;
 	tx.construct(X, Y, ndata);
 
 	// resample to texture
-	texptr<float, 1> tex(nsamp);
+	cuxTexture<float, 1> tex(nsamp);
 	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
@@ -61,7 +61,7 @@ texptr<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int nd
 	return tex;
 }
 
-texptr<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
+cuxTexture<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
 {
 	// load the points from the file, and construct
 	// a spline to resample from
@@ -475,7 +475,7 @@ float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *stat
 // (l0,phi1) will be loaded from (LAMBDA0,PHI1) keywords. If any of the two are not present,
 //           both shall be set to -100 on return from the subroutine.
 //
-xptr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0, Radians &phi1)
+cuxSmartPtr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0, Radians &phi1)
 {
 	fitsfile *fptr;
 	int status = 0;
@@ -489,7 +489,7 @@ xptr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0
 	if(naxis != 3) { THROW(EAny, "Supplied extinction map file is " + str(naxis) + ", instead of 3-dimensional."); }
 	if(bitpix != FLOAT_IMG) { THROW(EAny, "Supplied extinction map file is not a data cube of 32-bit floats"); }
 
-	xptr<float> img(naxes[0], naxes[1], naxes[2], -1, 1); // allocate a 1-byte aligned floating point 3D cube
+	cuxSmartPtr<float> img(naxes[0], naxes[1], naxes[2], -1, 1); // allocate a 1-byte aligned floating point 3D cube
 	uint32_t nelem = img.size();
 	long fpixel[3] = { 1, 1, 1 };
 	fits_read_pix(fptr, TFLOAT, fpixel, nelem, NULL, &img(0, 0, 0), NULL, &status);
@@ -522,10 +522,10 @@ xptr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0
 }
 #endif
 
-xptr<float4> resample_extinction_texture(xptr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj);
-void resample_and_output_texture(const std::string &outfn, xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj)
+cuxSmartPtr<float4> resample_extinction_texture(cuxSmartPtr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj);
+void resample_and_output_texture(const std::string &outfn, cuxSmartPtr<float> &tex, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj)
 {
-	xptr<float4> res = resample_extinction_texture(tex, tc, crange, npix, proj);
+	cuxSmartPtr<float4> res = resample_extinction_texture(tex, tc, crange, npix, proj);
 
 	std::cerr << "Writing output to " << outfn << "\n";
 	std::ofstream out(outfn.c_str());
@@ -540,7 +540,7 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 {
 	float2 tc[3];
 	Radians l0, b0;
-	xptr<float> tex = load_extinction_map(texfn, tc, l0, b0);
+	cuxSmartPtr<float> tex = load_extinction_map(texfn, tc, l0, b0);
 
 	// compute input texture ranges
 	// autodetect crange and npix if not given
@@ -626,7 +626,7 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 {
 	if(!econf.size())	// no extinction
 	{
-		xptrng::xptr<float> tex(2, 2, 2);
+		cuxSmartPtr<float> tex(2, 2, 2);
 		FORj(i, 0, 2) FORj(j, 0, 2) FORj(k, 0, 2)
 			tex(i, j, k) = 0.f;
 		float2 tc = make_float2(-2, 1./4.);

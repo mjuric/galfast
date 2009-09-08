@@ -106,11 +106,11 @@ __global__ void resample_extinction_kernel(gptr<float4, 1> out,
 	}
 }
 
-xptr<float4> resample_extinction_texture(xptr<float> &tex, float2 *tc, float2 crange[3], int npix[3], lambert *proj)
+cuxSmartPtr<float4> resample_extinction_texture(cuxSmartPtr<float> &tex, float2 *tc, float2 crange[3], int npix[3], lambert *proj)
 {
 	cuxTextureBinder tb(ext_northManager, tex, tc);
 
-	xptr<float4> out(npix[0] * npix[1] * npix[2]);
+	cuxSmartPtr<float4> out(npix[0] * npix[1] * npix[2]);
 	if(proj != NULL)
 	{
 		cuxUploadConst(texProj, *proj);

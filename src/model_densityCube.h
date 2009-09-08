@@ -36,8 +36,8 @@ public:
 	// this remains on the host
 	struct ALIGN(16) host_state_t
 	{
-		texptr<float, 1> lf;	// LF
-		texptr<float, 3> den;	// density cube
+		cuxTexture<float, 1> lf;	// LF
+		cuxTexture<float, 3> den;	// density cube
 	};
 
 protected:

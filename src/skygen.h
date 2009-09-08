@@ -160,11 +160,11 @@ struct ALIGN(16) runtime_state
 {
 	typedef typename Model::state ms_t;
 
-	cux_ptr<int> cont, ilb, im, iM, k, bc, ndraw;
-	cux_ptr<float3> pos;
-	cux_ptr<float> D, Am;
-	cux_ptr<skypixel> pix;
-	cux_ptr<ms_t> ms;
+	cuxDevicePtr<int> cont, ilb, im, iM, k, bc, ndraw;
+	cuxDevicePtr<float3> pos;
+	cuxDevicePtr<float> D, Am;
+	cuxDevicePtr<skypixel> pix;
+	cuxDevicePtr<ms_t> ms;
 
 	void alloc(int nthreads)
 	{
@@ -252,18 +252,18 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 
 	Model_t model;
 
-	cux_ptr<skypixel> pixels;	// pixels on the sky to process
+	cuxDevicePtr<skypixel> pixels;	// pixels on the sky to process
 
-	cux_ptr<int> lock;
-	cux_ptr<int> nstars;
-	cux_ptr<float> counts, countsCovered;
+	cuxDevicePtr<int> lock;
+	cuxDevicePtr<int> nstars;
+	cuxDevicePtr<float> counts, countsCovered;
 	ocolumns stars;
 
 	static const int nhistbins = 10;
-	cux_ptr<int> rhoHistograms;	// nthreads*nbins sized array
+	cuxDevicePtr<int> rhoHistograms;	// nthreads*nbins sized array
 	float lrho0, dlrho;		// histogram array start (bin midpoint), bin size
 
-	cux_ptr<float> maxCount;	// [nthreads] sized array, returning the maximum density found by each thread
+	cuxDevicePtr<float> maxCount;	// [nthreads] sized array, returning the maximum density found by each thread
 
 	runtime_state<Model> ks;
 	float norm;			// normalization of overall density (usually 1.f)

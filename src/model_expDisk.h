@@ -32,7 +32,7 @@ struct ALIGN(16) expDisk : public modelConcept
 public:
 	struct ALIGN(16) host_state_t
 	{
-		texptr<float> lf;
+		cuxTexture<float> lf;
 	};
 
 protected:

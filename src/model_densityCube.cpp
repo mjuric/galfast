@@ -79,9 +79,9 @@ int get_delta(double &delta, double &xmin, double &xmax, const std::vector<doubl
 	return n;
 }
 
-texptr<float, 3> load_3D_texture_from_text(const std::string &denfn, float offs[3], float scale[3])
+cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float offs[3], float scale[3])
 {
-	texptr<float, 3> den;
+	cuxTexture<float, 3> den;
 
 	text_input_or_die(in, denfn);
 	std::vector<double> x, y, z, val;
@@ -105,7 +105,7 @@ texptr<float, 3> load_3D_texture_from_text(const std::string &denfn, float offs[
 	den.coords[1] = texcoord_from_range(0+1, ny-1-1, ymin, ymax);
 	den.coords[2] = texcoord_from_range(0+1, nz-1-1, zmin, zmax);
 
-	den.tex = xptr<float>(nx, ny, nz);
+	den.tex = cuxSmartPtr<float>(nx, ny, nz);
 	FOREACH(den.tex) { *i = 0.f; }
 	FORj(at, 0, x.size())
 	{
@@ -137,7 +137,7 @@ texptr<float, 3> load_3D_texture_from_text(const std::string &denfn, float offs[
 }
 
 
-texptr<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
+cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 {
 	FILE* densityFile = fopen(denfn.c_str(), "r");
 	if(densityFile==NULL)
@@ -173,7 +173,7 @@ texptr<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 	printf("    bounds y (kpc): %.2f %.2f\n", ymin/1000., ymax/1000. );
 	printf("    bounds z (kpc): %.2f %.2f\n", zmin/1000., zmax/1000. );
 
-	texptr<float, 3> den(xptr<float>(nx+2, ny+2, nz+2));
+	cuxTexture<float, 3> den(cuxSmartPtr<float>(nx+2, ny+2, nz+2));
 	FOREACH(den.tex) { *i = 0.f; }
 
 #if 1

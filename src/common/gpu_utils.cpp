@@ -40,7 +40,24 @@
 #include <cuda.h>
 #endif // HAVE_CUDA
 
-xptrng::xptr_impl_t::xptr_impl_t(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
+size_t arrayMemSize_impl(size_t nx, size_t ny, size_t nz, size_t align, size_t elementSize)
+{
+	size_t size;	// size of the area to allocate, in bytes
+
+	if(ny == 1 && nz == 1)
+	{
+		// no extra alignment padding for 1D array
+		size = elementSize*nx;
+	}
+	else
+	{
+		size = roundUpModulo(nx*elementSize, align) * ny * nz;
+	}
+
+	return size;
+}
+
+cuxSmartPtr_impl_t::cuxSmartPtr_impl_t(size_t es, size_t pitch, size_t width, size_t height, size_t depth)
 {
 	ASSERT(pitch >= width*es);
 	ASSERT(depth >= 1);
@@ -55,7 +72,7 @@ xptrng::xptr_impl_t::xptr_impl_t(size_t es, size_t pitch, size_t width, size_t h
 
 	// reference counting and garbage collection
 	refcnt = 1;
-	all_xptrs.insert(this);
+	all_cuxSmartPtrs.insert(this);
 
 	// NOTE: storage is lazily allocated the first time this pointer
 	// is accessed through syncTo* methods
@@ -66,7 +83,7 @@ xptrng::xptr_impl_t::xptr_impl_t(size_t es, size_t pitch, size_t width, size_t h
 	cleanCudaArray = false;
 }
 
-xptrng::xptr_impl_t::~xptr_impl_t()
+cuxSmartPtr_impl_t::~cuxSmartPtr_impl_t()
 {
 	ASSERT(boundTextures.empty()); // make sure to unbind the textures before deleting the underlying data
 
@@ -77,27 +94,27 @@ xptrng::xptr_impl_t::~xptr_impl_t()
 
 	delete [] m_data.ptr;
 
-	all_xptrs.erase(this);
+	all_cuxSmartPtrs.erase(this);
 }
 
-xptrng::xptr_impl_t::allocated_pointers::~allocated_pointers()
+cuxSmartPtr_impl_t::allocated_pointers::~allocated_pointers()
 {
 	if(!empty())
 	{
-		MLOG(verb1) << "ERROR: Memory leak -- " << size() << " xptr<> pointers were not deallocated\n";
+		MLOG(verb1) << "ERROR: Memory leak -- " << size() << " cuxSmartPtr<> pointers were not deallocated\n";
 	}
 }
 
-xptrng::xptr_impl_t::allocated_pointers xptrng::xptr_impl_t::all_xptrs;
-void xptrng::xptr_impl_t::global_gc()
+cuxSmartPtr_impl_t::allocated_pointers cuxSmartPtr_impl_t::all_cuxSmartPtrs;
+void cuxSmartPtr_impl_t::global_gc()
 {
-	FOREACH(all_xptrs)
+	FOREACH(all_cuxSmartPtrs)
 	{
 		(*i)->gc();
 	}
 }
 
-void xptrng::xptr_impl_t::gc()
+void cuxSmartPtr_impl_t::gc()
 {
 	// delete the host copy if master copy resides on one of the devices
 	if(onDevice)
@@ -123,7 +140,7 @@ void xptrng::xptr_impl_t::gc()
 	}
 }
 
-void *xptrng::xptr_impl_t::syncTo(bool device)
+void *cuxSmartPtr_impl_t::syncTo(bool device)
 {
 	if(onDevice != device)
 	{
@@ -179,7 +196,7 @@ void *xptrng::xptr_impl_t::syncTo(bool device)
 		cuxErrCheck(err); \
 	}
 
-cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
+cudaArray *cuxSmartPtr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 {
 	ASSERT(channelDesc.x + channelDesc.y + channelDesc.z + channelDesc.w == m_elementSize*8);
 
@@ -233,7 +250,7 @@ cudaArray *xptrng::xptr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 }
 
 // texture access
-void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
+void cuxSmartPtr_impl_t::bind_texture(textureReference &texref)
 {
 	cudaArray *cuArray = getCUDAArray(texref.channelDesc);
 	cuxErrCheck( cudaBindTextureToArray(&texref, cuArray, &texref.channelDesc) );
@@ -241,7 +258,7 @@ void xptrng::xptr_impl_t::bind_texture(textureReference &texref)
 	boundTextures.insert(&texref);
 }
 
-void xptrng::xptr_impl_t::unbind_texture(textureReference &texref)
+void cuxSmartPtr_impl_t::unbind_texture(textureReference &texref)
 {
 	cuxErrCheck( cudaUnbindTexture(&texref) );
 
@@ -420,7 +437,7 @@ gpu_rng_t::gpu_rng_t(rng_t &rng)
 #if 0
 //////////////////////////////////////////////
 #define ENABLE_PAGELOCKED 0
-void xptr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
+void cuxSmartPtr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
 {
 	if(eSize == (size_t)-1) { eSize = elementSize(); } else { m_elementSize = eSize; }
 	if(ncol == (size_t)-1) { ncol = ncols(); } else { dim[0] = ncol; }
@@ -436,7 +453,7 @@ void xptr::alloc(size_t eSize, size_t ncol, size_t nrow, size_t ptch)
 #endif
 }
 	
-void xptr::free()
+void cuxSmartPtr::free()
 {
 #if ENABLE_PAGELOCKED
 	if(base != NULL)

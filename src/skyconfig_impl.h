@@ -256,8 +256,8 @@ bool skyConfig<T>::init(
 #if 1	// should be moved elsewhere
 
 	// GPU kernel execution setup (TODO: should I load this through skygenConfig? Or autodetect based on the GPU?)
-	blockDim.x = 1; // 64; //256;
-	gridDim.x = 1; // 120; // 30;
+	blockDim.x = 64; //256;
+	gridDim.x = 120; // 30;
 
 	// HACK: This should be settable through config files
 	char *blk = getenv("SKYGEN_KCONF"); // expect the form of "gx gy gz bx by bz"

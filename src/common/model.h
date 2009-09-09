@@ -586,7 +586,7 @@ protected:
 
 	std::map<std::string, boost::shared_ptr<columnclass> > cclasses;
 	std::map<std::string, boost::shared_ptr<columndef> > columns;
-	size_t length;	// maximum number of rows in the table
+	size_t nrows_capacity;	// maximum number of rows in the table
 	size_t nrows;	// rows actually in the table
 	std::vector<std::string> colInput,	// columns to unserialize from file on the next unserialize_body call
 				colOutput;	// columns to serialize to file, if they're in use
@@ -605,7 +605,7 @@ public:
 		}
 	}
 
-	size_t capacity() const { return length; }
+	size_t capacity() const { return nrows_capacity; }
 	void clear() { nrows = 0; }
 	size_t add_row()
 	{
@@ -659,7 +659,9 @@ public:
 
 	otable(const size_t len)
 	{
-		length = len; nrows = 0;
+		nrows_capacity = len;
+		nrows = 0;
+
 		init();
 	}
 
@@ -701,10 +703,6 @@ class opipeline_stage
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe) = 0;
 		virtual bool runtime_init(otable &t);
 		virtual size_t run(otable &t, rng_t &rng) = 0;
-//		virtual bool runtime_init(const std::list<opipeline_stage *> &pipeline, otable &t);
-//		const std::set<std::string> &requires() const { return req; }
-
-//		bool satisfied_with(const std::set<std::string> &haves);
 
 		static const int PRIORITY_INPUT      = -10000;
 		static const int PRIORITY_STAR       =      0;
@@ -714,15 +712,6 @@ class opipeline_stage
 		virtual int priority() { return PRIORITY_SPACE; }
 
 	public:
-// 		bool inits(const std::string &cfgstring, otable &t, opipeline &pipe) { return inits(cfgstring.c_str(), t, pipe); }
-// 		bool inits(const char *cfgstring, otable &t, opipeline &pipe)
-// 		{
-// 			std::istringstream ss(cfgstring);
-// 			peyton::system::Config cfg;
-// 			cfg.load(ss);
-// 			return init(cfg, t, pipe);
-// 		}
-
 		opipeline_stage() : nextlink(NULL)
 		{
 		}

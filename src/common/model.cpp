@@ -660,7 +660,7 @@ std::istream& otable::unserialize_body(std::istream& in)
 	getColumnsForInput(inColumns);
 
 	nrows = 0;
-	FORj(row, 0, length)	// read at most length rows
+	FORj(row, 0, capacity())	// read at most length rows
 	{
 		bool first = true;
 		FOREACH(inColumns)
@@ -717,7 +717,7 @@ otable::columndef &otable::use_column(const std::string &coldef, bool setOutput)
 	columndef *col = (columndef *)parse("(column) " + coldef);
 	ASSERT(col != NULL);
 
-	col->alloc(length); // Ensure the column is allocated
+	col->alloc(capacity()); // Ensure the column is allocated
 
 	if(setOutput) { set_output(col->columnName, true); }
 
@@ -731,7 +731,7 @@ otable::columndef &otable::use_column_by_cloning(const std::string &newColumnNam
 	columndef &exCol = getColumn(existingColumnName);
 	boost::shared_ptr<columndef> col = columns[newColumnName] = exCol.clone(newColumnName, newFieldNames);
 
-	col->alloc(length); // Ensure the column is allocated
+	col->alloc(capacity()); // Ensure the column is allocated
 
 	if(setOutput) { set_output(col->columnName, true); }
 
@@ -821,10 +821,10 @@ otable::columndef &otable::getColumn(const std::string &name)
  	columndef &col = *columns[name].get();
 
 	// Auto-create column data
-	if(col.capacity() != length)
+	if(col.capacity() != capacity())
 	{
-		col.alloc(length);
-		ASSERT(col.capacity() == length);
+		col.alloc(capacity());
+		ASSERT(col.capacity() == capacity());
 	}
 
 	return col;

@@ -59,7 +59,7 @@ using namespace boost::lambda;
 
 #include "observe.h"
 
-bool opipeline_stage::runtime_init(/*const std::list<opipeline_stage *> &pipeline, */otable &t)
+bool opipeline_stage::runtime_init(otable &t)
 {
 	// test if otable has all the necessary prerequisites
 	FOREACH(req)
@@ -80,30 +80,6 @@ bool opipeline_stage::runtime_init(/*const std::list<opipeline_stage *> &pipelin
 
 	return true;
 }
-
-#if 0
-bool opipeline_stage::satisfied_with(const std::set<std::string> &haves)
-{
-	FOREACH(req)
-	{
-		if(!haves.count(*i)) {
-			DLOG(verb2) << "Failed on: " << *i;
-			return false;
-		}
-	}
-	return true;
-}
-
-bool opipeline_stage::provides_any_of(const std::set<std::string> &needs, std::string &which)
-{
-	FOREACH(needs)
-	{
-		if(prov.count(*i)) { which = *i; return true; }
-	}
-	return false;
-}
-#endif
-
 
 #if 1
 // add photometric errors information
@@ -1699,7 +1675,13 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 2500000 / 2;
 //	static const size_t Kbatch = 735000;
 //	static const size_t Kbatch = 5000000;
-	static const size_t Kbatch = 23;
+//	static const size_t Kbatch = 23;
+
+	// HACK: Kbatch should be read from skygen.conf, or auto-computed to maximize memory use otherwise
+	size_t Kbatch = 1000000;
+	EnvVar kb("KBATCH");
+	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
+
 	DLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 

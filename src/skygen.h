@@ -297,10 +297,10 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	int3 *cpu_state;
 
 	// kernel execution configuration
-	dim3 gridDim, blockDim;
-	int shb;
+	dim3 gridDim, blockDim;		// CUDA grid dimension, block dimension
+	int shb;			// shared memory per block needed by skygen kernel
+	int output_table_capacity;	// number of rows in the output table
 	stopwatch swatch;
-	int Kbatch;
 
 	int bufferSafetyMargin();
 	void upload_self(bool draw = false);

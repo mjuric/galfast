@@ -218,7 +218,7 @@ void skyConfig<T>::upload(bool draw)
 		this->nstars.upload(&zero, 1);
 
 //		this->stopstars = Kbatch - bufferSafetyMargin();
-		this->stopstars = Kbatch;
+		this->stopstars = output_table_capacity;
 		assert(this->stopstars > 0);
 	}
 
@@ -253,14 +253,28 @@ bool skyConfig<T>::init(
 	this->lrho0 = -3.5f;
 	this->dlrho = 1.0f;
 
+#if 1	// should be moved elsewhere
+
 	// GPU kernel execution setup (TODO: should I load this through skygenConfig? Or autodetect based on the GPU?)
 	blockDim.x = 1; // 64; //256;
 	gridDim.x = 1; // 120; // 30;
+
+	// HACK: This should be settable through config files
+	char *blk = getenv("SKYGEN_KCONF"); // expect the form of "gx gy gz bx by bz"
+	if(blk != NULL)
+	{
+		assert(sscanf(blk, "%d %d %d %d %d %d", &gridDim.x, &gridDim.y, &gridDim.z, &blockDim.x, &blockDim.y, &blockDim.z) == 6);
+		DLOG(verb1) << "Reading config from SKYGEN_KCONF; "
+			"grid=(" << gridDim.x  << ", " << gridDim.y  << ", " << gridDim.z << ") "
+			"block=(" << blockDim.x << ", " << blockDim.y << ", " << blockDim.z << ")\n";
+	}
+
 	this->nthreads = blockDim.x * blockDim.y * blockDim.z * gridDim.x * gridDim.y * gridDim.z;
 	shb = gpu_rng_t::state_bytes() * blockDim.x; // for RNG
 
 	DLOG(verb1) << "nthreads=" << this->nthreads;
 	DLOG(verb1) << "nm=" << this->nm << " nM=" << this->nM << " npixels=" << this->npixels;
+#endif
 
 	return true;
 }
@@ -329,7 +343,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 	//
 	// Second pass: draw stars
 	//
-	this->Kbatch = in.capacity();
+	this->output_table_capacity = in.capacity();
 
 	this->ks.alloc(this->nthreads);
 	uint64_t total = 0;

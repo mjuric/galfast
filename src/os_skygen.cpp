@@ -436,9 +436,9 @@ float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *stat
 	   x = read_fits_key(fptr, "CRVAL" + str(n), fn);
 	  dx = read_fits_key(fptr, "CDELT" + str(n), fn);
 
-	int status;
+	int status = 0;
 	fits_read_key(fptr, TFLOAT, (char*)("CROTA" + str(n)).c_str(), &dummy, NULL, &status);
-	if(status != KEY_NO_EXIST)
+	if(status && status != KEY_NO_EXIST)
 	{
 		THROW(EAny, "Axis rotations not supported (CROTA" + str(n) + " keyword present in " + fn + ")");
 	}

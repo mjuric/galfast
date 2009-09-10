@@ -66,6 +66,8 @@ namespace cudacc
 {
 	inline __device__ float deg(float rd) { return flt_r2d * rd; }
 	inline __device__ float rad(float dg) { return flt_d2r * dg; }
+	template<typename T>
+		__host__ __device__ inline __device__ T sqr(const T x) { return x*x; }
 }
 
 // inline double rad(double dgr) { return dgr * dbl_d2r; }

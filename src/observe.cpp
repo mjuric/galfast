@@ -1678,7 +1678,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 //	static const size_t Kbatch = 23;
 
 	// HACK: Kbatch should be read from skygen.conf, or auto-computed to maximize memory use otherwise
-	size_t Kbatch = 1000000;
+	size_t Kbatch = 5000000;
 	EnvVar kb("KBATCH");
 	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
 

@@ -30,10 +30,12 @@ SUBDIRS = common gpc
 # explicit dependency for CUDA sources
 include ./$(DEPDIR)/cuda.Po
 
-noinst_HEADERS = model_J08.h model_densityCube.h model_expDisk.h simulate.h \
-	simulate_base.h simulate_gpu.cu.h skyconfig_impl.h skygen.cu.h skygen.h
+noinst_HEADERS = model_J08.h model_densityCube.h model_expDisk.h \
+	model_powerLawEllipsoid.h simulate.h simulate_base.h simulate_gpu.cu.h skyconfig_impl.h \
+	skygen.cu.h skygen.h
 simulate_x_SOURCES = cuda.cu model_J08.cpp model_densityCube.cpp \
-	model_expDisk.cpp observe.cpp observe_FeH.cpp observe_kinTMIII.cpp observe_vel2pm.cpp \
-	os_skygen.cpp simulate.cpp simulate.h simulate2.cpp simulate_cpu.cpp
+	model_expDisk.cpp model_powerLawEllipsoid.cpp observe.cpp observe_FeH.cpp \
+	observe_kinTMIII.cpp observe_vel2pm.cpp os_skygen.cpp simulate.cpp simulate.h simulate2.cpp \
+	simulate_cpu.cpp
 simulate_x_LDADD = $(top_builddir)/src/common/libcommon.a \
 	$(top_builddir)/src/gpc/libgpc.a

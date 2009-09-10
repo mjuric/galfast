@@ -528,3 +528,4 @@ void skyConfig<T>::compute(bool draw)
 #include "model_J08.h"
 #include "model_expDisk.h"
 #include "model_densityCube.h"
+#include "model_powerLawEllipsoid.h"

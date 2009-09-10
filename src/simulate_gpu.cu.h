@@ -98,9 +98,6 @@ KERNEL(
 //======================================================================
 //======================================================================
 
-// template<typename T>
-// __device__ inline __device__ T sqr(const T x) { return x*x; }
-
 using namespace peyton;
 
 __device__ inline double rad(double deg) { return 0.017453292519943295769  * deg; } // convert deg to rad

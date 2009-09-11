@@ -105,8 +105,8 @@ cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float o
 	den.coords[1] = texcoord_from_range(0+1, ny-1-1, ymin, ymax);
 	den.coords[2] = texcoord_from_range(0+1, nz-1-1, zmin, zmax);
 
-	den.tex = cuxSmartPtr<float>(nx, ny, nz);
-	FOREACH(den.tex) { *i = 0.f; }
+	den.img = cuxSmartPtr<float>(nx, ny, nz);
+	FOREACH(den.img) { *i = 0.f; }
 	FORj(at, 0, x.size())
 	{
 		double xx = x[at], yy = y[at], zz = z[at];
@@ -115,7 +115,7 @@ cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float o
 		int k = 1 + (int)rint((zz - zmin) / dz);
 		double v = val[at];
 
-		den.tex(i, j, k) = v;
+		den.img(i, j, k) = v;
 	}
 
 #if 0
@@ -174,7 +174,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 	printf("    bounds z (kpc): %.2f %.2f\n", zmin/1000., zmax/1000. );
 
 	cuxTexture<float, 3> den(cuxSmartPtr<float>(nx+2, ny+2, nz+2));
-	FOREACH(den.tex) { *i = 0.f; }
+	FOREACH(den.img) { *i = 0.f; }
 
 #if 1
 	MLOG(verb1) << "Loading density (GDC file)...";
@@ -190,7 +190,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 			for (int iy=0; iy < ny; iy++)
 			{
 				float v = gfr.ReadGdcData();
-				den.tex(ix+1, iy+1, iz+1) = v;
+				den.img(ix+1, iy+1, iz+1) = v;
 			}
 		}
 		#if VERBOSE_OUTPUT
@@ -203,7 +203,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 
 	//divide by volume
 	float dV = cube(dx);
-	FOREACH(den.tex) { *i /= dV; }
+	FOREACH(den.img) { *i /= dV; }
 #endif
 
 	// texture coordinates (pixel 1 corresponds to xmin, pixel nx to xmax, because of padding (see above))

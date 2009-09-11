@@ -35,8 +35,8 @@
 cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
 {
 	cuxTexture<float, 1> tex(2);
-	tex.tex(0U) = val;
-	tex.tex(1U) = val;
+	tex.img(0U) = val;
+	tex.img(1U) = val;
 	tex.coords[0].x = X0;
 	tex.coords[0].y = 1./(X1 - X0);
 	return tex;
@@ -52,7 +52,7 @@ cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, in
 	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
-		tex.tex(i) = tx(X0 + i*dX);
+		tex.img(i) = tx(X0 + i*dX);
 	}
 
 	// construct 
@@ -475,7 +475,7 @@ float2 texcoord_from_wcs(fitsfile *fptr, int n, const std::string &fn, int *stat
 // (l0,phi1) will be loaded from (LAMBDA0,PHI1) keywords. If any of the two are not present,
 //           both shall be set to -100 on return from the subroutine.
 //
-cuxSmartPtr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radians &l0, Radians &phi1)
+cuxTexture<float, 3> load_extinction_map(const std::string &fn, Radians &l0, Radians &phi1)
 {
 	fitsfile *fptr;
 	int status = 0;
@@ -496,6 +496,7 @@ cuxSmartPtr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radi
 	FITS_ERRCHECK("Error reading extinction map.", status);
 
 	// setup texture coordinates
+	float2 tc[3];
 	tc[0] = texcoord_from_wcs(fptr, 1, fn, &status);
 	if(status == 0)
 	{
@@ -518,14 +519,14 @@ cuxSmartPtr<float> load_extinction_map(const std::string &fn, float2 tc[3], Radi
 	fits_close_file(fptr, &status);
 	FITS_ERRCHECK("Error closing extinction map file.", status);
 
-	return img;
+	return cuxTexture<float, 3>(img, tc);
 }
 #endif
 
-cuxSmartPtr<float4> resample_extinction_texture(cuxSmartPtr<float> &tex_data, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj);
-void resample_and_output_texture(const std::string &outfn, cuxSmartPtr<float> &tex, float2 *tc, float2 crange[3], int npix[3], ::lambert *proj)
+cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], ::lambert *proj);
+void resample_and_output_texture(const std::string &outfn, cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], ::lambert *proj)
 {
-	cuxSmartPtr<float4> res = resample_extinction_texture(tex, tc, crange, npix, proj);
+	cuxSmartPtr<float4> res = resample_extinction_texture(tex, crange, npix, proj);
 
 	std::cerr << "Writing output to " << outfn << "\n";
 	std::ofstream out(outfn.c_str());
@@ -538,19 +539,18 @@ void resample_and_output_texture(const std::string &outfn, cuxSmartPtr<float> &t
 
 void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0req, Radians b0req)
 {
-	float2 tc[3];
 	Radians l0, b0;
-	cuxSmartPtr<float> tex = load_extinction_map(texfn, tc, l0, b0);
+	cuxTexture<float, 3> tex = load_extinction_map(texfn, l0, b0);
 
 	// compute input texture ranges
 	// autodetect crange and npix if not given
 	float2 irange[3];
 	for(int i = 0; i != 3; i++)
 	{
-		irange[i].x = tc[i].x;
-		irange[i].y = tc[i].x + (tex.extent(i)-1) / tc[i].y;
+		irange[i].x = tex.coords[i].x;
+		irange[i].y = tex.coords[i].x + (tex.img.extent(i)-1) / tex.coords[i].y;
 
-		if(npix[i] == 0) { npix[i] = tex.extent(i); }
+		if(npix[i] == 0) { npix[i] = tex.img.extent(i); }
 		if(crange[i].x == crange[i].y)
 		{
 			if(!deproject || i == 2)
@@ -575,9 +575,9 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 
 	::lambert proj;
 
-	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.extent(0) << " pixels)\n";
-	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.extent(1) << " pixels)\n";
-	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.extent(2) << " pixels).\n";
+	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.img.extent(0) << " pixels)\n";
+	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.img.extent(1) << " pixels)\n";
+	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.img.extent(2) << " pixels).\n";
 	MLOG(verb1) << "     Deproject : " << (deproject ? "yes" : "no");
 
 	if(deproject)
@@ -617,7 +617,7 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 
 	MLOG(verb1) << "               : z = [" << crange[2].x << ", " << crange[2].y << "] (" << npix[2] << " pixels).\n";
 
-	resample_and_output_texture(outfn, tex, tc, crange, npix, deproject ? &proj : NULL);
+	resample_and_output_texture(outfn, tex, crange, npix, deproject ? &proj : NULL);
 
 	MLOG(verb2) << "Resampled.";
 }
@@ -631,8 +631,9 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 			tex(i, j, k) = 0.f;
 		float2 tc = make_float2(-2, 1./4.);
 
-		ext_north = tex; tc_ext_north[0] = tc_ext_north[1] = tc_ext_north[2] = tc;
-		ext_south = tex; tc_ext_south[0] = tc_ext_south[1] = tc_ext_south[2] = tc;
+//		ext_north = tex; tc_ext_north[0] = tc_ext_north[1] = tc_ext_north[2] = tc;
+//		ext_south = tex; tc_ext_south[0] = tc_ext_south[1] = tc_ext_south[2] = tc;
+		ext_south = ext_north = cuxTexture<float, 3>(tex, tc);
 
 		MLOG(verb2) << "Extinction maps not given, assuming no extinction.";
 
@@ -652,7 +653,7 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	ss >> scale;
 
 	Radians l0, b0;
-	ext_north = load_extinction_map(northfn, tc_ext_north, l0, b0);
+	ext_north = load_extinction_map(northfn, l0, b0);
 	if(
 		(l0 != -100. && fabs(l0 - ctn::halfpi) > 1e-5) ||
 		(b0 != -100. && fabs(b0 - ctn::halfpi) > 1e-5)
@@ -660,7 +661,7 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	{
 		MLOG(verb1) << "WARNING: Expecting l=90, b=90 as pole of northern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
 	}
-	ext_south = load_extinction_map(southfn, tc_ext_south, l0, b0);
+	ext_south = load_extinction_map(southfn, l0, b0);
 	if(
 		(l0 != -100. && fabs(l0 + ctn::halfpi) > 1e-5) ||
 		(b0 != -100. && fabs(b0 + ctn::halfpi) > 1e-5)
@@ -669,12 +670,12 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 		MLOG(verb1) << "WARNING: Expecting l=-90, b=-90 as pole of southern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
 	}
 
-	FOREACH(ext_north) { *i *= scale; }
-	FOREACH(ext_south) { *i *= scale; }
+	FOREACH(ext_north.img) { *i *= scale; }
+	FOREACH(ext_south.img) { *i *= scale; }
 
 	MLOG(verb1) << "Extinction maps: " << northfn << " (north), " << southfn << " (south).";
-	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
-	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
+	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.img.width() << " x " << ext_north.img.height() << " x " << ext_north.img.depth() << "]\n";
+	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.img.width() << " x " << ext_south.img.height() << " x " << ext_south.img.depth() << "]\n";
 	MLOG(verb2) << "Ext. scale factor: " << scale << "\n";
 
 #if 0	// debug -- resample the north sky into a text file
@@ -724,8 +725,8 @@ DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
 
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
-	cuxTextureBinder tb_north(::ext_north, ext_north, tc_ext_north);
-	cuxTextureBinder tb_south(::ext_south, ext_south, tc_ext_south);
+	cuxTextureBinder tb_north(::ext_north, ext_north);
+	cuxTextureBinder tb_south(::ext_south, ext_south);
 
 	double nstarsExpected = 0;
 	FOREACH(kernels)

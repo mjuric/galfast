@@ -877,8 +877,6 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	// allocate memory for output tables
 	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
 	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
-//	clt.resize(ncolors);  FOREACH(clt)  { i->resize(nMr*nFeH); }
-//	eclt.resize(ncolors); FOREACH(eclt) { i->resize(nMr*nFeH); }
 	isochrones.resize(ncolors); FOREACH(isochrones)  { *i = cuxSmartPtr<float>(nFeH, nMr); }
 	eflags.resize(ncolors);     FOREACH(eflags)      { *i = cuxSmartPtr<uint>(nFeH, nMr); }
 
@@ -911,7 +909,7 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 				double FeH = FeH0 + f*dFeH;
 				int idx = m*nFeH + f;
 
-///				clt[ic][idx] = s(FeH);
+//				clt[ic][idx] = s(FeH);
 				isochrones[ic](f, m) = s(FeH);
 //				eclt[ic][idx] = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
 				eflags[ic](f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
@@ -923,13 +921,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	std::vector<double> nextrap(ncolors);
 	FOR(0, ncolors)
 	{
-//		nextrap[i] = (double)count_if(eclt[i].begin(), eclt[i].end(), _1 != 0) / eclt[i].size();
 		nextrap[i] = 0;
 		hptr<uint> ptr = eflags[i];
-/*		FOREACHj(cf, ptr)
-		{
-			if(*cf != 0) { nextrap[i] += 1; }
-		}*/
 		FORj(x, 0, nFeH)
 		{
 			FORj(y, 0, nMr)
@@ -942,21 +935,6 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	MLOG(verb2) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
 	MLOG(verb2) << bandset2 << ":    extrapolation fractions = " << nextrap;
 
-#if HAVE_CUDA
-	// upload lookup table to CUDA textures
-	
-#endif
-
-#if 0
-	std::ofstream ff("dump.0.txt");
-	for(double Mr = Mr0; Mr < Mr1; Mr += dMr*2.)
-	{
-		for(double FeH = FeH0; FeH < FeH1; FeH += dFeH*2.)
-		{
-			ff << Mr << " " << FeH << " " << color(1, FeH, Mr) << "\n";
-		}
-	}
-#endif
 	return true;
 }
 

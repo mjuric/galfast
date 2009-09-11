@@ -81,8 +81,6 @@ int get_delta(double &delta, double &xmin, double &xmax, const std::vector<doubl
 
 cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float offs[3], float scale[3])
 {
-	cuxTexture<float, 3> den;
-
 	text_input_or_die(in, denfn);
 	std::vector<double> x, y, z, val;
 	load(in, x, 0, y, 1, z, 2, val, 3);
@@ -101,12 +99,16 @@ cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float o
 	int nx = get_delta(dx, xmin, xmax, x)+2;
 	int ny = get_delta(dy, ymin, ymax, y)+2;
 	int nz = get_delta(dz, zmin, zmax, z)+2;
-	den.coords[0] = texcoord_from_range(0+1, nx-1-1, xmin, xmax);
-	den.coords[1] = texcoord_from_range(0+1, ny-1-1, ymin, ymax);
-	den.coords[2] = texcoord_from_range(0+1, nz-1-1, zmin, zmax);
 
-	den.img = cuxSmartPtr<float>(nx, ny, nz);
-	FOREACH(den.img) { *i = 0.f; }
+	cuxTexture<float, 3> den
+	(
+		cuxSmartPtr<float>(nx, ny, nz),
+		texcoord_from_range(0+1, nx-1-1, xmin, xmax),
+		texcoord_from_range(0+1, ny-1-1, ymin, ymax),
+		texcoord_from_range(0+1, nz-1-1, zmin, zmax)
+	);
+
+	FOREACH(den) { *i = 0.f; }
 	FORj(at, 0, x.size())
 	{
 		double xx = x[at], yy = y[at], zz = z[at];
@@ -115,7 +117,7 @@ cuxTexture<float, 3> load_3D_texture_from_text(const std::string &denfn, float o
 		int k = 1 + (int)rint((zz - zmin) / dz);
 		double v = val[at];
 
-		den.img(i, j, k) = v;
+		den(i, j, k) = v;
 	}
 
 #if 0
@@ -174,7 +176,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 	printf("    bounds z (kpc): %.2f %.2f\n", zmin/1000., zmax/1000. );
 
 	cuxTexture<float, 3> den(cuxSmartPtr<float>(nx+2, ny+2, nz+2));
-	FOREACH(den.img) { *i = 0.f; }
+	FOREACH(den) { *i = 0.f; }
 
 #if 1
 	MLOG(verb1) << "Loading density (GDC file)...";
@@ -190,7 +192,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 			for (int iy=0; iy < ny; iy++)
 			{
 				float v = gfr.ReadGdcData();
-				den.img(ix+1, iy+1, iz+1) = v;
+				den(ix+1, iy+1, iz+1) = v;
 			}
 		}
 		#if VERBOSE_OUTPUT
@@ -203,7 +205,7 @@ cuxTexture<float, 3> load_3D_texture_from_gdc(const std::string &denfn)
 
 	//divide by volume
 	float dV = cube(dx);
-	FOREACH(den.img) { *i /= dV; }
+	FOREACH(den) { *i /= dV; }
 #endif
 
 	// texture coordinates (pixel 1 corresponds to xmin, pixel nx to xmax, because of padding (see above))

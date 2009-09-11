@@ -35,8 +35,8 @@
 cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
 {
 	cuxTexture<float, 1> tex(2);
-	tex.img(0U) = val;
-	tex.img(1U) = val;
+	tex(0U) = val;
+	tex(1U) = val;
 	tex.coords[0].x = X0;
 	tex.coords[0].y = 1./(X1 - X0);
 	return tex;
@@ -52,7 +52,7 @@ cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, in
 	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
 	for(int i=0; i != nsamp; i++)
 	{
-		tex.img(i) = tx(X0 + i*dX);
+		tex(i) = tx(X0 + i*dX);
 	}
 
 	// construct 
@@ -548,9 +548,9 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 	for(int i = 0; i != 3; i++)
 	{
 		irange[i].x = tex.coords[i].x;
-		irange[i].y = tex.coords[i].x + (tex.img.extent(i)-1) / tex.coords[i].y;
+		irange[i].y = tex.coords[i].x + (tex.extent(i)-1) / tex.coords[i].y;
 
-		if(npix[i] == 0) { npix[i] = tex.img.extent(i); }
+		if(npix[i] == 0) { npix[i] = tex.extent(i); }
 		if(crange[i].x == crange[i].y)
 		{
 			if(!deproject || i == 2)
@@ -575,9 +575,9 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 
 	::lambert proj;
 
-	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.img.extent(0) << " pixels)\n";
-	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.img.extent(1) << " pixels)\n";
-	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.img.extent(2) << " pixels).\n";
+	MLOG(verb1) << " Input texture : x = [" << irange[0].x << ", " << irange[0].y << "] (" << tex.extent(0) << " pixels)\n";
+	MLOG(verb1) << "               : y = [" << irange[1].x << ", " << irange[1].y << "] (" << tex.extent(1) << " pixels)\n";
+	MLOG(verb1) << "               : z = [" << irange[2].x << ", " << irange[2].y << "] (" << tex.extent(2) << " pixels).\n";
 	MLOG(verb1) << "     Deproject : " << (deproject ? "yes" : "no");
 
 	if(deproject)
@@ -670,12 +670,12 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 		MLOG(verb1) << "WARNING: Expecting l=-90, b=-90 as pole of southern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
 	}
 
-	FOREACH(ext_north.img) { *i *= scale; }
-	FOREACH(ext_south.img) { *i *= scale; }
+	FOREACH(ext_north) { *i *= scale; }
+	FOREACH(ext_south) { *i *= scale; }
 
 	MLOG(verb1) << "Extinction maps: " << northfn << " (north), " << southfn << " (south).";
-	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.img.width() << " x " << ext_north.img.height() << " x " << ext_north.img.depth() << "]\n";
-	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.img.width() << " x " << ext_south.img.height() << " x " << ext_south.img.depth() << "]\n";
+	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
+	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
 	MLOG(verb2) << "Ext. scale factor: " << scale << "\n";
 
 #if 0	// debug -- resample the north sky into a text file

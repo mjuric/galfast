@@ -169,11 +169,15 @@ template<typename T, int dim = 1>
 		{
 			return ptr != NULL;
 		}
-		__host__ __device__ arrayPtr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
+		__host__ __device__ void reset()						// allow the setting of pointer to NULL
+		{
+			ptr = NULL;
+		}
+/*		__host__ __device__ arrayPtr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
 		{
 			ptr = NULL;
 			return *this;
-		}
+		}*/
 	};
 
 #if 0
@@ -598,6 +602,10 @@ public:
 		m_impl = new cuxSmartPtr_impl_t(elemSize, roundUpModulo(elemSize*width, align), width, height, depth);
 	}
 
+	void reset()	// clear the value of this pointer
+	{
+		*this = cuxSmartPtr();
+	}
 
 protected:
 	// multi-device support. Don't call these directly; use gptr instead.
@@ -664,54 +672,53 @@ struct ALIGN(8) afloat2 : public float2
 	and the texture coordinates in a same object.
 */
 template<typename T, int dim=1>
-struct cuxTexture
+struct cuxTexture : public cuxSmartPtr<T>
 {
-	cuxSmartPtr<T> 	img;		// texture pixels
-	afloat2		coords[dim];	// texture coordinates
+	// texture coordinates
+	afloat2		coords[dim];
 
-	cuxTexture()
-	{
-	}
+	// default and copy constructor
+	cuxTexture()						{ }
+	cuxTexture(const cuxTexture<T, dim>& a)			{ *this = a; }
 
-	cuxTexture(const cuxTexture<T, dim>& a)
-	{
-		*this = a;
-	}
+	// other most commonly needed constructors (utilities)
+	explicit cuxTexture(const cuxSmartPtr<T>& a)					 { set(a, make_float2(0., 1.)); }
+	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tc)				 { set(a, tc); }
+	explicit cuxTexture(const cuxSmartPtr<T>& a, const float2 *tc)			 { set(a, tc); }
+	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tcx, float2 tcy)		 { set(a, tcx, tcy); }
+	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tcx, float2 tcy, float2 tcz) { set(a, tcx, tcy, tcz); }
 
-	// most commonly needed constructors
-	cuxTexture(const cuxSmartPtr<T>& a)			{ set(a, make_float2(0., 1.)); }
-	cuxTexture(const cuxSmartPtr<T>& a, float2 tc)		{ set(a, tc); }
-	cuxTexture(const cuxSmartPtr<T>& a, const float2 *tc)	{ set(a, tc); }
+	// assignment
+	cuxTexture<T, dim>& operator =(const cuxTexture<T, dim>& a)	{ set(a, a.coords); return *this; }
+	cuxTexture<T, dim>& operator =(const cuxSmartPtr<T>& a)		{ (cuxSmartPtr<T> &)(*this) = a; }
 
 	// texture initialization/setting
-	void set(const cuxSmartPtr<T>& a, const float2 tc)
+	void set(const cuxSmartPtr<T>& a, const float2 tc)	// NOTE: This method initializes _all_ texture coordinates to tc
 	{
-		img = a;
+		*this = a;
 		for(int i=0; i != dim; i++) { coords[i] = tc; }
 	}
+	void set(const cuxSmartPtr<T>& a, const float2 tcx, const float2 tcy)
+	{
+		assert(dim == 2);
 
+		*this = a;
+		coords[0] = tcx;
+		coords[1] = tcy;
+	}
+	void set(const cuxSmartPtr<T>& a, const float2 tcx, const float2 tcy, const float2 tcz)
+	{
+		assert(dim == 3);
+
+		*this = a;
+		coords[0] = tcx;
+		coords[1] = tcy;
+		coords[2] = tcz;
+	}
 	void set(const cuxSmartPtr<T>& a, const float2 *tc)
 	{
-		img = a;
+		*this = a;
 		for(int i=0; i != dim; i++) { coords[i] = tc[i]; }
-	}
-
-	cuxTexture<T, dim>& operator =(const cuxTexture<T, dim>& a)
-	{
-		img = a.img;
-
-		if(dim >= 1) { coords[0] = a.coords[0]; }
-		if(dim >= 2) { coords[1] = a.coords[1]; }
-		if(dim >= 3) { coords[2] = a.coords[2]; }
-		if(dim >= 4)
-		{
-			for(int i=4; i != dim; i++)
-			{
-				coords[i] = a.coords[i];
-			}
-		}
-
-		return *this;
 	}
 };
 
@@ -779,26 +786,26 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			tex.set(img, texcoord);
 
 			cuxUploadConst(tcSymbolName, tex.coords);
-			tex.img.bind_texture(texref);
+			tex.bind_texture(texref);
 		}
 
 		void bind(const cuxTexture<T, dim> &tex)
 		{
-			bind(tex.img, tex.coords);
+			bind(tex, tex.coords);
 		}
 
 		virtual void unbind()
 		{
-			if(!tex.img) { return; }
+			if(!tex) { return; }
 
-			tex.img.unbind_texture(texref);
-			tex.img = 0U;
+			tex.unbind_texture(texref);
+			tex.reset();
 		}
 
 		float clamp(float i, int d) const
 		{
 			if(i < 0.f) { i = 0.f; }
-			else if(i >= tex.img.extent(d)) { i = tex.img.extent(d)-1; }
+			else if(i >= tex.extent(d)) { i = tex.extent(d)-1; }
 
 			return i;
 		}
@@ -808,7 +815,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			// FIXME: implement interpolation, clamp modes, normalized coordinates
 			uint32_t i = (uint32_t)clamp(x, 0);
 
-			return tex.img(i);
+			return tex(i);
 		}
 
 		T tex2D(float x, float y) const		// sample from 3D texture
@@ -817,7 +824,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			uint32_t i = (uint32_t)clamp(x, 0);
 			uint32_t j = (uint32_t)clamp(y, 1);
 
-			return tex.img(i, j);
+			return tex(i, j);
 		}
 		T tex3D(float x, float y, float z) const		// sample from 3D texture
 		{
@@ -826,7 +833,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 			uint32_t j = (uint32_t)clamp(y, 1);
 			uint32_t k = (uint32_t)clamp(z, 2);
 
-			return tex.img(i, j, k);
+			return tex(i, j, k);
 		}
 };
 
@@ -1036,7 +1043,7 @@ struct cuxTextureBinder
 	cuxTextureBinder(cuxTextureReferenceInterface &tex_, const cuxTexture<T, dim> &tptr)
 		: tex(tex_)
 	{
-		tex.bind(&tptr.img, tptr.coords);
+		tex.bind(&tptr, tptr.coords);
 	}
 
 	~cuxTextureBinder()

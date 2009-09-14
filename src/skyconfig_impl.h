@@ -352,6 +352,7 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 		// setup output destination
 		this->stars.lb      = in.col<double>("lb");
 		this->stars.projIdx = in.col<int>("projIdx");
+		this->stars.projXY  = in.col<float>("projXY");
 		this->stars.XYZ     = in.col<float>("XYZ");
 		this->stars.comp    = in.col<int>("comp");
 		this->stars.M       = in.col<float>("absmag");

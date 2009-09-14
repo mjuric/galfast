@@ -374,6 +374,7 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 	// prepare the table for output
 	t.use_column("lb");
 	t.use_column("projIdx");
+	t.use_column("projXY");
 	t.use_column("XYZ");
 	t.use_column("comp");
 
@@ -622,7 +623,7 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 	MLOG(verb2) << "Resampled.";
 }
 
-void os_skygen::load_extinction_maps(const std::string &econf)
+bool load_extinction_maps(cuxTexture<float, 3> &ext_north, cuxTexture<float, 3> &ext_south, const std::string &econf)
 {
 	if(!econf.size())	// no extinction
 	{
@@ -631,13 +632,11 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 			tex(i, j, k) = 0.f;
 		float2 tc = make_float2(-2, 1./4.);
 
-//		ext_north = tex; tc_ext_north[0] = tc_ext_north[1] = tc_ext_north[2] = tc;
-//		ext_south = tex; tc_ext_south[0] = tc_ext_south[1] = tc_ext_south[2] = tc;
 		ext_south = ext_north = cuxTexture<float, 3>(tex, tc);
 
 		MLOG(verb2) << "Extinction maps not given, assuming no extinction.";
 
-		return;
+		return false;
 	}
 
 	// load 3D FITS file
@@ -694,6 +693,13 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 #else // HAVE_LIBCFITSIO
 	THROW(EAny, "Cannot load extinction maps from FITS files; recompile with FITS I/O support.");
 #endif // HAVE_LIBCFITSIO
+
+	return true;
+}
+
+void os_skygen::load_extinction_maps(const std::string &econf)
+{
+	::load_extinction_maps(ext_north, ext_south, econf);
 }
 
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)

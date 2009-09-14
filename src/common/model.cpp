@@ -764,6 +764,7 @@ void otable::init()
 	"(column) star_name[40] {type=char;}"
 	"(column) hidden	{type=int;hidden=true;}"
 	"(column) projIdx       {type=int;hidden=true;}"
+	"(column) projXY[2]     {type=float;hidden=true;}"
 	);
 
 	// store these column definitions as defaults

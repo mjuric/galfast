@@ -682,28 +682,25 @@ bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
 
 
 // convert input absolute/apparent magnitudes to ugriz colors
-class os_photometry : public osink
+class os_photometry : public osink, public os_photometry_data
 {
 	protected:
 		std::string bandset2;			// name of this filter set
-		//std::string bband;			// band off which to bootstrap other bands, using color relations. Must be supplied by other modules.
 		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
 		std::string photoFlagsName;		// Name of the photometric flags field
-		int bidx;				// index of bootstrap band in bnames
-//		size_t offset_absmag, offset_mag;	// sstruct offsets to bootstrap apparent and absolute magnitudes [input]
-//		std::vector<ct::cfloat*> mags;		// sstruct offset to magnitudes in computed bands [output]
-		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
+//		int bidx;				// index of bootstrap band in bnames
+//		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
-///		std::vector<std::vector<float> > clt;
 		std::vector<cuxSmartPtr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
 		std::vector<cuxSmartPtr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
-/*		typedef char cbool;			// to avoid the special vector<bool> semantics, while maintaining a smaller memory footprint than vector<int>
-		std::vector<std::vector<cbool> > eclt;	// extrapolation flags*/
-		int nMr, nFeH;
-		double Mr0, Mr1, dMr;
-		double FeH0, FeH1, dFeH;
-		int ncolors;
-		uint32_t comp0, comp1;
+		std::pair<cuxTexture<float, 3>, cuxTexture<float, 3> > extinction;	// north/south extinction maps (for bootstrap band)
+
+ 		int nMr, nFeH;
+// 		double Mr0, Mr1, dMr;
+// 		double FeH0, FeH1, dFeH;
+// 		int ncolors;
+// 		uint32_t comp0, comp1;
+		float Mr1, FeH1;
 
 		float color(int ic, double FeH, double Mr, int *e = NULL)
 		{
@@ -727,8 +724,13 @@ class os_photometry : public osink
 		virtual bool runtime_init(otable &t);
 		virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
-		os_photometry() : osink(), comp0(0), comp1(0xffffffff)
+		os_photometry() : osink()
 		{
+			comp0 = 0;
+			comp1 = 0xffffffff;
+			FOR(0, N_REDDENING) { reddening[i] = 1.f; }
+			extinction_on = false;
+
 			req.insert("FeH");
 		}
 };
@@ -806,6 +808,21 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		THROW(EAny, "Bootstrap band must be listed in the 'bands' keyword.");
 	}
 	bidx = b - bnames.begin();
+
+	// load extinction maps
+	cfg.get(tmp, "extinction", "");
+	extinction_on = load_extinction_maps(extinction.first, extinction.second, tmp);
+	if(extinction_on) // load reddening coefficients
+	{
+//		std::cerr << extinction.first.tex3D(-1.2f, 1.2f, 7.f) << "\n";
+
+		cfg.get(tmp, "reddening", "");
+		std::istringstream ss(tmp);
+		FOR(0, nbands)
+		{
+			if(!(ss >> reddening[i])) { break; }
+		}
+	}
 
 	// sampling parameters
 	cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
@@ -941,27 +958,35 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
-DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, os_photometry_data lt, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcint projIdx, gcfloat projXY, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
 void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
 void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
 
+DECLARE_TEXTURE(ext_north, float, 3, cudaReadModeElementType);
+DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
-	cint_t &comp    = in.col<int>("comp");
-	cint_t &flags   = in.col<int>(photoFlagsName);
-	cfloat_t &DM    = in.col<float>("DM");
-	cfloat_t &mags  = in.col<float>(bandset2);
-	cfloat_t &FeH   = in.col<float>("FeH");
+	cint_t &comp     = in.col<int>("comp");
+	cint_t &flags    = in.col<int>(photoFlagsName);
+	cfloat_t &DM     = in.col<float>("DM");
+	cfloat_t &mags   = in.col<float>(bandset2);
+	cfloat_t &FeH    = in.col<float>("FeH");
+	cint_t &projIdx  = in.col<int>("projIdx");
+	cfloat_t &projXY = in.col<float>("projXY");
 
 	std::string absmagSys = absbband + "Sys";
 	cfloat_t &Mr    = in.using_column(absmagSys) ?
 				in.col<float>(absmagSys) :
 				in.col<float>(absbband);
 
-	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr, comp0, comp1 };
-//	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr};
+	cuxTextureBinder tb_ext_north(ext_north, extinction.first);
+	cuxTextureBinder tb_ext_south(ext_south, extinction.second);
+/*	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr, comp0, comp1 };*/
+	cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), lt, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), projIdx, projXY, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+
 	os_photometry_cleanup_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
 
 	return nextlink->process(in, begin, end, rng);
@@ -1253,7 +1278,7 @@ struct write_fits_rows_state
 
 	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
 	{
-		hidden = NULL; // make_hptr2D<int>(NULL, 0);
+		hidden.reset(); // make_hptr2D<int>(NULL, 0);
 		rowswritten = 0;
 
 		columns = columns_;

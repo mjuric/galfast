@@ -173,11 +173,6 @@ template<typename T, int dim = 1>
 		{
 			ptr = NULL;
 		}
-/*		__host__ __device__ arrayPtr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
-		{
-			ptr = NULL;
-			return *this;
-		}*/
 	};
 
 #if 0
@@ -333,11 +328,6 @@ template<typename T, int dim = 1, int align = 128>
 template<typename T, int dim = 2>
 struct gptr : public arrayPtr<T, dim>
 {
-	__device__ __host__ gptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
-	{
-		this->ptr = NULL;
-		return *this;
-	}
 };
 
 // Pointer to n-D array in host memory, obtained from cuxSmartPtr
@@ -349,11 +339,6 @@ struct gptr : public arrayPtr<T, dim>
 template<typename T, int dim = 2>
 struct hptr : public arrayPtr<T, dim>
 {
-	hptr<T, dim> &operator=(void *)			// allow the setting of pointer to NULL
-	{
-		this->ptr = NULL;
-		return *this;
-	}
 };
 
 // Inner part, low level implementation of cuxSmartPtr<T>. See the documentation of cuxSmartPtr<T>
@@ -690,7 +675,7 @@ struct cuxTexture : public cuxSmartPtr<T>
 
 	// assignment
 	cuxTexture<T, dim>& operator =(const cuxTexture<T, dim>& a)	{ set(a, a.coords); return *this; }
-	cuxTexture<T, dim>& operator =(const cuxSmartPtr<T>& a)		{ (cuxSmartPtr<T> &)(*this) = a; }
+	cuxTexture<T, dim>& operator =(const cuxSmartPtr<T>& a)		{ (cuxSmartPtr<T> &)(*this) = a; return *this; }
 
 	// texture initialization/setting
 	void set(const cuxSmartPtr<T>& a, const float2 tc)	// NOTE: This method initializes _all_ texture coordinates to tc
@@ -1017,7 +1002,7 @@ template<typename T, typename Texref>
 cuxTexture<float, 1> construct_1D_texture_by_resampling	(double *X, double *Y, int ndata, int nsamp = 1024);
 cuxTexture<float, 1> load_constant_texture			(float val, float X0 = -100, float X1 = 100);
 cuxTexture<float, 1> load_and_resample_1D_texture		(const char *fn, int nsamp = 1024);
-float2           texcoord_from_range			(float imgx, float imgy, float x, float y);
+float2		     texcoord_from_range			(float imgx, float imgy, float x, float y);
 
 /**
 	cuxTextureBinder -- RAII style texture binding/unbinding

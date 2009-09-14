@@ -116,6 +116,7 @@ cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float
 		cuxUploadConst(texProj, *proj);
 	}
 
+	// TODO: There's really no good reason for this to be hardcoded...
 	int nblocks = 30;
 	int nthreads = 128;
 	
@@ -294,10 +295,12 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 		float D = powf(10, 0.2f*DMtmp + 1.f);
 
 		float x, y;
-		stars.projIdx(idx) = pix.projIdx;
 		proj[pix.projIdx].convert(pix, x, y);
 		x += pix.dx*(rng.uniform() - 0.5f);
 		y += pix.dx*(rng.uniform() - 0.5f);
+		stars.projIdx(idx) = pix.projIdx;
+		stars.projXY(idx, 0) = x;
+		stars.projXY(idx, 1) = y;
 
 		double l, b;
 		proj[pix.projIdx].inverse(x, y, l, b);

@@ -35,12 +35,18 @@ struct os_FeH_data
 	int comp_thin, comp_thick, comp_halo;
 };
 
-struct os_photometry_data
+struct ALIGN(16) os_photometry_data
 {
-	int ncolors, bidx;
-	float FeH0, dFeH;
-	float Mr0, dMr;
+	int ncolors, bidx;	// number of colors, bootstrap band index
+
+	float FeH0, dFeH;	// FeH ...
+	float Mr0, dMr;		// ... and Mr texture coordinates (TODO: fully convert to cuxTexture)
+
 	uint32_t comp0, comp1;	// component ID range [comp0, comp1) to which this photometry module will be asigning magnitudes
+
+	int extinction_on;	// flag whether extinction should be taken into account
+	static const int N_REDDENING = 17;
+	float reddening[N_REDDENING];	// reddening coefficients for the loaded bands (NOTE: hardcoded maximum of 17 bands (16 colors))
 };
 
 struct os_vel2pm_data

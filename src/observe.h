@@ -107,15 +107,14 @@ public:
 };
 
 // GPU generator input
+bool load_extinction_maps(cuxTexture<float, 3> &ext_north, cuxTexture<float, 3> &ext_south, const std::string &econf);
 class os_skygen : public osource
 {
 protected:
 	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
 	size_t nstarLimit;	// maximum number of stars to generate
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
-//	cuxSmartPtr<float> ext_north, ext_south;
-//	afloat2 tc_ext_north[3], tc_ext_south[3];
-	cuxTexture<float, 3> ext_north, ext_south;
+	cuxTexture<float, 3>	ext_north, ext_south;	// north/south extinction maps
 
 public:
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);

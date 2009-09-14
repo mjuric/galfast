@@ -375,6 +375,7 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 	t.use_column("lb");
 	t.use_column("projIdx");
 	t.use_column("projXY");
+	t.use_column("Am");
 	t.use_column("XYZ");
 	t.use_column("comp");
 
@@ -552,6 +553,14 @@ void resample_texture(const std::string &outfn, const std::string &texfn, float2
 		irange[i].y = tex.coords[i].x + (tex.extent(i)-1) / tex.coords[i].y;
 
 		if(npix[i] == 0) { npix[i] = tex.extent(i); }
+
+		// convert to radians, if deprojecting
+		if(deproject && i != 2)
+		{
+			crange[i].x = rad(crange[i].x);
+			crange[i].y = rad(crange[i].y);
+		}
+
 		if(crange[i].x == crange[i].y)
 		{
 			if(!deproject || i == 2)

@@ -128,6 +128,19 @@ cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float
 	return out;
 }
 
+__device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
+{
+	// Sample the extinction texture
+	float Am;
+
+	if(projIdx == 0)
+		Am = TEX3D(ext_north, X, Y, DM);
+	else
+		Am = TEX3D(ext_south, X, Y, DM);
+
+	return Am;
+}
+
 template<typename T>
 __device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, const int im, const skypixel &pix) const
 {
@@ -145,12 +158,7 @@ __device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, con
 	float DM = m - M;
 	D = powf(10.f, 0.2f*DM + 1.f);
 
-	// Sample the extinction texture
-	if(pix.projIdx == 0)
-		Am = TEX3D(ext_north, pix.X, pix.Y, DM);
-	else
-		Am = TEX3D(ext_south, pix.X, pix.Y, DM);
-
+	Am = sampleExtinction(pix.projIdx, pix.X, pix.Y, DM);
 	return position(pix, D);
 }
 
@@ -287,20 +295,21 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 
 	for(; ndraw && idx < stopstars; idx++)
 	{
-		float Mtmp, mtmp, DMtmp;
+		float Mtmp, mtmp, DM;
 		stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
 		mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
-		DMtmp = mtmp - Mtmp;
-		stars.DM(idx) = DMtmp;
-		float D = powf(10, 0.2f*DMtmp + 1.f);
+		DM = mtmp - Mtmp;
+		stars.DM(idx) = DM;
+		float D = powf(10, 0.2f*DM + 1.f);
 
-		float x, y;
-		proj[pix.projIdx].convert(pix, x, y);
+		float x = pix.X, y = pix.Y;
+		//proj[pix.projIdx].convert(pix, x, y);
 		x += pix.dx*(rng.uniform() - 0.5f);
 		y += pix.dx*(rng.uniform() - 0.5f);
 		stars.projIdx(idx) = pix.projIdx;
 		stars.projXY(idx, 0) = x;
 		stars.projXY(idx, 1) = y;
+		stars.Am(idx) = sampleExtinction(pix.projIdx, x, y, DM);
 
 		double l, b;
 		proj[pix.projIdx].inverse(x, y, l, b);

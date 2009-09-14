@@ -729,7 +729,6 @@ class os_photometry : public osink, public os_photometry_data
 			comp0 = 0;
 			comp1 = 0xffffffff;
 			FOR(0, N_REDDENING) { reddening[i] = 1.f; }
-			extinction_on = false;
 
 			req.insert("FeH");
 		}
@@ -809,19 +808,12 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	}
 	bidx = b - bnames.begin();
 
-	// load extinction maps
-	cfg.get(tmp, "extinction", "");
-	extinction_on = load_extinction_maps(extinction.first, extinction.second, tmp);
-	if(extinction_on) // load reddening coefficients
+	// load reddening coefficients, if given
+	cfg.get(tmp, "reddening", "");
+	ss.clear(); ss.str(tmp);
+	FOR(0, nbands)
 	{
-//		std::cerr << extinction.first.tex3D(-1.2f, 1.2f, 7.f) << "\n";
-
-		cfg.get(tmp, "reddening", "");
-		std::istringstream ss(tmp);
-		FOR(0, nbands)
-		{
-			if(!(ss >> reddening[i])) { break; }
-		}
+		if(!(ss >> reddening[i])) { break; }
 	}
 
 	// sampling parameters
@@ -958,12 +950,10 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
-DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcint projIdx, gcfloat projXY, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcfloat Am, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
 void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
 void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
 
-DECLARE_TEXTURE(ext_north, float, 3, cudaReadModeElementType);
-DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	cint_t &comp     = in.col<int>("comp");
@@ -971,21 +961,18 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &DM     = in.col<float>("DM");
 	cfloat_t &mags   = in.col<float>(bandset2);
 	cfloat_t &FeH    = in.col<float>("FeH");
-	cint_t &projIdx  = in.col<int>("projIdx");
-	cfloat_t &projXY = in.col<float>("projXY");
+	cfloat_t &Am     = in.col<float>("Am");
 
 	std::string absmagSys = absbband + "Sys";
 	cfloat_t &Mr    = in.using_column(absmagSys) ?
 				in.col<float>(absmagSys) :
 				in.col<float>(absbband);
 
-	cuxTextureBinder tb_ext_north(ext_north, extinction.first);
-	cuxTextureBinder tb_ext_south(ext_south, extinction.second);
 /*	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr, comp0, comp1 };*/
 	cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));
 	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
 
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), projIdx, projXY, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
 
 	os_photometry_cleanup_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
 

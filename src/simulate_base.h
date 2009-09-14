@@ -44,7 +44,6 @@ struct ALIGN(16) os_photometry_data
 
 	uint32_t comp0, comp1;	// component ID range [comp0, comp1) to which this photometry module will be asigning magnitudes
 
-	int extinction_on;	// flag whether extinction should be taken into account
 	static const int N_REDDENING = 17;
 	float reddening[N_REDDENING];	// reddening coefficients for the loaded bands (NOTE: hardcoded maximum of 17 bands (16 colors))
 };

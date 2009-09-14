@@ -765,6 +765,7 @@ void otable::init()
 	"(column) hidden	{type=int;hidden=true;}"
 	"(column) projIdx       {type=int;hidden=true;}"
 	"(column) projXY[2]     {type=float;hidden=true;}"
+	"(column) Am            {type=float;fmt=%5.2f;}"
 	);
 
 	// store these column definitions as defaults

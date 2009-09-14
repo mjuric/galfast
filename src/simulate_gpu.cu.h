@@ -984,18 +984,13 @@ typedef cint_t::gpu_t gcint;
 #include <iostream>
 #endif
 
-#if BUILD_FOR_CPU
-DECLARE_TEXTURE(ext_north, float, 3, cudaReadModeElementType);
-DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
-#endif
-
 __constant__ os_photometry_data os_photometry_params;
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, gcint projIdx, gcfloat projXY, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp),
+	os_photometry_kernel(otable_ks ks, gcfloat Am, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp),
 	os_photometry_kernel,
-	(ks, projIdx, projXY, flags, DM, Mr, nabsmag, mags, FeH, comp)
+	(ks, Am, flags, DM, Mr, nabsmag, mags, FeH, comp)
 )
 {
 	os_photometry_data &lt = os_photometry_params;
@@ -1046,18 +1041,7 @@ KERNEL(
 		float dm = DM(row);
 
 		// add dust extinction
-		float Am0;
-		if(lt.extinction_on)
-		{
-			int hemi = projIdx(row);
-			float X = projXY(row, 0);
-			float Y = projXY(row, 1);
-
-			if(hemi == 0)
-				Am0 = TEX3D(ext_north, X, Y, dm);
-			else
-				Am0 = TEX3D(ext_south, X, Y, dm);
-		}
+		float Am0 = Am(row);
 
 		// convert luminosity to apparent magnitude of the system
 		for(int b = 0; b <= lt.ncolors; b++)

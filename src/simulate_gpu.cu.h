@@ -23,8 +23,9 @@
 #include "config.h"
 #endif
 
-#include <stdint.h>
-#include <math.h>
+#include <cmath>
+#include <vector>
+#include <map>
 
 #include <astro/constants.h>
 
@@ -183,13 +184,6 @@ namespace float_galequ_constants
 
 float inline __device__ sqrf(float x) { return x*x; }	
 
-//static const float flt_d2r = (float)ctn::d2r;
-//static const float flt_r2d = (float)(1./ctn::d2r);
-// inline __device__ float deg(float radians)
-// {
-// 	return flt_r2d * radians;
-// }
-
 /*
 	Convert proper motions in one coordinate system to de. The coordinate
 	system orientations are given by specifying the pole of the source coordinate
@@ -314,6 +308,7 @@ __device__ float3 vcyl2pm(float l, float b, float vx, float vy, float vz, float 
 
 	return pm;
 }
+
 KERNEL(
 	ks, 0, 
 	os_vel2pm_kernel(
@@ -348,17 +343,9 @@ KERNEL(
 		case GAL:
 			break;
 		case EQU:
-/*#if __DEVICE_EMULATION__
-			fprintf(stderr, "before = %f %f %f %f\n", deg(l), deg(b), pm.x, pm.y);
-#endif*/
 			pm_galequ(pm.x, pm.y, l, b, pm.x, pm.y);
-/*#if __DEVICE_EMULATION__
-			fprintf(stderr, "after = %f %f\n", pm.x, pm.y);
-			abort();
-#endif*/
 			break;
 		default:
-			//THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
 			pm.x = pm.y = pm.z = -9.99;
 			break;
 		}
@@ -375,8 +362,6 @@ KERNEL(
 //    kinTMIII
 //======================================================================
 //======================================================================
-
-#if 1
 
 #define K_IO
 #define K_OUT
@@ -522,10 +507,6 @@ KERNEL(
 		const float Rsquared = 1e-6 * (X*X + Y*Y);
 		const float Z = 1e-3 * Zpc;
 
-// #ifdef __DEVICE_EMULATION__
-// 		printf("%d %d %d R=%f Z=%f\n", tid, (int)row, component, sqrtf(Rsquared), Z);
-// #endif
-
 		if(component == par.comp_thin || component == par.comp_thick)
 		{
 			get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
@@ -538,13 +519,9 @@ KERNEL(
 		vcyl(row, 1) = tmp[1];
 		vcyl(row, 2) = tmp[2];
 	}
-/*#ifdef __DEVICE_EMULATION__
-	printf("leaving.\n");
-#endif*/
 	rng.store(threadID());
 #undef par
 }
-#endif
 
 //======================================================================
 //======================================================================
@@ -557,16 +534,12 @@ using namespace peyton;
 
 inline __device__ double2 galequ(const double2 lb)
 {
-	using namespace galequ_constants;
+	using namespace galequ_constants;	// for ce and se
 
 	const double cb = cos(lb.y);
 	const double sb = sin(lb.y);
 	const double cl = cos(lb.x-l0);
 	const double sl = sin(lb.x-l0);
-
-//	// TODO: These should be precomputed constants
-//	const double ce = cos(dngp);
-//	const double se = sin(dngp);
 
 	double2 r;
 	r.x = atan2(
@@ -633,70 +606,13 @@ DEFINE_TEXTURE( secProb, float, 1, cudaReadModeElementType, false, cudaFilterMod
 DEFINE_TEXTURE(   cumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(invCumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
-/*cuxTexture<float, 1, cudaReadModeElementType>
-	secProb  (false, cudaFilterModeLinear, cudaAddressModeClamp),
-	cumLF    (false, cudaFilterModeLinear, cudaAddressModeClamp),
-	invCumLF (false, cudaFilterModeLinear, cudaAddressModeClamp);
-
-__device__ __constant__ afloat2
-	tc_secProb,
-	tc_cumLF,
-	tc_invCumLF;
-
-void os_unresolvedMultiples_textures::bind_textures()
-{
-	 secProb.bind_texture(::secProb);	cuxUploadConst(::tc_secProb, tc_secProb);
-	   cumLF.bind_texture(::cumLF);		cuxUploadConst(::tc_cumLF, tc_cumLF);
-	invCumLF.bind_texture(::invCumLF);	cuxUploadConst(::tc_invCumLF, tc_invCumLF);
-}
-
-void os_unresolvedMultiples_textures::unbind_textures()
-{
-	 secProb.unbind_texture(::secProb);
-	   cumLF.unbind_texture(::cumLF);
-	invCumLF.unbind_texture(::invCumLF);
-}
-*/
-// DEFINE_TEXTURE(secProb);
-// DEFINE_TEXTURE(cumLF);
-// DEFINE_TEXTURE(invCumLF);
-
 __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
 {
-#if 0 //__DEVICE_EMULATION__
-	printf("%f %f\n", secProb.x0, secProb.inv_dx);
-	{
-		float tprob[] = {0., 2., 16.5, 18., 18.1};
-		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
-			printf("secProb(%f) = %f\n", tprob[i], (float)secProb.sample(tprob[i]));
-	}
-	{
-		float tprob[] = {2.99, 3., 10., 17., 17.01};
-		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
-			printf("cumLF(%f) = %f\n", tprob[i], (float)cumLF.sample(tprob[i]));
-	}
-	{
-		float tprob[] = {-0.01, 0., 0.364679, 1., 1.01};
-		for(int i=0; i != sizeof(tprob)/sizeof(float); i++)
-			printf("invCumLF(%f) = %f\n", tprob[i], (float)invCumLF.sample(tprob[i]));
-	}
-#endif
 	// draw the probability that this star has a secondary
 	float psec, u;
 
 	psec = TEX1D(secProb, M1);
 	u = rng.uniform();
-#if __DEVICE_EMULATION__
-/*	for(float u=0; u <= 17; u += .1)
-	{
-		printf("secProb: %.3f %f\n", u, (float)secProb.sample(u));
-	}
-	abort();*/
-#endif
-
-#if __DEVICE_EMULATION__
-//	assert(psec == 1.f);
-#endif
 	if(u > psec) { return false; }
 
 	// draw the absolute magnitude of the secondary, subject to requested
@@ -712,21 +628,12 @@ __device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo al
 		u = pprim + u * (1. - pprim);
 	}
 	M2 = TEX1D(invCumLF, u);// + rng.gaussian(1.f);
-//	M2 = 5.f + 12.f*u;
 	if(algo == LF_M2_GT_M1 && M2 < M1)
 	{
 		// This can happen due to resampling of cumLF and invCumLF
 		// (see the note in os_unresolvedMultiples::construct)
 		M2 = M1;
 	}
-
-#if __DEVICE_EMULATION__
-/*	for(float u=0; u <=1; u += 0.01)
- 	{
- 		printf("%.3f %f\n", u, (float)invCumLF.sample(u));
- 	}
- 	abort();*/
-#endif
 
 	return true;
 }
@@ -773,8 +680,6 @@ KERNEL(
 	}
 	rng.store(threadID());
 }
-
-#include <vector>
 
 #if BUILD_FOR_CPU && HAVE_CUDA
 extern __TLS std::vector<cuxSmartPtr<float> > *locuses;
@@ -823,7 +728,6 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 {
 	int f = (int)FeH;
 	int m = (int)Mr;
-//	std::cerr << "fm = " << f << " " << m << "   " << FeH << " " << Mr << "\n";
 
 	uint fl = 0;
 	for(int ic=0; ic != ncolors; ic++)
@@ -836,7 +740,6 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 #endif
 
 #if HAVE_CUDA && BUILD_FOR_CPU
-#include <map>
 std::map<std::string, cuxSmartPtr<float4> > os_photometry_tex_c;
 std::map<std::string, cuxSmartPtr<uint4> >  os_photometry_tex_f;
 void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f)
@@ -871,7 +774,7 @@ void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float>
 	//
 	// Optimization strategy for (Mr,FeH)->{colors} lookup
 	//
-	// Since the cost of a texture fetch of float4 is equal to that of just a float
+	// Since the cost of a texture fetch of float4 is equal to that of just a float (I _think_!)
 	// we pack up to four colors into a single float4 texture, instead of having each
 	// (Mr, FeH)->color mapping in a separate texture.
 	//
@@ -910,42 +813,8 @@ void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float>
 			}
 			os_photometry_tex_set(idx, texc, texf);
 		}
-// 		printf("%f %f %f %f\n%f %f %f %f\n",
-// 			texc(317, 28).x,
-// 			texc(317, 28).y,
-// 			texc(317, 28).z,
-// 			texc(317, 28).w,
-// 			(*loc)[i+0](317, 28),
-// 			(*loc)[i+1](317, 28),
-// 			(*loc)[i+2](317, 28),
-// 			(*loc)[i+3](317, 28));
-
-#if 0
-		// Bind isochrone array to texture reference
-		cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-		//cudaArray* cu_array = gpuMMU.mapToCUDAArray(texc, channelDesc);
-		cudaArray* cu_array = texc.getCUDAArray(channelDesc);
-		// set texture parameters & bind the array to the texture
-		colorTextures[texid]->addressMode[0] = cudaAddressModeClamp;
-		colorTextures[texid]->addressMode[1] = cudaAddressModeClamp;
-		colorTextures[texid]->filterMode = cudaFilterModeLinear;
-		colorTextures[texid]->normalized = false;    // access with normalized texture coordinates
-		cuxErrCheck( cudaBindTextureToArray( *colorTextures[texid], cu_array, channelDesc) );
-
-		// Bind flags array to texture reference
-		channelDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindUnsigned);
-		//cu_array = gpuMMU.mapToCUDAArray(texf, channelDesc);
-		cu_array = texf.getCUDAArray(channelDesc);
-		// set texture parameters & bind the array to the texture
-		cflagsTextures[texid]->addressMode[0] = cudaAddressModeClamp;
-		cflagsTextures[texid]->addressMode[1] = cudaAddressModeClamp;
-		cflagsTextures[texid]->filterMode = cudaFilterModePoint;
-		cflagsTextures[texid]->normalized = false;    // access with normalized texture coordinates
-		cuxErrCheck( cudaBindTextureToArray( *cflagsTextures[texid], cu_array, channelDesc) );
-#else
 		texc.bind_texture( *colorTextures[texid]);
 		texf.bind_texture(*cflagsTextures[texid]);
-#endif
 		texid++;
 	}
 #endif
@@ -980,10 +849,6 @@ void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<fl
 typedef cfloat_t::gpu_t gcfloat;
 typedef cint_t::gpu_t gcint;
 
-#if !__CUDACC__
-#include <iostream>
-#endif
-
 __constant__ os_photometry_data os_photometry_params;
 
 KERNEL(
@@ -1016,14 +881,6 @@ KERNEL(
 			if(syscomp) { flag &= flags(row); }
 			flags(row) = flag;
 
-#if __DEVICE_EMULATION__
-		if(row == 0)
-		{
-			for(int i=0; i != lt.ncolors; i++) { fprintf(stderr, "FeH=%f Mr=%f c[%d] = %f\n", fFeH, fMr, i, c[i]); }
-//			for(int i=0; i != lt.ncolors+1; i++) { std::cerr << "mags[" << i << "]=" << mags(row, i) << "\n"; }
-//			exit(0);
-		}
-#endif
 			// compute absolute magnitudes in different bands, and store
 			// as luminosity
 			for(int b = 0; b <= lt.ncolors; b++)
@@ -1039,8 +896,6 @@ KERNEL(
 		}
 
 		float dm = DM(row);
-
-		// add dust extinction
 		float Am0 = Am(row);
 
 		// convert luminosity to apparent magnitude of the system

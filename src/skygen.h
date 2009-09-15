@@ -21,8 +21,6 @@
 #ifndef skygen__h_
 #define skygen__h_
 
-#define _EMU_DEBUG (_DEBUG && __DEVICE_EMULATION__)
-
 #include <cuda_runtime_api.h>
 #include "gpu.h"
 #include "column.h"
@@ -145,7 +143,6 @@ __device__ inline float3 position(const direction &p, const float d)
 	ret.y =      - d*p.sl*p.cb;
 	ret.z =        d*p.sb;
 
-	//rcyl = sqrt(x*x + y*y);
 	return ret;
 };
 
@@ -325,10 +322,6 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 		const skypixel *pixels);
 	virtual size_t run(otable &in, osink *nextlink);
 };
-
-#if _EMU_DEBUG
-extern long long voxelsVisited;
-#endif
 
 //
 // Some generic stub code to instantiate the GPU kernels, the class,

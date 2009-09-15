@@ -23,10 +23,6 @@
 #include "config.h"
 #endif
 
-//
-// GPU implementation
-//
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -39,21 +35,17 @@
 
 using namespace cudacc;
 
-__device__ __constant__ gpuRng::constant rng;
-__device__ __constant__ lambert proj[2];
+__constant__ gpuRng::constant rng;	// GPU RNG
+__constant__ lambert proj[2];		// Projection definitions for the two hemispheres
 
 /********************************************************/
 
-static const float POGSON = 0.4605170185988091f;
-static const int block = 10;
-
-#if _EMU_DEBUG
-float mmax = 22;
-float mmin = 15;
-#endif
-
 DEFINE_TEXTURE(ext_north, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(ext_south, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 3D texture resampler, used mainly to debug extinction maps. Should be moved to a separate file.
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 __constant__ lambert texProj;
 
@@ -128,9 +120,14 @@ cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float
 	return out;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Get the extinction at projected coordinates (X,Y), for hemisphere specified
+// by projIdx
 __device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
 {
-	// Sample the extinction texture
 	float Am;
 
 	if(projIdx == 0)
@@ -141,24 +138,21 @@ __device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
 	return Am;
 }
 
+/**
+	Compute the quantities that are change only if a distance bin
+	is changed (and will be cached otherwise).
+
+	This includes the distance D, extinction, and 3D coordinates XYZ.
+*/
 template<typename T>
 __device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, const int im, const skypixel &pix) const
 {
 	float m = m0 + im*dm;
-#if 0 && _EMU_DEBUG
-	if(m > mmax) {
-		mmax = m;
-		printf("mmax = %f, im=%d, M=%f\n", mmax, im, M);
-	}
-	if(m < mmin) {
-		mmin = m;
-		printf("mmin = %f, im=%d, M=%f\n", mmin, im, M);
-	}
-#endif
 	float DM = m - M;
-	D = powf(10.f, 0.2f*DM + 1.f);
 
+	D = powf(10.f, 0.2f*DM + 1.f);
 	Am = sampleExtinction(pix.projIdx, pix.X, pix.Y, DM);
+
 	return position(pix, D);
 }
 
@@ -184,6 +178,10 @@ __device__ int ijToDiagIndex(int i, int j, const int x, const int y)
 	return idx;
 } 
 
+/**
+	Given a 'diagonal' linear index in (X,Y,M,m) space, decompose it into ilb, iM, im
+	and k indices that can be used to compute physical coordinates.
+*/
 __device__ bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, const int y)
 {
 	int kmax = x*y;
@@ -229,6 +227,11 @@ __device__ bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, con
 	return true;
 }
 
+/**
+	Diagonally advance the index in (XY,M,m) space. Since most models can be decomposed
+	into LF(M)*den(X,Y,DM), this advancement usually leaves the thread in the same
+	distance bin, allowing the (usually expensive) computation of den() to be cached.
+*/
 template<typename T>
 __device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir, const int x, const int y) const
 {
@@ -282,10 +285,12 @@ __device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir
 	return true; // recompute the distance
 }
 
-#if _EMU_DEBUG
-long long voxelsVisited = 0;
-#endif
+/**
+	Draw up to ndraw stars in magnitude bin (M,im) in pencil beam pix.
 
+	Take care there's enough space in the output table for the generated
+	stars. If there isn't, ndraw will be != 0 upon return.
+*/
 template<typename T>
 __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const skypixel &pix) const
 {
@@ -295,6 +300,7 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 
 	for(; ndraw && idx < stopstars; idx++)
 	{
+		// Draw the distance and absolute magnitude
 		float Mtmp, mtmp, DM;
 		stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
 		mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
@@ -302,19 +308,21 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 		stars.DM(idx) = DM;
 		float D = powf(10, 0.2f*DM + 1.f);
 
+		// Draw the position within the pixel
 		float x = pix.X, y = pix.Y;
-		//proj[pix.projIdx].convert(pix, x, y);
 		x += pix.dx*(rng.uniform() - 0.5f);
 		y += pix.dx*(rng.uniform() - 0.5f);
 		stars.projIdx(idx) = pix.projIdx;
 		stars.projXY(idx, 0) = x;
 		stars.projXY(idx, 1) = y;
+
+		// Draw extinction
 		stars.Am(idx) = sampleExtinction(pix.projIdx, x, y, DM);
 
+		// Transform projected coordinates to (l,b), in degrees
 		double l, b;
 		proj[pix.projIdx].inverse(x, y, l, b);
 		direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
-
 		l *= dbl_r2d;
 		if(l < 0.) l += 360.;
 		if(l > 360.) l -= 360.;
@@ -322,36 +330,43 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 		stars.lb(idx, 0) = l;
 		stars.lb(idx, 1) = b;
 
+		// Compute and store the 3D position (XYZ)
 		float3 pos = position(dir2, D);
 		stars.XYZ(idx, 0) = pos.x;
 		stars.XYZ(idx, 1) = pos.y;
 		stars.XYZ(idx, 2) = pos.z;
+
+		// Store the component ID
 		stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
 
 		ndraw--;
 	}
 }
 
+/**
+	The main skygen kernel (effectively, the entry point).
+
+	Depending on the flag 'draw', it either draws the stars, or computes the number
+	of stars in the given footprint. Launched from skyConfig<T>::run() and
+	skyConfig<T>::integrateCounts().
+*/
+static const float POGSON = 0.4605170185988091f;
+static const int block = 10;
+
 template<typename T>
 template<int draw>
 __device__ void skyConfigGPU<T>::kernel() const
 {
-	int ilb, im, iM;
+	int ilb, im, iM, k, ndraw = 0;
 	float3 pos;
 	skypixel pix;
-	int k;
-	int ndraw = 0;
 	float Am;
 
 	double count = 0.f, countCovered = 0.f;
 	float maxCount1 = 0.;
-	int bc = 0;
+	int bc = 0;					// block counter (decreses from block..0)
 	float D;
-	typename T::state ms;
-
-#if _EMU_DEBUG
-	long long voxelsVisited1 = 0;
-#endif
+	typename T::state ms;				// internal model class' state
 
 	// Initialize (or load previously stored) execution state
 	int tid = threadID();
@@ -366,7 +381,7 @@ __device__ void skyConfigGPU<T>::kernel() const
 		if(ilb >= npixels) { return; } // this thread has already finished
 		rng.load(tid);
 
-		// finish an incomplete previous invocation
+		// finish previous draw that didn't complete before the space ran out
 		if(ndraw)
 		{
 			float M = M1 - iM*dM;
@@ -374,12 +389,24 @@ __device__ void skyConfigGPU<T>::kernel() const
 		}
 	}
 
+	//
+	// Crawl through (X,Y,M,m) space, sample the densities and
+	// either sum them up or draw the stars.
+	//
+	// We crawl through this space by incrementing a linear 'diagonal index' k
+	// (TODO: explain this better).
+	//
+	// To evenly distribute work, while still maintaining some locality (i.e.,
+	// not moving between distance bins often), we crawl in blocks of size 'block'
+	// and then jump block*nthreads ahead.
+	//
 	while(ndraw == 0)
 	{
-		// advance the index
-		bool moved;
-		if(bc == 0)
+		// advance the index in (X,Y,M,m) space (indexed by (ilb,iM,im), or linear index k)
+		bool moved;	// whether we moved to a different distance bin
+		if(bc == 0)	// jump over block*nthreads, or advance by 1?
 		{
+			// jump block*nthreads
 		 	bc = block;
 			k += block*nthreads;
 			diagIndexToIJ(ilb, im, iM, k, nm, nM);
@@ -390,67 +417,31 @@ __device__ void skyConfigGPU<T>::kernel() const
 		}
 		else
 		{
+			// advance by 1
 			moved = advance(ilb, im, iM, pix, nm, nM);
 		}
-
-#if _EMU_DEBUG
-		{
-			voxelsVisited1++;
-
-			// verify diagonal indices were computed correctly
-			int idx = ijToDiagIndex(im, iM, nm, nM);
-			int kk = k + (block-bc);
-			if(idx != kk)
-			{
-				printf("ERROR: idx != k: %d != %d (i=%d, j=%d, ilb=%d)", idx, kk, im, iM, ilb);
-				abort();
-			}
-
-			// verify this pixel was supposed to be processed by this thread
-			uint64_t gidx = ilb*nm*nM + idx;	// global index
-			int lidx = (gidx % (nthreads*block)) - tid*block;	// local index
-			if(0 > lidx || lidx >= block)
-			{
-				printf("ERROR: This thread (tid=%d) should not be processing pixel %ld!\n", tid, gidx);
-				abort();
-			}
-
-			// check there was no change in distance unless 'moved' is true
-			if(!moved)
-			{
-				float D2, Am2;
-				float M = M1 - iM*dM;
-				float3 pos2 = compute_pos(D2, Am2, M, im, pix);
-				if(fabsf(D/D2-1) > 1e-5)
-				{
-					printf("ERROR: Unexpected distance while not moving! Old D = %f, new D = %f\n", D, D2);
-					abort();
-				}
-			}
-		}
-#endif
 		bc--;
 
-		// compute absolute magnitude and position for this pixel
+		// compute the absolute magnitude and position for this pixel
 		float M = M1 - iM*dM;
 		if(moved)
 		{
 			if(ilb >= npixels) { break; }
 
-			// we moved to a new distance bin. Recompute and reset.
-			pos = compute_pos(D, Am, M, im, pix);
+			// We moved to a new distance bin. Recompute and reset.
+			pos = compute_pos(D, Am,     M, im, pix);
 			model.setpos(ms, pos.x, pos.y, pos.z);
 		}
 
-		// Test if this location has been extincted away
+		// Test if this location has been extincted away.
 		float m = m0 + dm*im + Am;
 		if(m > m1) { continue; }
 
 		// compute the density in this pixel
 		float rho = model.rho(ms, M);
 		rho *= norm;
-		rho *= D*D*D; // multiply by volume (part one)
-		rho *= pix.dA * POGSON * dm * dM; // multiply by volume (part two)
+		rho *= D*D*D;			  // multiply by volume (part one)
+		rho *= pix.dA * POGSON * dm * dM; // multiply by volume (part two). TODO: Optimize this by precomputing
 
 		if(draw) // draw stars
 		{
@@ -463,16 +454,18 @@ __device__ void skyConfigGPU<T>::kernel() const
 		}
 		else
 		{
+			// sum up the stars in the volume
 			count += rho;
 			countCovered += rho * pix.coveredFraction;
 			if(maxCount1 < rho) { maxCount1 = rho; }
 #if 1
 			// add this sample to the correct histogram bin
+			// NOTE: This is basically debugging info, and can be thrown
+			// out at a later date.
 			int rhoBin = round((log10f(rho) - lrho0) / dlrho);
 			if(rhoBin < 0) { rhoBin = 0; }
 			if(rhoBin >= nhistbins) { rhoBin = (nhistbins-1); }
 			rhoHistograms(nthreads*rhoBin + tid)++;
-			//if(rho > 1e-2f) { printf("%g (D=%f) -> bin %d\n", rho, D, rhoBin); }
 #endif
 		}
 	};
@@ -490,25 +483,6 @@ __device__ void skyConfigGPU<T>::kernel() const
 		ks.store(tid,   ilb, im, iM, k, bc, pos, D, pix, Am, ms, ndraw);
 		rng.store(tid);
 	}
-
-#if _EMU_DEBUG
-	{
-		int locked;
-		do {
-			locked = atomicCAS(lock.ptr, 0, 1);
-		} while(locked != 0);
-		voxelsVisited += voxelsVisited1;
-		lock[0] = 0;
-
-		#if 0
-			if(draw) {
-				printf("%d stars after thread %d/%d done (in %d voxels).\n", locked, tid, nthreads, voxelsVisited1);
-			} else {
-				printf("Thread %d/%d done (sampled %d voxels).\n", tid, nthreads, voxelsVisited1);
-			}
-		#endif
-	}
-#endif
 }
 
 // default kernels (do nothing)
@@ -518,6 +492,8 @@ __device__ void skyConfigGPU<T>::kernel() const
 template<typename T> __global__ void compute_sky() {  }
 template<typename T> __global__ void draw_sky() {  }
 
+// Launch the apropriate kernel. The launched kernels are specialized
+// by the particular models.
 template<typename T>
 void skyConfig<T>::compute(bool draw)
 {

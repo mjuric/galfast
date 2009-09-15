@@ -29,10 +29,15 @@
 #include <projections.h>
 #include <vector>
 
+// Class encapsulating the pipeline of modules that add/modify
+// properties of generated objects, as they move from generation
+// to output.
+//
+// Constructed and run by ::postprocess_catalog()
 class opipeline
 {
 	public:
-		std::list<boost::shared_ptr<opipeline_stage> > stages;
+		std::list<boost::shared_ptr<opipeline_stage> > stages;	// the pipeline (an ordered list of stages)
 
 	public:
 		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
@@ -41,6 +46,10 @@ class opipeline
 		bool has_module_of_type(const std::string &type) const;
 };
 
+//
+// Specialization for input (source) modules. os_skygen overrides this
+// class.
+//
 class osource : public opipeline_stage
 {
 	public:
@@ -56,9 +65,7 @@ class partitioned_skymap;
 class os_clipper : public osink
 {
 protected:
-//	float dx/*, dA*/;			// linear scale and angular area of each pixel (rad, rad^2)
-//	float bmin;				// zone of avoidance around the Galactic plane
-
+	// hemisphere -- pixelized north/south sky (aux class).
 	struct hemisphere
 	{
 		peyton::math::lambert 	proj;	// projection
@@ -72,14 +79,14 @@ protected:
 		hemisphere(const hemisphere&);
 	};
 
-	hemisphere hemispheres[2];
+	hemisphere hemispheres[2];	// pixelized northern and southern sky
 
 public:
 	struct pixel
 	{
 		double l, b; // in Radians
 		double X, Y; // lambert coordinates
-		int projIdx;
+		int projIdx; // index of the projection for (X,Y)<->(l,b) transform (hemispheres[projIdx].proj)
 		float pixelArea, coveredArea;	// area of the nominal pixel, area covered by the footprint within the pixel
 		
 		pixel(double l_, double b_, double X_, double Y_, int projIdx_, float pixelArea_, float coveredArea_)
@@ -88,10 +95,10 @@ public:
 
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe); // NOTE: overriden as it's abstract, but should NEVER be called directly. Use construct_from_hemispheres() instead.
 
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
-	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this is placed near the end of the pipeline
+	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this module is placed near the end of the pipeline
 
 	// constructs the clipper object from north/south hemispheres in projection proj
 	void construct_from_hemispheres(float dx, const peyton::math::lambert &nproj, const std::pair<gpc_polygon, gpc_polygon> &sky);
@@ -108,7 +115,6 @@ public:
 };
 
 // GPU generator input
-bool load_extinction_maps(cuxTexture<float, 3> &ext_north, cuxTexture<float, 3> &ext_south, const std::string &econf);
 class os_skygen : public osource
 {
 protected:
@@ -131,7 +137,7 @@ protected:
 	void load_extinction_maps(const std::string &econf);
 };
 
-// add Fe/H information
+// os_FeH -- Generate Fe/H based on Ivezic et al (2008)
 class os_FeH : public osink, os_FeH_data
 {
 public:
@@ -147,7 +153,7 @@ public:
 	}
 };
 
-// add Fe/H information
+// os_fixedFeH -- Generate a fixed Fe/H
 class os_fixedFeH : public osink
 {
 	protected:
@@ -165,7 +171,7 @@ class os_fixedFeH : public osink
 		}
 };
 
-// unresolved multiple system creator
+// os_unresolvedMultiples -- Generate unresolved muliple systems
 class os_unresolvedMultiples : public osink
 {
 	protected:
@@ -188,7 +194,7 @@ class os_unresolvedMultiples : public osink
 		}
 };
 
-// convert velocities to proper motions
+// os_vel2pm -- Convert velocities to proper motions
 class os_vel2pm : public osink , public os_vel2pm_data
 {
 protected:
@@ -208,7 +214,7 @@ public:
 };
 	
 
-// add kinematic information
+// os_kinTMIII -- Generate kinematics based on Bond et al. (in prep)
 class os_kinTMIII : public osink, os_kinTMIII_data
 {	
 	float DeltavPhi;

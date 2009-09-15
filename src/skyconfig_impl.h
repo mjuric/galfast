@@ -28,6 +28,7 @@
 
 /***********************************************************************/
 
+// aux. class for sorting the rows. Used in skyConfig<T>::run().
 struct star_comp
 {
 	cdouble_t::host_t	lb;
@@ -97,35 +98,10 @@ skyConfig<T>::~skyConfig()
 	this->ks.destructor();
 }
 
-#if 0
-template<typename T>
-int skyConfig<T>::bufferSafetyMargin()
-{
-	// Compute the extra padding necessary to make buffer overfilling
-	// exceedingly unlikely
-
-	if(cpu_maxCount == NULL) { abort(); }
-
-	float maxCount = std::accumulate(cpu_maxCount, cpu_maxCount + this->nthreads, 0.f);
-	int bufsize = (int)ceil(maxCount + 7.*sqrt(maxCount))	// for maxCount > 100, P(k > k+7sqrt(k)) ~ nthreads*7e-11
-			 + 3*this->nthreads;			// and this part is to cover the selection effect that we only break if k>1
-
-#if 1
-	// some diagnostic info
-	DLOG(verb1) << "Maxcount diagnostics:";
-	sort(cpu_maxCount, cpu_maxCount + this->nthreads, std::greater<float>());
-	for(int i = 0; i != 3 && i != this->nthreads; i++)
-	{
-		DLOG(verb1) << "rho" << i << " = " << cpu_maxCount[i] << "\n";
-	}
-	DLOG(verb1) << "Total of max density bins: " << maxCount << "\n";
-	DLOG(verb1) << "Buffer safety margin: " << bufsize << "\n";
-#endif
-
-	return bufsize;
-}
-#endif
-
+//
+// Download skygen data to GPU. Flag 'draw' denotes if this call was preceeded
+// by launch of a kernel to draw stars, or to compute the overal normalization.
+//
 template<typename T>
 void skyConfig<T>::download(bool draw)
 {
@@ -191,6 +167,10 @@ void skyConfig<T>::download(bool draw)
 	this->model.postrun(model_host_state, draw);
 }
 
+//
+// Upload skygen data to GPU. Flag 'draw' denotes if this call will be followed
+// by a launch of a kernel to draw stars, or to compute the overal normalization.
+//
 template<typename T>
 void skyConfig<T>::upload(bool draw)
 {
@@ -219,7 +199,6 @@ void skyConfig<T>::upload(bool draw)
 	{
 		this->nstars.upload(&zero, 1);
 
-//		this->stopstars = Kbatch - bufferSafetyMargin();
 		this->stopstars = output_table_capacity;
 		assert(this->stopstars > 0);
 	}
@@ -339,12 +318,12 @@ double skyConfig<T>::integrateCounts()
 	return this->nstarsExpected;
 }
 
+//
+// Draw the catalog
+//
 template<typename T>
 size_t skyConfig<T>::run(otable &in, osink *nextlink)
 {
-	//
-	// Second pass: draw stars
-	//
 	this->output_table_capacity = in.capacity();
 
 	this->ks.alloc(this->nthreads);
@@ -361,13 +340,17 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 		this->stars.M       = in.col<float>("absmag");
 		this->stars.DM      = in.col<float>("DM");
 
-		this->upload(true);
-		this->compute(true);
-		this->download(true);
-		in.set_size(this->stars_generated);
+		// call the generation kernel
+		upload(true);
+		compute(true);
+		download(true);
+
+		in.set_size(this->stars_generated);	// truncate the table to the number of rows that were actually generated
 
 		{
+			//
 			// sort the generated stars by l,b,DM,M
+			//
 			std::vector<size_t> s(this->stars_generated);
 			__gnu_cxx::iota(s.begin(), s.end(), size_t(0));
 			std::vector<size_t> h2a(s), a2h(s);
@@ -412,47 +395,11 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
 		MLOG(verb1) << "Skygen progress: " << pcts << "% done.";
 
-#if 0
-		// write out where each thread stopped
-		for(int i=0; i != this->nthreads; i++)
-		{
-			printf("Thread %d: %d %d %d\n", i, this->cpu_state[i].x, this->cpu_state[i].y, this->cpu_state[i].z);
-		}
-#endif
-
-#if 0
-		// write out the results
-		static bool first = true;
-		FILE *fp = fopen("result.txt", first ? "w" : "a");
-		if(first)
-		{
-			first = false;
-			fprintf(fp, "# lb[2] absSDSSr{alias=absmag;alias=color;} SDSSr{alias=mag;} XYZ[3] comp\n");
-		}
-		column_types::cdouble::host_t lb = in.col<double>("lb");
-		column_types::cfloat::host_t XYZ = in.col<float>("XYZ");
-		column_types::cint::host_t comp  = in.col<int>("comp");
-		column_types::cfloat::host_t M   = in.col<float>("absmag");
-		column_types::cfloat::host_t m   = in.col<float>("mag");
-		for(int row=0; row != in.size(); row++)
-		{
-			fprintf(fp, "%13.8f %13.8f %6.3f %6.3f %10.2f %10.2f %10.2f %3d\n",
-				lb(row, 0), lb(row, 1), M[row], m[row], XYZ(row, 0), XYZ(row, 1), XYZ(row, 2), comp[row]);
-		}
-		fclose(fp);
-#endif
 	} while(this->stars_generated >= this->stopstars);
 
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
 	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
 
-	#if _EMU_DEBUG
-	long long voxelsVisitedExpected = this->npixels;
-	voxelsVisitedExpected *= this->nm*this->nM;
-	std::cout << "voxels visited = " << voxelsVisited << " (expected: " << voxelsVisitedExpected << ").";
-	#endif
-
 	return total;
 }
-

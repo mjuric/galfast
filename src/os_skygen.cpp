@@ -843,7 +843,6 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// fetch prerequisites
-	cdouble_t::host_t lb    = in.col<double>("lb");
 	cint_t::host_t pIdx     = in.col<int>("projIdx");
 	cfloat_t::host_t projXY = in.col<float>("projXY");
 	cint_t::host_t	hidden  = in.col<int>("hidden");
@@ -853,18 +852,13 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	for(size_t row=begin; row < end; row++)
 	{
 		// clip everything outside the footprint polygon
-		Radians l = rad(lb(row, 0));
-		Radians b = rad(lb(row, 1));
 		int projIdx = pIdx(row);
 		nstars[projIdx]++;
 
 		Radians x, y;
-#if 0	// TODO: For some reasion, the else option leaves too many stars in the footprint
-		hemispheres[projIdx].proj.project(x, y, l, b);
-#else
  		x = projXY(row, 0);
  		y = projXY(row, 1);
-#endif
+
 		// immediately reject if in the southern hemisphere (for this projection)
 		if(sqr(x) + sqr(y) > 2.)
 		{
@@ -879,12 +873,6 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 		typeof(skymap->skymap.begin()) it = skymap->skymap.find(XY);
 		if(it == skymap->skymap.end()) { continue; }
-// 		ASSERT(skymap->skymap.count(XY))
-// 		{
-// 			std::cerr << "Skymap (x0,x1,y0,y1): " << skymap->x0 << " " << skymap->x1 << " " << skymap->y0 << " " << skymap->y1;
-// 			std::cerr << "(x,y) = " << x << " " << y << "\n";
-// 			std::cerr << "(X,Y) = " << XY.first << " " << XY.second << "\n";
-// 		}
 
 		// check that the star is inside survey footprint, reject if it's not
 		gpc_polygon &poly = it->second.poly;

@@ -3,6 +3,12 @@
 
 #include "gpu.h"
 
+/**
+	column -- Adaptation of cuxSmartPointer to table column semantics
+
+	Used internally for storage of columns in otable. One shouldn't need
+	to use this class directly.
+*/
 template<typename T>
 struct column : public cuxSmartPtr<T>
 {

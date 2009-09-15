@@ -445,4 +445,30 @@ typedef rng_t &gpu_rng_t;
 	};
 #endif
 
+/**
+	rng_gsl_t -- GSL RNG implementation
+*/
+#include <gsl/gsl_randist.h>
+struct rng_gsl_t : public rng_t
+{
+	bool own;
+	gsl_rng *rng;
+
+	rng_gsl_t(gsl_rng *r, bool own_ = false) : rng(r), own(own_) {}
+	rng_gsl_t(unsigned long int seed)
+		: own(true), rng(NULL)
+	{
+		rng = gsl_rng_alloc(gsl_rng_default);
+		gsl_rng_set(rng, seed);
+	}
+
+	virtual ~rng_gsl_t() { if(own && rng) gsl_rng_free(rng); }
+
+	virtual float uniform()
+	{
+		return (float)gsl_rng_uniform(rng);
+	}
+	virtual float gaussian(const float sigma) { return (float)gsl_ran_gaussian(rng, sigma); }
+};
+
 #endif

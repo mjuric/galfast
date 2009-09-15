@@ -18,40 +18,49 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef io_h__
-#define io_h__
+#ifndef spline_h__
+#define spline_h__
 
-#include <iostream>
-#include <boost/iostreams/filtering_stream.hpp>
+#include <valarray>
 
-const std::string &datadir(); // return the path to built-in datafiles (TODO: move it to someplace where it belongs)
+#include <gsl/gsl_interp.h>
+#include <gsl/gsl_spline.h>
 
-class flex_output
+#include <astro/io/binarystream.h>
+#include <astro/system/log.h>
+
+class spline
 {
-protected:
-	std::ostream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::output> *sbout;
-
 public:
-	flex_output(const std::string &fn = "") { open(fn); }
-	~flex_output();
+	gsl_interp *f;
+	gsl_interp_accel *acc;
+	std::valarray<double> xv, yv;
 
-	std::ostream *open(const std::string &fn);
-	std::ostream &out() { return *this->stream; }
-};
-
-class flex_input
-{
+	friend BOSTREAM2(const spline &spl);
+	friend BISTREAM2(spline &spl);
 protected:
-	std::istream *stream;
-	boost::iostreams::filtering_streambuf<boost::iostreams::input> *sbin;
-
+	void construct_aux();
 public:
-	flex_input(const std::string &fn = "") { open(fn); }
-	~flex_input();
+	spline() : f(NULL), acc(NULL) {}
+	spline(const double *x, const double *y, int n);
+	void construct(const double *x, const double *y, int n);
+	void construct(const std::valarray<double> &x, const std::valarray<double> &y)
+		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
+	void construct(const std::vector<double> &x, const std::vector<double> &y)
+		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
+	~spline();
 
-	std::istream *open(const std::string &fn);
-	std::istream &in() { return *this->stream; }
+ 	double operator ()(double x)        const { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
+	double deriv(double x)              const { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
+	double deriv2(double x)             const { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
+	double integral(double a, double b) const { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
+
+	bool empty() const { return xv.size() == 0; }
+public:
+	spline& operator= (const spline& a);
+	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
 };
+BOSTREAM2(const spline &spl);
+BISTREAM2(spline &spl);
 
-#endif // ifndef io_h__
+#endif

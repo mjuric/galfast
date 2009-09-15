@@ -24,8 +24,25 @@
 #include <boost/iostreams/device/file.hpp>
 
 #include <astro/system/log.h>
+#include <astro/system/fs.h>
+
+#include <astro/useall.h>
 
 #include "io.h"
+
+// Get the autoconf/automake set datadir
+const std::string &datadir()
+{
+	static std::string dd;
+	static const char *dd_hardcoded = DATADIR;
+	if(dd.empty())
+	{
+		EnvVar ev("DATADIR");
+		dd = ev ? ev.c_str() : dd_hardcoded;
+		DLOG(verb2) << "datadir=" << dd << (ev ? " (initializes from $DATADIR)" : "");
+	}
+	return dd;
+}
 
 flex_output::~flex_output()
 {

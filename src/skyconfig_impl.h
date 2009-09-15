@@ -20,7 +20,6 @@
 
 #include "skygen.h"
 #include "observe.h"
-#include "simulate.h"
 #include <iomanip>
 #include <ext/numeric>	// for iota
 

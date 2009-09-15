@@ -35,7 +35,9 @@ using peyton::Radians;
 	__device__ __constant__ float Rg_gpu;
 	__device__ inline float Rg() { return Rg_gpu; }
 #else
-	#include "paralax.h"
+	// galactic center distance, CPU version
+	extern double Rg_impl;
+	inline double Rg() { return Rg_impl; }
 #endif
 
 // these must be overloaded by models

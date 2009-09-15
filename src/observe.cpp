@@ -20,28 +20,11 @@
 
 #include "config.h"
 
-#include "gpc_cpp.h"
-
-#include <boost/shared_ptr.hpp>
-#include <boost/lambda/lambda.hpp>
-#include <sstream>
-#include <iostream>
-#include <fstream>
-
-#include "simulate.h"
-#include "projections.h"
-#include "model.h"
-#include "paralax.h"
+#include "observe.h"
+#include "spline.h"
 #include "analysis.h"
-//#include "dm.h"
 #include "io.h"
 #include "gpu.h"
-
-#include "simulate_base.h"
-
-#include <vector>
-#include <map>
-#include <string>
 
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
@@ -49,15 +32,10 @@
 #include <gsl/gsl_linalg.h>
 
 #include <astro/io/format.h>
-#include <astro/system/fs.h>
-#include <astro/math.h>
-#include <astro/util.h>
 #include <astro/system/log.h>
 #include <astro/useall.h>
 
-using namespace boost::lambda;
-
-#include "observe.h"
+#include <fstream>
 
 bool opipeline_stage::runtime_init(otable &t)
 {
@@ -435,6 +413,7 @@ struct trivar_gauss
 	}
 };
 
+#if 0
 // add kinematic information
 class os_kinTMIII_OLD : public osink
 {
@@ -469,6 +448,7 @@ class os_kinTMIII_OLD : public osink
 			req.insert("XYZ");
 		}
 };
+#endif
 
 #if 0
 void test_kin()
@@ -518,6 +498,7 @@ inline double modfun(double Rsquared, double Z, double a, double b, double c, do
 	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
 }
 
+#if 0
 size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -620,8 +601,6 @@ void os_kinTMIII_OLD::get_halo_kinematics(double v[3], double Rsquared, double Z
 	add_dispersion(v, Rsquared, Z, haloEllip, rng);
 }
 
-template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
-
 bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
 {	
 	cfg.get(fk           , "fk"           , 3.0);
@@ -677,8 +656,11 @@ bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
 
 	return true;
 }
+#endif
 
 #endif
+
+template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
 
 // convert input absolute/apparent magnitudes to ugriz colors

@@ -22,42 +22,13 @@
 #define __observe_h
 
 #include "simulate_base.h"
-#include "model.h"
 #include "gpu.h"
 #include "gpc_cpp.h"
 #include <astro/system/config.h>
-#include <projections.h>
+#include "projections.h"
 #include <vector>
 
-// Class encapsulating the pipeline of modules that add/modify
-// properties of generated objects, as they move from generation
-// to output.
-//
-// Constructed and run by ::postprocess_catalog()
-class opipeline
-{
-	public:
-		std::list<boost::shared_ptr<opipeline_stage> > stages;	// the pipeline (an ordered list of stages)
-
-	public:
-		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
-		virtual size_t run(otable &t, rng_t &rng);
-
-		bool has_module_of_type(const std::string &type) const;
-};
-
-//
-// Specialization for input (source) modules. os_skygen overrides this
-// class.
-//
-class osource : public opipeline_stage
-{
-	public:
-		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
-
-	public:
-		osource() : opipeline_stage() {}
-};
+#include "pipeline.h"
 
 // Clips out stars not within the requested observation area
 // Currently only used as support to os_skygen

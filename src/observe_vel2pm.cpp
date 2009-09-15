@@ -20,40 +20,10 @@
 
 #include "config.h"
 
-#include "gpc_cpp.h"
-
-#include <boost/shared_ptr.hpp>
-#include <boost/lambda/lambda.hpp>
-#include <sstream>
-
-#include "simulate.h"
-#include "projections.h"
-#include "model.h"
-#include "paralax.h"
-#include "analysis.h"
-//#include "dm.h"
-#include "io.h"
-#include "gpu.h"
-#include "simulate_base.h"
-
-#include <vector>
-#include <map>
-#include <string>
-
-#include <gsl/gsl_vector.h>
-#include <gsl/gsl_matrix.h>
-#include <gsl/gsl_blas.h>
-#include <gsl/gsl_linalg.h>
-
-#include <astro/io/format.h>
-#include <astro/math.h>
-#include <astro/util.h>
-#include <astro/system/log.h>
-#include <astro/useall.h>
-
-using namespace boost::lambda;
-
 #include "observe.h"
+
+#include <astro/system/config.h>
+#include <astro/useall.h>
 
 
 //size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)

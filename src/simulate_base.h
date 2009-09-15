@@ -23,6 +23,10 @@
 
 #include "gpu.h"
 
+/**
+	Things "C"-ish enough for CUDA to swallow (and to upload to GPU) go into this header.
+*/
+
 // returns numeric_limits::epsilon() for the type of x
 #define EPSILON_OF(x) std::numeric_limits<typeof(x)>::epsilon()
 
@@ -63,50 +67,24 @@ struct farray5
 {
 	float data[5];
 	
-	__device__ float& operator [] (int i) { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
-	__device__ const float& operator [] (int i) const { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
+	__device__ float& operator [] (int i) { return data[i]; }
+	__device__ const float& operator [] (int i) const { return data[i]; }
 };
-
-// static const int BahcallSoneira_model_THIN = 0, BahcallSoneira_model_THICK = 1, BahcallSoneira_model_HALO = 2;
 
 struct iarray5
 {
 	short int data[5];
 	
-	__device__ short int& operator [] (int i) { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
-	__device__ const short int& operator [] (int i) const { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
+	__device__ short int& operator [] (int i) { return data[i]; } 
+	__device__ const short int& operator [] (int i) const { return data[i]; } 
 };
 
 struct i8array5
 {
 	char data[5];
 	
-	__device__ char& operator [] (int i) { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
-	__device__ const char& operator [] (int i) const { 		
-		//if (i<0 || i>4)
-		//	THROW(ENotImplemented, "We should have never gotten here");
-		return data[i];
-		} 
+	__device__ char& operator [] (int i) { return data[i]; } 
+	__device__ const char& operator [] (int i) const { return data[i]; }
 };
 
 struct os_kinTMIII_data
@@ -133,8 +111,8 @@ struct skyConfigInterface
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenConfig &sc,
 		const skypixel *pixels) = 0;
-	virtual void initRNG(rng_t &rng) = 0;	// initialize the random number generator from CPU RNG
-	virtual double integrateCounts() = 0;	// return the expected starcounts contributed by this model
+	virtual void initRNG(rng_t &rng) = 0;		// initialize the random number generator from CPU RNG
+	virtual double integrateCounts() = 0;		// return the expected starcounts contributed by this model
 	virtual void setDensityNorm(float norm) = 0;
 	virtual size_t run(otable &in, osink *nextlink) = 0;
 	virtual ~skyConfigInterface() {};

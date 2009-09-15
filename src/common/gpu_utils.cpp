@@ -32,7 +32,7 @@
 
 #include <vector>
 #include "gpu.h"
-#include "model.h"
+#include "io.h"
 #include "analysis.h"
 
 #if HAVE_CUDA

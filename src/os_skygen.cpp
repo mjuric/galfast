@@ -22,14 +22,16 @@
 
 #include "analysis.h"
 #include "observe.h"
-#include "simulate.h"
+#include "sph_polygon.h"
 #include "skygen.h"
+#include "spline.h"
 
 #include <fstream>
 #include <iomanip>
 
 #include <dlfcn.h>
 
+#include <astro/io/format.h>
 #include <astro/useall.h>
 
 /***********************************************************************/

@@ -18,267 +18,24 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef model_h__
-#define model_h__
+#ifndef otable_h__
+#define otable_h__
 
-#include <vector>
-#include <map>
-#include <iosfwd>
-#include <cmath>
-#include <string>
-#include <sstream>
-#include <valarray>
-#include <list>
-
-#include <boost/array.hpp>
-#include <boost/shared_ptr.hpp>
-
-#include <gsl/gsl_vector.h>
-#include <gsl/gsl_matrix.h>
-#include <gsl/gsl_interp.h>
-#include <gsl/gsl_spline.h>
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
-
-#include <astro/types.h>
-#include <astro/system/config.h>
-#include <astro/system/log.h>
-#include <astro/io/binarystream.h>
-#include <astro/io/format.h>
-#include <astro/exceptions.h>
-
-#include "paralax.h"
-#include "binarystream.h"
 #include "column.h"
 
-const std::string &datadir(); // return the path to built-in datafiles (TODO: move it to someplace where it belongs)
+#include <astro/exceptions.h>
+#include <astro/util.h>
 
-struct rzpixel
-{
-	double r, rphi, z, N, V;
-	double rho, sigma;
-	int ri_bin;
-};
+#include <boost/shared_ptr.hpp>
+#include <vector>
 
-struct disk_model
-{
-	static const double Rg = 8000.;
-	
-	static const size_t nrho = 10;
-	static const size_t nparams = 10 + nrho;
-	static const char *param_name[nparams];
-	static const char *param_format[nparams];
+/**
+	fmtout -- Formatter for textual serialization of otable.
 
-	//int disk;
-/*	void set_ri_bin(int k)
-	{
-		disk = ri2idx(k);
-	}*/
-	int ri2idx(int k) const
-	{
-		return k == 0 ? k : (nparams - nrho) + (k-1);
-	}
-
-	union {
-		double p[nparams];
-		double rho0[nparams];
-		struct
-		{
-			double rho0x, l, h, z0, f, lt, ht, fh, q, n;
-			double rho1, rho2, rho3, rho4, rho5, rho6, rho7, rho8, rho9, rho10;
-		};
-	};
-
-	disk_model() {}
-
-// 	// Model functions
-	double rho_thin(double r, double z, int ri)  const { return rho0[ri2idx(ri)] *     exp((Rg-r)/l  + (std::abs(z0) - std::abs(z + z0))/h); }
-	double rho_thick(double r, double z, int ri) const { return rho0[ri2idx(ri)] * f * exp((Rg-r)/lt + (std::abs(z0) - std::abs(z + z0))/ht); }
-	double rho_halo(double r, double z, int ri)  const { return rho0[ri2idx(ri)] * fh * pow(Rg/sqrt(halo_denom(r,z)),n); }
-	double rho(double r, double z, int ri)       const { return rho_thin(r, z, ri) + rho_thick(r, z, ri) + rho_halo(r, z, ri); }
-
-	//double norm_at_Rg() const { return f*exp(Rg*(1./l - 1./lt)); }
-	double norm_at_Rg(int ri) const { return rho_thick(Rg, 0, ri)/rho_thin(Rg, 0, ri); }
-
-	// Derivatives of the model function
-	double drho0(double r, double z, double rhom, int ri, int rij) const {
-		double tmp = ri == rij ? 1./rho0[ri2idx(ri)] * rhom : 0.;
-		//std::cerr << ri_bin << " " << tmp << "\n";
-		return tmp;
-	}
-	double dl(double r, double z, double rhothin) const { return r/peyton::sqr(l) * rhothin; }
-	double dh(double r, double z, double rhothin) const { return (-std::abs(z0)+std::abs(z+z0))/peyton::sqr(h) * rhothin; }
-	double dz0(double r, double z, double rhothin, double rhothick) const { return (peyton::sgn(z0)-peyton::sgn(z+z0))*(rhothin/h + rhothick/ht); }
-	double df(double r, double z, double rhothick) const { return 1./f * rhothick; }
-	double dlt(double r, double z, double rhothick) const { return r/peyton::sqr(lt) * rhothick; }
-	double dht(double r, double z, double rhothick) const { return (-std::abs(z0)+std::abs(z+z0))/peyton::sqr(ht) * rhothick; }
-	// -- Halo derivatives assume z0 << z (which is why there's no halo component in dz0()
-	double halo_denom(double r, double z) const { return peyton::sqr(r) + peyton::sqr(q)*peyton::sqr(z + z0); }
-	double dfh(double r, double z, double rhoh) const { return 1./fh * rhoh; }
-	double dq(double r, double z, double rhoh) const { return -n*q*peyton::sqr(z+z0)/halo_denom(r,z) * rhoh; }
-	double dn(double r, double z, double rhoh) const { return log(Rg/sqrt(halo_denom(r,z))) * rhoh; }
-};
-
-struct model_fitter : public disk_model
-{
-	// model parameters
-	std::vector<double> covar;
-	std::vector<bool> fixed;
-	double chi2_per_dof;
-	double epsabs, epsrel;
-
-	double variance(int i) { return covar.size() ? covar[i*nparams + i] : 0; }
-
-	std::map<std::string, int> param_name_to_index;
-
-	// Model data
-	std::vector<rzpixel> orig;		/// all input data
-	std::vector<rzpixel> map;		/// data used in last fit
-	std::vector<rzpixel> culled;		/// culled data (culled = orig - map)
-public:
-	void setdata(const std::vector<rzpixel> &data) { orig = map = data; }
-	std::vector<std::pair<float, float> > ri, r;
-	std::vector<std::pair<double, double> > d;
-	int ndata() { return map.size(); }
-
-	model_fitter(const model_fitter& m)
-		: disk_model(m),
-		  covar(m.covar), fixed(m.fixed), chi2_per_dof(m.chi2_per_dof),
-		  param_name_to_index(m.param_name_to_index),
-		  epsabs(1e-6), epsrel(1e-6)
-		{
-		}
-
-	// Constructor
-	model_fitter()
-		: fixed(nparams, false)
-	{
-		for(int i = 0; i != nparams; i++) { param_name_to_index[param_name[i]] = i; }
-	}
-
-	// Generic model_fitter fitting functions
-	int ndof() {
-		int ndof = 0;
-		FOR(0, fixed.size()) {
-			if(!fixed[i]) ndof++;
-		};
-		return ndof;
-		}
-
- 	double &param(const std::string &name)
- 	{
- 		return p[param_name_to_index[name]];
-	}
-	std::vector<bool>::reference fix(const std::string &name)
-	{
-		return fixed[param_name_to_index[name]];
-	}
- 	void set_param(const std::string &name, double val, bool fixed)
-	{
-		param(name) = val;
-		fix(name) = fixed;
-	}
-
-	void get_parameters(gsl_vector *x);
-	void set_parameters(const gsl_vector *x);
-
-	int fdf(gsl_vector *f, gsl_matrix *J);
-	int fit(int cullIter, const std::vector<double> &nsigma);
-	void cull(double nSigma);
-	void residual_distribution(std::map<int, int> &hist, double binwidth);
-
-	enum {PRETTY, HEADING, LINE};
-	void print(std::ostream &out, int format = PRETTY, int ri_bin = 0);
-};
-
-class spline
-{
-public:
-	gsl_interp *f;
-	gsl_interp_accel *acc;
-	std::valarray<double> xv, yv;
-
-	friend BOSTREAM2(const spline &spl);
-	friend BISTREAM2(spline &spl);
-protected:
-	void construct_aux();
-public:
-	spline() : f(NULL), acc(NULL) {}
-	spline(const double *x, const double *y, int n);
-	void construct(const double *x, const double *y, int n);
-	void construct(const std::valarray<double> &x, const std::valarray<double> &y)
-		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
-	void construct(const std::vector<double> &x, const std::vector<double> &y)
-		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }
-	~spline();
-
- 	double operator ()(double x)        const { return gsl_interp_eval(f, &xv[0], &yv[0], x, acc); }
-	double deriv(double x)              const { return gsl_interp_eval_deriv(f, &xv[0], &yv[0], x, acc); }
-	double deriv2(double x)             const { return gsl_interp_eval_deriv2(f, &xv[0], &yv[0], x, acc); }
-	double integral(double a, double b) const { return gsl_interp_eval_integ(f, &xv[0], &yv[0], a, b, acc); }
-
-	bool empty() const { return xv.size() == 0; }
-public:
-	spline& operator= (const spline& a);
-	spline(const spline& a) : f(NULL), acc(NULL) { *this = a; }
-};
-BOSTREAM2(const spline &spl);
-BISTREAM2(spline &spl);
-
-inline OSTREAM(const float x[3]) { return out << x[0] << " " << x[1] << " " << x[2]; }
-inline ISTREAM(float x[3]) { return in >> x[0] >> x[1] >> x[2]; }
-
-template<typename T, std::size_t N>
-		inline std::ostream &operator <<(std::ostream &out, const boost::array<T, N> &x)
-		{
-			out << x[0];
-			FOR(1, N) { out << " " << x[i]; }
-			return out;
-		}
-
-template<typename T, std::size_t N>
-		inline std::istream &operator >>(std::istream &in, boost::array<T, N> &x)
-		{
-			FOR(0, N) { in >> x[i]; }
-			return in;
-		}
-
-template<typename T, std::size_t N>
-		inline BOSTREAM2(const boost::array<T, N> &x)
-		{
-			FOR(0, N) { out << x[i]; }
-			return out;
-		}
-
-template<typename T, std::size_t N>
-		inline BISTREAM2(boost::array<T, N> &x)
-		{
-			FOR(1, N) { in >> x[i]; }
-			return in;
-		}
-
-struct rng_gsl_t : public rng_t
-{
-	bool own;
-	gsl_rng *rng;
-
-	rng_gsl_t(gsl_rng *r, bool own_ = false) : rng(r), own(own_) {}
-	rng_gsl_t(unsigned long int seed)
-		: own(true), rng(NULL)
-	{
-		rng = gsl_rng_alloc(gsl_rng_default);
-		gsl_rng_set(rng, seed);
-	}
-
-	virtual ~rng_gsl_t() { if(own && rng) gsl_rng_free(rng); }
-
-	virtual float uniform()
-	{
-		return (float)gsl_rng_uniform(rng);
-	}
-	virtual float gaussian(const float sigma) { return (float)gsl_ran_gaussian(rng, sigma); }
-};
-
+	This is basically a type-safe(r) version of printf, that falls back
+	to iostreams for non-builtin types. Probably an overkill given we
+	usually only allow ints/doubles/floats/strings in otable anyway.
+*/
 class fmtout
 {
 protected:
@@ -337,6 +94,10 @@ public:
 	}
 };
 
+/**
+	column_type_traits -- Type traits of column types. These have to
+	be specialized for each allowed column type (see the notes below)
+*/
 struct column_type_traits
 {
 	const std::string typeName;
@@ -354,12 +115,16 @@ protected:
 	static std::map<std::string, boost::shared_ptr<column_type_traits> > defined_types;
 	column_type_traits(const std::string &name, const size_t size) : typeName(name), elementSize(size) {}
 };
-// These are C type->traits mappings. Specialize them for each datatype supported by column_type_traits::get
+/**
+	These are C type->traits mappings. Specialize them for each datatype supported by column_type_traits::get
+*/
 template<> const column_type_traits *column_type_traits::get<float>();
 template<> const column_type_traits *column_type_traits::get<int>();
 template<> const column_type_traits *column_type_traits::get<double>();
 template<> const column_type_traits *column_type_traits::get<char>();
 
+/**
+*/
 class otable
 {
 protected:
@@ -677,147 +442,4 @@ public:
 	size_t set_output_all(bool output = true);
 };
 
-class osink;
-class opipeline;
-class opipeline_stage
-{
-	protected:
-		std::set<std::string> prov, req;	// add here the fields required/provided by this modules, if using stock runtime_init() implementation
-		std::string uniqueId;			// a string uniquely identifying this module instance
-		stopwatch swatch;			// times how long it takes to process() this stage
-
-		osink *nextlink;
-	public:
-		void chain(osink *nl) { nextlink = nl; }
-		float getProcessingTime() { return swatch.getTime(); }
-
-		void setUniqueId(const std::string &uid) { uniqueId = uid; }
-		const std::string &getUniqueId() const { return uniqueId; }
-
-	public:
-		static boost::shared_ptr<opipeline_stage> create(const std::string &name);
-		virtual const std::string &name() const = 0;
-		virtual const std::string &type() const { static std::string s("stage"); return s; }
-
-	public:
-		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe) = 0;
-		virtual bool runtime_init(otable &t);
-		virtual size_t run(otable &t, rng_t &rng) = 0;
-
-		static const int PRIORITY_INPUT      = -10000;
-		static const int PRIORITY_STAR       =      0;
-		static const int PRIORITY_SPACE      =    100;
-		static const int PRIORITY_INSTRUMENT =   1000;
-		static const int PRIORITY_OUTPUT     =  10000;
-		virtual int priority() { return PRIORITY_SPACE; }
-
-	public:
-		opipeline_stage() : nextlink(NULL)
-		{
-		}
-};
-
-class osink : public opipeline_stage
-{
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng) = 0;
-
-	public:
-		virtual size_t run(otable &t, rng_t &rng) { THROW(peyton::exceptions::ENotImplemented, "We should have never gotten here"); } // we should never reach this place
-
-	public:
-		osink() : opipeline_stage() {}
-};
-
-
-class galactic_model
-{
-protected:
-	std::string m_band;	// apparent/absolute magnitude band (e.g., "sdss_r")
-	std::string m_color;	// the name of the color in ri -- note: the "color" here can be the absolute magnitude
-
-	plx_gri_locus_ng paralax;	// polynomial converting between the "color" and the absolute magnitude
-	bool paralax_loaded;		// whether polynomial coefficients were loaded
-public:
-	const std::string &band() const { return m_band; }
-	const std::string &color() const { return m_color; }
-
-public:
-	virtual bool add_details(otable &out, rng_t &rng) {};	// does nothing by default
-
-public:
-	virtual double absmag(double ri) { ASSERT(paralax_loaded); return paralax.Mr(ri); }
-	virtual double rho(double x, double y, double z, double ri) = 0;
-
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;	// needed for serialization
-	virtual const std::string &name() const = 0;
-
-public:
-	static galactic_model *load(std::istream &cfg);
-	static galactic_model *unserialize(peyton::io::ibstream &in);
-
-protected:
-	galactic_model() : paralax_loaded(false) {};
-	galactic_model(peyton::system::Config &cfg);				// config file load constructor
-	galactic_model(peyton::io::ibstream &in);				// unserialization constructor
-};
-
-class BahcallSoneira_model : public galactic_model
-{
-public:
-	disk_model m;
-	std::pair<double, double> rho0_ri;	/// interval accross which m.rho0 was calculated
-
-	spline lf;		/// dimensionless local luminosity function
-
-	double r_cut2;		/// Galactocentric radius squared of density cutoff (rho beyond r_cut is 0)
-public:
-	static const int THIN = 0, THICK = 1, HALO = 2;
-
-	virtual const std::string &name() const { static std::string s = "BahcallSoneira"; return s; }
-	virtual bool add_details(otable &out, rng_t &rng);	// by default, adds comp=0 and XYZ tags
-public:
-	BahcallSoneira_model();
-	BahcallSoneira_model(peyton::system::Config &cfg);
-	BahcallSoneira_model(peyton::io::ibstream &in);
-
-	virtual double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
-protected:
-	void load(peyton::system::Config &cfg);
-	void load_luminosity_function(std::istream &in, std::pair<double, double> rho0_ri);
-};
-
-class ToyHomogeneous_model : public galactic_model
-{
-public:
-	double rho0;
-public:
-	ToyHomogeneous_model(double rho0_ = 1.) : rho0(rho0_) {}
-	ToyHomogeneous_model(peyton::system::Config &cfg);
-	ToyHomogeneous_model(peyton::io::ibstream &in);
-
-	virtual const std::string &name() const { static std::string s = "ToyHomogeneous"; return s; }
-public:
-	virtual double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
-};
-
-// geocentric powerlaw model with a constant paralax relation
-class ToyGeocentricPowerLaw_model : public galactic_model
-{
-public:
-	double rho0, n;
-	spline lf;		/// local luminosity function (if given)
-public:
-	ToyGeocentricPowerLaw_model(double rho0_ = 1., double n_ = -3.) : rho0(rho0_), n(n_) {}
-	ToyGeocentricPowerLaw_model(peyton::system::Config &cfg);
-	ToyGeocentricPowerLaw_model(peyton::io::ibstream &in);
-
-	virtual const std::string &name() const { static std::string s = "ToyGeocentricPowerLaw"; return s; }
-public:
-	double rho(double x, double y, double z, double ri);
-	virtual peyton::io::obstream& serialize(peyton::io::obstream& out) const;
-};
-
-#endif
+#endif // otable_h__

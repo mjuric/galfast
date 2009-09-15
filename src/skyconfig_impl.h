@@ -32,18 +32,20 @@ struct star_comp
 {
 	cdouble_t::host_t	lb;
 	cint_t::host_t		projIdx;
-	cfloat_t::host_t	XYZ;
+	cfloat_t::host_t	XYZ, projXY;
 	cint_t::host_t		comp;
-	cfloat_t::host_t	M;
+	cfloat_t::host_t	M, Am;
 	cfloat_t::host_t	DM;
 
 	star_comp(otable &in)
 	{
 		lb      = in.col<double>("lb");
 		projIdx = in.col<int>("projIdx");
+		projXY  = in.col<float>("projXY");
 		XYZ     = in.col<float>("XYZ");
 		comp    = in.col<int>("comp");
 		M       = in.col<float>("absmag");
+		Am      = in.col<float>("Am");
 		DM      = in.col<float>("DM");
 	}
 
@@ -383,6 +385,8 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 
 				SWAP1(lb, 0);	SWAP1(lb, 1);
 				SWAP(projIdx);
+				SWAP1(projXY, 0);	SWAP1(projXY, 1);
+				SWAP(Am);
 				SWAP1(XYZ, 0);	SWAP1(XYZ, 1);	SWAP1(XYZ, 2);
 				SWAP(comp);
 				SWAP(M);

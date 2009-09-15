@@ -28,6 +28,8 @@
 #include <fstream>
 #include <iomanip>
 
+#include <dlfcn.h>
+
 #include <astro/useall.h>
 
 /***********************************************************************/
@@ -151,7 +153,6 @@ partitioned_skymap *make_skymap_slow(Radians dx, gpc_polygon sky)
 		double xa = x, xb = x+skymap->dx;
 		for(double y = skymap->y0; y < skymap->y1; y += skymap->dx, Y++) // loop over all y values for a given x
 		{
-//			std::cerr << "Doing " << X << " " << Y << "\n";
 			double ya = y, yb = y+skymap->dx;
 			gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
@@ -180,31 +181,24 @@ void make_skymap_piece(gpc_polygon sky, partitioned_skymap *skymap, int X0, int 
 	double yb = skymap->y0 + Y1*skymap->dx;
 	gpc_polygon r = poly_rect(xa, xb, ya, yb);
 
-//	std::cerr << "Testing (" << X0 << "," << X1 << "," << Y0 << "," << Y1 << ") == ("
-//		  << xa << "," << xb << "," << ya << "," << yb << " answer=";
 	gpc_polygon poly;
 	gpc_polygon_clip(GPC_INT, &sky, &r, &poly);
 	if(poly.num_contours == 0)
 	{
-//		std::cerr << "no.\n";
 		return; // if there are no observations in this region
 	}
 
-//	std::cerr << "yes.";
 	int DX = X1-X0, DY = Y1-Y0;
 	if(DX == 1 && DY == 1) // leaf
 	{
-//		std::cerr << " Leaf node.\n";
 		partitioned_skymap::pixel_t &pix = skymap->skymap[std::make_pair(X0, Y0)];
 		pix.poly = poly;
 		pix.coveredArea = polygon_area(poly);
 		pix.pixelArea = sqr(skymap->dx);
-//		std::cerr << pix.pixelArea/sqr(ctn::pi/180) << " " << pix.coveredArea/sqr(ctn::pi/180) << "\n";
 		return;
 	}
 
 	// subdivide further
-//	std::cerr << " Subdividing furthed.\n";
 	make_skymap_piece(poly, skymap, X0 +    0, X0 + DX/2, Y0 +    0, Y0 + DY/2);
 	make_skymap_piece(poly, skymap, X0 + DX/2, X0 + DX,   Y0 +    0, Y0 + DY/2);
 	make_skymap_piece(poly, skymap, X0 + DX/2, X0 + DX,   Y0 + DY/2, Y0 +   DY);
@@ -223,8 +217,6 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 	skymap->dx = dx;
 
  	poly_bounding_box(skymap->x0, skymap->x1, skymap->y0, skymap->y1, sky);
-//	std::cerr << "Creating fast skymap lookup. ";
-	//std::cerr << skymap->x0 << " " <<  skymap->x1 << " " <<  skymap->y0 << " " <<  skymap->y1 << "\n";
 
 	int NX = (int)ceil((skymap->x1 - skymap->x0) / skymap->dx);
 	int NY = (int)ceil((skymap->y1 - skymap->y0) / skymap->dx);
@@ -234,7 +226,6 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 	if(NX == 1) NX++;
 	if(NY == 1) NY++;
 	NX = NY = std::max(NX, NY);	// make things really simple...
-//	std::cerr << "NX,NY = " << NX << " " << NY << "\n";
 	assert(skymap->x0 + NX*skymap->dx >= skymap->x1);
 	assert(skymap->y0 + NY*skymap->dx >= skymap->y1);
 
@@ -260,7 +251,7 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	split(footstr, footprints);
 	FOREACH(footstr)
 	{
-		Config cfg(*i);							// load footprint config
+		Config cfg(*i);									// load footprint config
 		load_footprint(foot, cfg);
 	}
 
@@ -269,7 +260,7 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	std::pair<gpc_polygon, gpc_polygon> sky = project_to_hemispheres(foot, proj, dx);
 
 	// setup clipper for the footprint
-	boost::shared_ptr<opipeline_stage> clipper_s(opipeline_stage::create("clipper"));		// clipper for this footprint
+	boost::shared_ptr<opipeline_stage> clipper_s(opipeline_stage::create("clipper"));	// clipper for this footprint
 	os_clipper &clipper = *static_cast<os_clipper*>(clipper_s.get());
 	clipper.construct_from_hemispheres(dx, proj, sky);
 	pipe.add(clipper_s);
@@ -280,7 +271,6 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	return clipper;
 }
 
-#include <dlfcn.h>
 typedef skyConfigInterface *(*modelFactory_t)();
 
 skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
@@ -786,6 +776,10 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 }
 
 ////////////////////////////////////////////////////////////////////////////
+//
+//	os_clipper -- clip the output to observed sky footprint
+//
+////////////////////////////////////////////////////////////////////////////
 
 bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
@@ -794,6 +788,8 @@ bool os_clipper::construct(const Config &cfg, otable &t, opipeline &pipe)
 	return true;
 }
 
+// Construct a pixelization of the sky given footprint polygons projected
+// to north and south Galactic hempsiphere
 void os_clipper::construct_from_hemispheres(float dx, const peyton::math::lambert &proj, const std::pair<gpc_polygon, gpc_polygon> &sky)
 {
 	// set the north hemisphere projection to input map projection
@@ -808,7 +804,8 @@ void os_clipper::construct_from_hemispheres(float dx, const peyton::math::lamber
 	DLOG(verb1) << "Sky pixels in the south: " << hemispheres[1].sky->skymap.size();
 }
 
-int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles) const	// returns the poles of all used projections
+// returns the poles of all used projections
+int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles) const
 {
 	ppoles.clear();
 	for(int i = 0; i != 2; i++)
@@ -819,7 +816,9 @@ int os_clipper::getProjections(std::vector<std::pair<double, double> > &ppoles) 
 	return ppoles.size();
 }
 
-int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const		// returns the centers of all pixels
+// returns the centers of all sky pixels (pencil beams into which
+// the sky has been pixelized by construct_from_hemispheres())
+int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const
 {
 	pix.clear();
 
@@ -839,11 +838,14 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const		// r
 	return pix.size();
 }
 
+// ::process() override -- set hidden=1 for every row that is outside
+// the exact input sky footprint
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// fetch prerequisites
-	cdouble_t::host_t lb      = in.col<double>("lb");
-	cint_t::host_t pIdx       = in.col<int>("projIdx");
+	cdouble_t::host_t lb    = in.col<double>("lb");
+	cint_t::host_t pIdx     = in.col<int>("projIdx");
+	cfloat_t::host_t projXY = in.col<float>("projXY");
 	cint_t::host_t	hidden  = in.col<int>("hidden");
 
 	// debugging statistics
@@ -856,16 +858,13 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		int projIdx = pIdx(row);
 		nstars[projIdx]++;
 
-// 		// Galactic plane zone of avoidance
-// 		if(bmin && fabs(b) <= bmin)
-// 		{
-// 			hidden[row] = 1;
-// 			continue;
-// 		}
-
 		Radians x, y;
+#if 0	// TODO: For some reasion, the else option leaves too many stars in the footprint
 		hemispheres[projIdx].proj.project(x, y, l, b);
-		
+#else
+ 		x = projXY(row, 0);
+ 		y = projXY(row, 1);
+#endif
 		// immediately reject if in the southern hemisphere (for this projection)
 		if(sqr(x) + sqr(y) > 2.)
 		{

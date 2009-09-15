@@ -101,7 +101,8 @@ public:
 
 	os_clipper() : osink()
 	{
-		req.insert("lb");
+		req.insert("projIdx");
+		req.insert("projXY");
 		prov.insert("hidden");
 	}
 };

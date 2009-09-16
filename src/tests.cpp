@@ -1329,7 +1329,7 @@ void test_pm_conversions()
 #if 0
 	if(cmd == "pdfinfo")
 	{
-		// ./simulate.x pdfinfo sky.bin.pdf
+		// ./galfast.x pdfinfo sky.bin.pdf
 		pdfinfo(cout, pdffile);
 		return 0;
 	}
@@ -1387,7 +1387,7 @@ void test_pm_conversions()
 #if 0
 	if(cmd == "pdf")
 	{
-		// ./simulate.x pdf north.conf north.pdf.bin
+		// ./galfast.x pdf north.conf north.pdf.bin
 		model_pdf pdf(in, input);
 		std::ofstream oout(output.c_str());
 		if(!oout) { THROW(EFile, "Cannot access " + output + " for output."); }
@@ -1405,7 +1405,7 @@ void test_pm_conversions()
 		// may barf
 		gsl_set_error_handler_off();
 	
-		// ./simulate.x catalog sim.conf dmmwriter.conf
+		// ./galfast.x catalog sim.conf dmmwriter.conf
 		sky_generator skygen(in, pdffile);
 
 		if(!simpleOutput)

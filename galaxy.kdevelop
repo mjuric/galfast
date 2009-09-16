@@ -25,7 +25,7 @@
       <useconfiguration>debug</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/simulate.x</mainprogram>
+      <mainprogram>/home/mjuric/projects/galaxy/debug/src/galfast.x</mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
@@ -53,7 +53,7 @@
         <merge_volumes.x/>
         <fitscatread.x/>
         <mlcolor.x/>
-        <simulate.x/>
+        <galfast.x/>
         <locusfit.x/>
         <fitter.x/>
         <locus_demo.x/>
@@ -66,11 +66,11 @@
       <autokdesu>false</autokdesu>
       <debugarguments>
         <selector.x/>
-        <simulate.x/>
+        <galfast.x/>
       </debugarguments>
       <cwd>
         <selector.x>/home/mjuric/projects/galaxy/galaxy/debug/./src</selector.x>
-        <simulate.x>/home/mjuric/projects/galaxy/debug/./src/models</simulate.x>
+        <galfast.x>/home/mjuric/projects/galaxy/debug/./src/models</galfast.x>
       </cwd>
     </run>
     <configurations>

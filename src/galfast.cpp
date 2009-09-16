@@ -42,7 +42,7 @@ try
 {
 	std::string argv0 = argv[0];
 	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.19 2007/04/15 12:09:52 mjuric Exp $");
-	std::string progdesc = "simulate.x, a mock star catalog simulator.";
+	std::string progdesc = "galfast.x, a mock star catalog simulator.";
 
 	std::string cmd, input, output;
 	std::map<std::string, boost::shared_ptr<Options> > sopts;
@@ -53,7 +53,7 @@ try
 		"       util - \tvarious utilities\n"
 					   );
 	opts.stop_after_final_arg = true;
-	opts.prolog = "For detailed help on a particular subcommand, do `simulate.x <cmd> -h'";
+	opts.prolog = "For detailed help on a particular subcommand, do `galfast.x <cmd> -h'";
 	opts.add_standard_options();
 
 	Radians dx = 4.;
@@ -76,7 +76,7 @@ try
 //		"   footplot - \tmake a PostScript plot of the footprints\n"
 	);
 	sopts["util"]->stop_after_final_arg = true;
-	sopts["util"]->prolog = "For detailed help on a particular subcommand, do `simulate.x util <cmd> -h'";
+	sopts["util"]->prolog = "For detailed help on a particular subcommand, do `galfast.x util <cmd> -h'";
 	sopts["util"]->add_standard_options();
 	std::map<std::string, boost::shared_ptr<Options> > uopts;
 	
@@ -159,7 +159,7 @@ try
 
 	if(cmd == "postprocess")
 	{
-		// ./simulate.x postprocess postprocess.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
+		// ./galfast.x postprocess postprocess.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
 		std::set<std::string> mset;
 		mset.insert(modules.begin(), modules.end());
 		postprocess_catalog(input, infile, outfile, mset);

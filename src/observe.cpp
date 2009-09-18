@@ -413,252 +413,10 @@ struct trivar_gauss
 	}
 };
 
-#if 0
-// add kinematic information
-class os_kinTMIII_OLD : public osink
-{
-	protected:
-		typedef std::vector<double> dvec;
-
-		trivar_gauss tri_rnd;
-
-		double fk, DeltavPhi;
-		dvec 	vPhi1, vPhi2, vR, vZ,
-			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
-			HvPhi, HvR, HvZ,
-			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
-		dvec *diskEllip[6], *haloEllip[6], *diskMeans[3], *haloMeans[3];
-
-	public:
-		void add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng);
-		void compute_means(double v[3], double Rsquared, double Z, dvec *means[3]);
-
-		void get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian);
-		void get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng);
-
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool init(const Config &cfg, otable &t);
-		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
-
-		os_kinTMIII_OLD() : osink()
-		{
-			prov.insert("vcyl");
-			req.insert("comp");
-			req.insert("XYZ");
-		}
-};
-#endif
-
-#if 0
-void test_kin()
-{
-	return;
-// 	Radians l, b;
-// 	equgal(0, ctn::pi/2., l, b);
-// 	printf("%.10f\n", deg(l));
-// 	exit(-1);
-
-	os_kinTMIII_OLD o;
-
-	Config cfg;
-	o.init(cfg);
-
-	double v[3];
-	bool firstGaussian;
-
-	float XYZ[3] = {8000, 0, 200};
-	gsl_rng *rng = gsl_rng_alloc(gsl_rng_default);
-
-	// R^2 and Z in kpc
-	const double Rsquared = 1e-6 * (sqr(XYZ[0]) + sqr(XYZ[1]));
-	const double Z = 1e-3 * XYZ[2];
-
-	trivar_gauss tri_rnd;
-	tri_rnd.set(20, 10, 20,   20, 20,   30);
-	double vvv[3] = { 0., 0., 0. };
-	gsl_vector *vv = &gsl_vector_view_array(vvv, 3).vector;
-	tri_rnd.draw(vv, rng);
-	exit(-1);
-
-	std::cout << "# XYZ = " << XYZ[0] << "," << XYZ[1] << "," << XYZ[2] << " (pc)\n";
-	for(int i = 0; i != 1; i++)
-	{
-		o.get_disk_kinematics(v, Rsquared, Z, rng, firstGaussian);
-		std::cout << v[0] << " " << v[1] << " " << v[2] << " " << firstGaussian << "\n";
-	}
-//	std::cerr << "XYZ = " << XYZ[0] << "," << XYZ[1] << "," << XYZ[2] << "\n";
-//	std::cerr << "  v = " << v[0] << "," << v[1] << "," << v[2] << "\n";
-	exit(-1);
-}
-#endif
-
 inline double modfun(double Rsquared, double Z, double a, double b, double c, double d, double e)
 {
 	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
 }
-
-#if 0
-size_t os_kinTMIII_OLD::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	double tmp[3]; bool firstGaussian;
-	cint_t::host_t   comp = in.col<int>("comp");
-	cfloat_t::host_t XYZ  = in.col<float>("XYZ");
-	cfloat_t::host_t vcyl = in.col<float>("vcyl");
-
-	// ASSUMPTIONS:
-	//	- Fe/H exists in input
-	//	- Apparent and absolute magnitude in the requested band exist in input
-	for(size_t row=begin; row != end; row++)
-	{
-		// fetch prerequisites
-		const int component = comp(row);
-		float X = XYZ(row, 0);
-		float Y = XYZ(row, 1);
-		float Zpc = XYZ(row, 2);
-		const double Rsquared = 1e-6 * (sqr(X) + sqr(Y));
-		const double Z = 1e-3 * Zpc;
-
-		switch(component)
-		{
-			case BahcallSoneira_model::THIN:
-			case BahcallSoneira_model::THICK:
-				//getDiskKinematics(v[0], v[1], v[2], Z, rng);
-				get_disk_kinematics(tmp, Rsquared, Z, rng, firstGaussian);
-				break;
-			case BahcallSoneira_model::HALO:
-				//getHaloKinematics(v[0], v[1], v[2], Z, rng);
-				get_halo_kinematics(tmp, Rsquared, Z, rng);
-				break;
-			default:
-				THROW(ENotImplemented, "We should have never gotten here");
-		}
-		vcyl(row, 0) = tmp[0];
-		vcyl(row, 1) = tmp[1];
-		vcyl(row, 2) = tmp[2];
-	}
-
-	return nextlink->process(in, begin, end, rng);
-}
-
-
-
-void os_kinTMIII_OLD::add_dispersion(double v[3], double Rsquared, double Z, dvec *ellip[6], rng_t &rng)
-{
-	// compute velocity dispersions at this position, and draw from trivariate gaussian
-	// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
-	double sigma[6];
-	FOR(0, 6)
-	{
-		dvec &p = *ellip[i];
-		sigma[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
-	}
-	gsl_vector *vv = &gsl_vector_view_array(v, 3).vector;
-	tri_rnd.set(sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5]);
-	tri_rnd.draw(vv, rng);
-}
-
-void os_kinTMIII_OLD::compute_means(double v[3], double Rsquared, double Z, dvec *means[3])
-{
-	// returns means in v[3]
-	FOR(0, 3)
-	{
-		dvec &p = *means[i];
-		v[i] = modfun(Rsquared, Z, p[0], p[1], p[2], p[3], p[4]);
-	}
-}
-
-void os_kinTMIII_OLD::get_disk_kinematics(double v[3], double Rsquared, double Z, rng_t &rng, bool &firstGaussian)
-{
-	// set up which gaussian are we drawing from
-	double p = rng.uniform();
-	if(firstGaussian = (p < fk))
-	{
-		// first gaussian
-		diskMeans[1] = &vPhi1;
-		diskEllip[3] = &sigmaPhiPhi1;
-	}
-	else
-	{
-		// second gaussian
-		diskMeans[1] = &vPhi2;
-		diskEllip[3] = &sigmaPhiPhi2;
-	}
-
-	compute_means(v, Rsquared, Z, diskMeans);
-	// truncate v_phi > 0
-	if(v[1] > 0.) { v[1] = 0.; }
-
-	add_dispersion(v, Rsquared, Z, diskEllip, rng);
-}
-
-void os_kinTMIII_OLD::get_halo_kinematics(double v[3], double Rsquared, double Z, rng_t &rng)
-{
-	compute_means(v, Rsquared, Z, haloMeans);
-	add_dispersion(v, Rsquared, Z, haloEllip, rng);
-}
-
-bool os_kinTMIII_OLD::init(const Config &cfg, otable &t)
-{	
-	cfg.get(fk           , "fk"           , 3.0);
-	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0);
-	fk = fk / (1. + fk);	// renormalize to probability of drawing from the first gaussian
-
-	cfg.get(vR           , "vR"           , split<dvec>("0 0 0 0 0"));	diskMeans[0] = &vR;
-	cfg.get(vPhi1        , "vPhi"         , split<dvec>("-194 19.2 1.25 0 0"));	diskMeans[1] = &vPhi1;
-	cfg.get(vZ           , "vZ"           , split<dvec>("0 0 0 0 0"));	diskMeans[2] = &vZ;
-	cfg.get(sigmaRR      , "sigmaRR"      , split<dvec>("40 5 1.5 0 0"));	diskEllip[0] = &sigmaRR;
-	cfg.get(sigmaRPhi    , "sigmaRPhi"    , split<dvec>("0 0 0 0 0"));	diskEllip[1] = &sigmaRPhi;
-	cfg.get(sigmaRZ      , "sigmaRZ"      , split<dvec>("0 0 0 0 0"));	diskEllip[2] = &sigmaRZ;
-	cfg.get(sigmaPhiPhi1 , "sigmaPhiPhi1" , split<dvec>("12 1.8 2 0 11"));	diskEllip[3] = &sigmaPhiPhi1;	// dynamically changeable
-	cfg.get(sigmaPhiPhi2 , "sigmaPhiPhi2" , split<dvec>("34 1.2 2 0 0"));
-	cfg.get(sigmaZPhi    , "sigmaZPhi"    , split<dvec>("0 0 0 0 0"));	diskEllip[4] = &sigmaZPhi;
-	cfg.get(sigmaZZ      , "sigmaZZ"      , split<dvec>("25 4 1.5 0 0"));	diskEllip[5] = &sigmaZZ;
-
-	// v2 is v1 + DeltavPhi, which is what this does.
-	vPhi2 = vPhi1; vPhi2[0] += DeltavPhi;
-
-	cfg.get(HvR          , "HvR"          , split<dvec>("0 0 0 0 0"));	haloMeans[0] = &HvR;
-	cfg.get(HvPhi        , "HvPhi"        , split<dvec>("0 0 0 0 0"));	haloMeans[1] = &HvPhi;
-	cfg.get(HvZ          , "HvZ"          , split<dvec>("0 0 0 0 0"));	haloMeans[2] = &HvZ;
-	cfg.get(HsigmaRR     , "HsigmaRR"     , split<dvec>("135 0 0 0 0"));	haloEllip[0] = &HsigmaRR;
-	cfg.get(HsigmaRPhi   , "HsigmaRPhi"   , split<dvec>("0 0 0 0 0"));	haloEllip[1] = &HsigmaRPhi;
-	cfg.get(HsigmaRZ     , "HsigmaRZ"     , split<dvec>("0 0 0 0 0"));	haloEllip[2] = &HsigmaRZ;
-	cfg.get(HsigmaPhiPhi , "HsigmaPhiPhi" , split<dvec>("85 0 0 0 0"));	haloEllip[3] = &HsigmaPhiPhi;
-	cfg.get(HsigmaZPhi   , "HsigmaZPhi"   , split<dvec>("0 0 0 0 0"));	haloEllip[4] = &HsigmaZPhi;
-	cfg.get(HsigmaZZ     , "HsigmaZZ"     , split<dvec>("85 0 0 0 0"));	haloEllip[5] = &HsigmaZZ;
-
-	// some info
-	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
-	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;
-
-	MLOG(verb2) << "vR coefficients:              " << vR;
-	MLOG(verb2) << "vZ coefficients:              " << vZ;
-	MLOG(verb2) << "sigmaRR coefficients:         " << sigmaRR;
-	MLOG(verb2) << "sigmaRPhi coefficients:       " << sigmaRPhi;
-	MLOG(verb2) << "sigmaRZ coefficients:         " << sigmaRZ;
-	MLOG(verb2) << "sigmaPhiPhi1 coefficients:    " << sigmaPhiPhi1;
-	MLOG(verb2) << "sigmaPhiPhi2 coefficients:    " << sigmaPhiPhi2;
-	MLOG(verb2) << "sigmaZPhi coefficients:       " << sigmaZPhi;
-	MLOG(verb2) << "sigmaZZ coefficients:         " << sigmaZZ;
-
-	MLOG(verb2) << "HvR coefficients:             " << HvR;
-	MLOG(verb2) << "HvZ coefficients:             " << HvZ;
-	MLOG(verb2) << "HsigmaRR coefficients:        " << HsigmaRR;
-	MLOG(verb2) << "HsigmaRPhi coefficients:      " << HsigmaRPhi;
-	MLOG(verb2) << "HsigmaRZ coefficients:        " << HsigmaRZ;
-	MLOG(verb2) << "HsigmaPhiPhi coefficients:    " << HsigmaPhiPhi;
-	MLOG(verb2) << "HsigmaZPhi coefficients:      " << HsigmaZPhi;
-	MLOG(verb2) << "HsigmaZZ coefficients:        " << HsigmaZZ;
-
-	return true;
-}
-#endif
-
-#endif
 
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 
@@ -670,23 +428,16 @@ class os_photometry : public osink, public os_photometry_data
 		std::string bandset2;			// name of this filter set
 		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
 		std::string photoFlagsName;		// Name of the photometric flags field
-//		int bidx;				// index of bootstrap band in bnames
-//		size_t offset_photoflags;		// sstruct offset to photometric flags [outout]
 		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 		std::vector<cuxSmartPtr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
 		std::vector<cuxSmartPtr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
 		std::pair<cuxTexture<float, 3>, cuxTexture<float, 3> > extinction;	// north/south extinction maps (for bootstrap band)
 
  		int nMr, nFeH;
-// 		double Mr0, Mr1, dMr;
-// 		double FeH0, FeH1, dFeH;
-// 		int ncolors;
-// 		uint32_t comp0, comp1;
 		float Mr1, FeH1;
 
 		float color(int ic, double FeH, double Mr, int *e = NULL)
 		{
-///			ASSERT(ic >= 0 && ic < clt.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << clt.size() << "\n"; }
 			ASSERT(ic >= 0 && ic < isochrones.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << isochrones.size() << "\n"; }
 			ASSERT(Mr0 <= Mr && Mr <= Mr1) { std::cerr << Mr0 << " <= " << Mr << " <= " << Mr1 << "\n"; }
 			ASSERT(FeH0 <= FeH && FeH <= FeH1) { std::cerr << FeH0 << " <= " << FeH << " <= " << FeH1 << "\n"; }

@@ -128,4 +128,5 @@ AM_CONDITIONAL(CUDA_DEVEMU, test "x$CUDA_DEVEMU" = "xyes")
 LIBS="$LIBS $BOOST_LIBS $CUDA_LIBS $SM_LIBS"
 CPPFLAGS="-DDATADIR=\"\\\"\$(pkgdatadir)\\\"\" $CPPFLAGS"
 
-AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile)
+AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile \
+	src/modules/Makefile)

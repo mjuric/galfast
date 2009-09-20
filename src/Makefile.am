@@ -25,7 +25,7 @@ endif
 INCLUDES = -I$(top_srcdir)/src/common $(all_includes)
 
 # the library search path.
-SUBDIRS = common gpc
+SUBDIRS = common gpc modules
 
 # explicit dependency for CUDA sources
 include ./$(DEPDIR)/kernels_gpu.Po
@@ -33,9 +33,8 @@ include ./$(DEPDIR)/kernels_gpu.Po
 noinst_HEADERS = model_J08.h model_densityCube.h model_expDisk.h \
 	model_powerLawEllipsoid.h simulate_base.h simulate_gpu.cu.h skyconfig_impl.h skygen.cu.h skygen.h \
 	sph_polygon.h pipeline.h
-galfast_x_SOURCES = kernels_gpu.cu footprint.cpp model_J08.cpp model_densityCube.cpp \
-	model_expDisk.cpp model_powerLawEllipsoid.cpp observe.cpp observe_FeH.cpp \
-	observe_kinTMIII.cpp observe_vel2pm.cpp os_skygen.cpp galfast.cpp kernels_cpu.cpp \
-	tests.cpp
-galfast_x_LDADD = $(top_builddir)/src/common/libcommon.a \
-	$(top_builddir)/src/gpc/libgpc.a
+galfast_x_SOURCES = kernels_gpu.cu footprint.cpp model_J08.cpp \
+	model_densityCube.cpp model_expDisk.cpp model_powerLawEllipsoid.cpp observe.cpp \
+	observe_kinTMIII.cpp observe_vel2pm.cpp os_skygen.cpp galfast.cpp kernels_cpu.cpp tests.cpp
+galfast_x_LDADD = $(top_builddir)/src/modules/libmodules.la \
+	$(top_builddir)/src/common/libcommon.a $(top_builddir)/src/gpc/libgpc.a

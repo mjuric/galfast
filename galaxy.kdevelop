@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
@@ -53,7 +53,7 @@
         <merge_volumes.x/>
         <fitscatread.x/>
         <mlcolor.x/>
-        <galfast.x/>
+        <galfast.x></galfast.x>
         <locusfit.x/>
         <fitter.x/>
         <locus_demo.x/>
@@ -66,7 +66,7 @@
       <autokdesu>false</autokdesu>
       <debugarguments>
         <selector.x/>
-        <galfast.x/>
+        <galfast.x></galfast.x>
       </debugarguments>
       <cwd>
         <selector.x>/home/mjuric/projects/galaxy/galaxy/debug/./src</selector.x>
@@ -189,7 +189,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -215,11 +215,11 @@
   <kdevdebugger>
     <general>
       <programargs>postprocess postprocess.conf skygen.conf</programargs>
-      <gdbpath/>
-      <dbgshell/>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <gdbpath></gdbpath>
+      <dbgshell>libtool --mode=execute</dbgshell>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

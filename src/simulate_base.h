@@ -32,13 +32,6 @@
 
 static const float ABSMAG_NOT_PRESENT = 99.999f;
 
-struct os_FeH_data
-{
-	float A[2], sigma[3], offs[3];
-	float Hmu, muInf, DeltaMu;
-	int comp_thin, comp_thick, comp_halo;
-};
-
 struct ALIGN(16) os_photometry_data
 {
 	int ncolors, bidx;	// number of colors, bootstrap band index

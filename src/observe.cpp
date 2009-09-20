@@ -1279,6 +1279,11 @@ size_t os_textin::run(otable &t, rng_t &rng)
 	return total;
 }
 
+#include <dlfcn.h>
+
+typedef opipeline_stage *(*moduleFactory_t)();
+
+// TODO: Replace all explicit instantiations with calls to factory functions
 boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &name)
 {
 	boost::shared_ptr<opipeline_stage> s;
@@ -1290,16 +1295,43 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	else if(name == "fitsout") { s.reset(new os_fitsout); }
 #endif
 	else if(name == "modelPhotoErrors") { s.reset(new os_modelPhotoErrors); }
-	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
-	else if(name == "FeH") { s.reset(new os_FeH); }
-	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
+//	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
+//	else if(name == "FeH") { s.reset(new os_FeH); }
+//	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 	else if(name == "photometry") { s.reset(new os_photometry); }
 	else if(name == "photometricErrors") { s.reset(new os_photometricErrors); }
 	else if(name == "clipper") { s.reset(new os_clipper); }
 	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 	else if(name == "gal2other") { s.reset(new os_gal2other); }
 	else if(name == "kinTMIII") { s.reset(new os_kinTMIII); }
-	else { THROW(EAny, "Module " + name + " unknown."); }
+	else
+	{
+		// try loading using a factory function
+		void *me = dlopen(NULL, RTLD_LAZY);
+		if(me == NULL)
+		{
+			const char *err = dlerror();
+			THROW(EAny, err);
+		}
+
+		std::string factory_name = "create_module_";
+		FOREACH(name)
+		{
+			if(!isalnum(*i)) { continue; }
+			factory_name += tolower(*i);
+		}
+
+		DLOG(verb2) << "Looking for " << factory_name << " factory function (for module '" << name << "')";
+		moduleFactory_t factory = (moduleFactory_t)dlsym(me, factory_name.c_str());
+		if(factory)
+		{
+			s.reset(factory());
+		}
+		else
+		{
+			THROW(EAny, "Module " + name + " unknown.");
+		}
+	}
 
 	ASSERT(name == s->name());
 

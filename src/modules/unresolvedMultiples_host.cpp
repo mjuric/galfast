@@ -20,141 +20,40 @@
 
 #include "config.h"
 
+#include "../simulate_base.h"
+#include "../pipeline.h"
+#include "unresolvedMultiples_gpu.cu.h"
+
 #include "analysis.h"
-
-#include "observe.h"
 #include "spline.h"
-
 #include <fstream>
 
 #include <astro/system/config.h>
 #include <astro/useall.h>
 
-
-#if 1
-
-DECLARE_KERNEL(
-	os_FeH_kernel(otable_ks ks, os_FeH_data par, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t FeH))
-
-size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
+// os_unresolvedMultiples -- Generate unresolved muliple systems
+class os_unresolvedMultiples : public osink
 {
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
+	protected:
+		uint32_t comp0, comp1;				// range of model components [comp0, comp1) on which this module will operate
+		std::string absmagSys;
+		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
-	// fetch prerequisites
-	cint_t   &comp  = in.col<int>("comp");
-	cfloat_t &XYZ   = in.col<float>("XYZ");
-	cfloat_t &FeH   = in.col<float>("FeH");
+		cuxTexture<float> secProb, cumLF, invCumLF;		// probability and LF texture data
+	public:
+		virtual bool runtime_init(otable &t);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
+		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
 
-	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
-	return nextlink->process(in, begin, end, rng);
-}
-#else
-size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
-		
-	// fetch prerequisites
-	using namespace column_types;
-	cint   comp  = in.col<int>("comp");
-	cfloat XYZ   = in.col<float>("XYZ");
-	cfloat FeH   = in.col<float>("FeH");
-
-	for(size_t row=begin; row != end; row++)
-	{
-		switch(comp[row])
+		os_unresolvedMultiples() : osink(), comp0(0), comp1(0xffffffff)
 		{
-			case BahcallSoneira_model::THIN:
-			case BahcallSoneira_model::THICK: {
-				// choose the gaussian to draw from
-				double p = rng.uniform()*(A[0]+A[1]);
-				int i = p < A[0] ? 0 : 1;
-
-				// calculate mean
-				double muD = muInf + DeltaMu*exp(-fabs(XYZ(row, 2))/Hmu);		// Bond et al. A2
-				double aZ = muD - 0.067;
-
-				// draw
-				FeH[row] = rng.gaussian(sigma[i]) + aZ + offs[i];
-			} break;
-			case BahcallSoneira_model::HALO:
-				FeH[row] = offs[2] + rng.gaussian(sigma[2]);
-				break;
-			default:
-				THROW(ENotImplemented, "We should have never gotten here");
+			req.insert("absmag");
+			req.insert("comp");
 		}
-	}
-
-	return nextlink->process(in, begin, end, rng);
-}
-#endif
-
-bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
-{
-	cfg.get(A[0],     "A0",     0.63f);
-	cfg.get(sigma[0], "sigma0", 0.20f);
-	cfg.get(offs[0],  "offs0",  0.00f);
-	cfg.get(A[1],     "A1",     0.37f);
-	cfg.get(sigma[1], "sigma1", 0.20f);
-	cfg.get(offs[1],  "offs1",  0.14f);
-	
-	cfg.get(Hmu,      "Hmu",     500.f);
-	cfg.get(muInf,    "muInf",  -0.82f);
-	cfg.get(DeltaMu,  "deltaMu", 0.55f);
-
-	// renormalize disk gaussian amplitudes to sum up to 1
-	double sumA = A[0] + A[1];
-	A[0] /= sumA; A[1] /= sumA;
-
-	// Halo configuration
-	cfg.get(sigma[2], "sigmaH",  0.30f);
-	cfg.get(offs[2],  "offsH",  -1.46f);
-
-	// Component IDs
-	cfg.get(comp_thin,  "comp_thin",  0);
-	cfg.get(comp_thick, "comp_thick", 1);
-	cfg.get(comp_halo,  "comp_halo",  2);
-
-	// Output model parameters
-	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< comp_thin << " " << comp_thick << " " << comp_halo;
-	MLOG(verb2) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
-	MLOG(verb2) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];
-	MLOG(verb2) << "Disk offsets          (offs[0], offs[1]): "<< offs[0] << " " << offs[1];
-	MLOG(verb2) << "Disk median Z dep. (muInf, deltaMu, Hmu): "<< muInf << " " << DeltaMu << " " << Hmu;
-	MLOG(verb2) << "Halo gaussian              (muH, sigmaH): "<< offs[2] << " " << sigma[2];
-
-	return true;
-}
-
-
-DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH));
-size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-	//	- all stars are main sequence
-	cfloat_t &FeH   = in.col<float>("FeH");
-	cint_t  &comp   = in.col<int>("comp");
-
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, comp0, comp1, comp, FeH);
-	return nextlink->process(in, begin, end, rng);
-}
-
-bool os_fixedFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
-{
-	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	cfg.get(fixedFeH, "FeH", 0.f);
-	cfg.get(comp0, "comp0", 0U);
-	cfg.get(comp1, "comp1", 0xffffffff);
-
-	return true;
-}
+};
+extern "C" opipeline_stage *create_module_unresolvedmultiples() { return new os_unresolvedMultiples(); }	// Factory; called by opipeline_stage::create()
 
 bool os_unresolvedMultiples::runtime_init(otable &t)
 {
@@ -184,7 +83,6 @@ DECLARE_TEXTURE(secProb,  float, 1, cudaReadModeElementType);
 DECLARE_TEXTURE(cumLF,    float, 1, cudaReadModeElementType);
 DECLARE_TEXTURE(invCumLF, float, 1, cudaReadModeElementType);
 
-DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, uint32_t comp0, uint32_t comp1, multiplesAlgorithms::algo algo));
 size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:

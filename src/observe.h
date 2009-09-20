@@ -108,63 +108,6 @@ protected:
 	void load_extinction_maps(const std::string &econf);
 };
 
-// os_FeH -- Generate Fe/H based on Ivezic et al (2008)
-class os_FeH : public osink, os_FeH_data
-{
-public:
-	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-	virtual const std::string &name() const { static std::string s("FeH"); return s; }
-
-	os_FeH() : osink()
-	{
-		prov.insert("FeH");
-		req.insert("comp");
-		req.insert("XYZ");
-	}
-};
-
-// os_fixedFeH -- Generate a fixed Fe/H
-class os_fixedFeH : public osink
-{
-	protected:
-		float fixedFeH;
-		uint32_t comp0, comp1;
-
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
-
-		os_fixedFeH() : osink(), fixedFeH(0), comp0(0), comp1(0xffffffff)
-		{
-			prov.insert("FeH");
-		}
-};
-
-// os_unresolvedMultiples -- Generate unresolved muliple systems
-class os_unresolvedMultiples : public osink
-{
-	protected:
-		uint32_t comp0, comp1;				// range of model components [comp0, comp1) on which this module will operate
-		std::string absmagSys;
-		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
-
-		cuxTexture<float> secProb, cumLF, invCumLF;		// probability and LF texture data
-	public:
-		virtual bool runtime_init(otable &t);
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
-		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
-
-		os_unresolvedMultiples() : osink(), comp0(0), comp1(0xffffffff)
-		{
-			req.insert("absmag");
-			req.insert("comp");
-		}
-};
-
 // os_vel2pm -- Convert velocities to proper motions
 class os_vel2pm : public osink , public os_vel2pm_data
 {

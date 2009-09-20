@@ -39,59 +39,9 @@
 using namespace cudacc;
 #endif
 
-//======================================================================
-//======================================================================
-//    FeH
-//======================================================================
-//======================================================================
-
-KERNEL(
-	ks, 3*4,
-	os_FeH_kernel(
-		otable_ks ks, os_FeH_data par, gpu_rng_t rng, 
-		cint_t::gpu_t comp,
-		cfloat_t::gpu_t XYZ,
-		cfloat_t::gpu_t FeH),
-	os_FeH_kernel,
-	(ks, par, rng, comp, XYZ, FeH)
-)
-{
-	uint32_t tid = threadID();
-	rng.load(tid);
-	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
-	{
-		float feh;
-		int component = comp(row);
-		if(component == par.comp_thin || component == par.comp_thick)
-		{
-			// choose the gaussian to draw from
-			float p = rng.uniform()*(par.A[0]+par.A[1]);
-			int i = p < par.A[0] ? 0 : 1;
-
-			// calculate mean
-			float muD = par.muInf + par.DeltaMu*exp(-fabs(XYZ(row, 2))/par.Hmu);		// Bond et al. A2
-			float aZ = muD - 0.067f;
-
-			// draw
-			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
-		}
-		else if(component == par.comp_halo)
-		{
-			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
-		}
-		else
-		{
-			// do nothing (assuming some other module will set Fe/H for this component)
-			feh = -100.f;
-		}
-
-		if(feh != -100.f)
-		{
-			FeH(row) = feh;
-		}
-	}
-	rng.store(threadID());
-}
+#include "modules/FeH_gpu.cu.h"
+#include "modules/fixedFeH_gpu.cu.h"
+#include "modules/unresolvedMultiples_gpu.cu.h"
 
 //======================================================================
 //======================================================================
@@ -584,101 +534,6 @@ KERNEL(
 		out(row, 0) = ret.x / ctn::d2r;
 		out(row, 1) = ret.y / ctn::d2r;
 	}
-}
-
-KERNEL(
-	ks, 0,
-	os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH),
-	os_fixedFeH_kernel,
-	(ks, fixedFeH, comp0, comp1, comp, FeH)
-)
-{
-	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
-	{
-		int cmp = comp(row);
-		if(comp0 > cmp || cmp >= comp1) { continue; }
-
-		FeH(row) = fixedFeH;
-	}
-}
-
-DEFINE_TEXTURE( secProb, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
-DEFINE_TEXTURE(   cumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
-DEFINE_TEXTURE(invCumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
-
-__device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
-{
-	// draw the probability that this star has a secondary
-	float psec, u;
-
-	psec = TEX1D(secProb, M1);
-	u = rng.uniform();
-	if(u > psec) { return false; }
-
-	// draw the absolute magnitude of the secondary, subject to requested
-	// algorithm
-	using namespace multiplesAlgorithms;
-	if(algo == EQUAL_MASS) { M2 = M1; return true; }
-
-	float pprim = TEX1D(cumLF, M1);
-	u = rng.uniform();
-	if(algo == LF_M2_GT_M1)
-	{
-		// draw subject to the requirement that it is fainter than the primary
-		u = pprim + u * (1. - pprim);
-	}
-	M2 = TEX1D(invCumLF, u);// + rng.gaussian(1.f);
-	if(algo == LF_M2_GT_M1 && M2 < M1)
-	{
-		// This can happen due to resampling of cumLF and invCumLF
-		// (see the note in os_unresolvedMultiples::construct)
-		M2 = M1;
-	}
-
-	return true;
-}
-
-KERNEL(
-	ks, 3*4,
-	os_unresolvedMultiples_kernel(otable_ks ks, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, uint32_t comp0, uint32_t comp1, multiplesAlgorithms::algo algo),
-	os_unresolvedMultiples_kernel,
-	(ks, rng, nabsmag, M, Msys, ncomp, comp, comp0, comp1, algo)
-)
-{
-	/*
-		Input:	M -- absolute magnitude of the primary.
-		Output:	Msys[] -- absolute magnitudes of system components.
-			M      -- total absolute magnitude of the system
-	*/
-	rng.load(threadID());
-	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
-	{
-		int cmp = comp(row);
-		if(comp0 > cmp || cmp >= comp1) { continue; }
-
-		float M1 = M(row);
-		Msys(row, 0) = M1;
-		float Ltot = exp10f(-0.4f*M1);
-		int ncomps = 1;			/* Number of components of the multiple system */
-		for(int i = 1; i < nabsmag; i++)
-		{
-			float M2;
-			if(draw_companion(M2, M1, algo, rng))
-			{
-				Msys(row, i) = M2;
-				Ltot += exp10f(-0.4f*M2);
-				ncomps++;
-			}
-			else
-			{
-				Msys(row, i) = ABSMAG_NOT_PRESENT;
-			}
-		}
-		float Mtot = -2.5*log10f(Ltot);
-		    M(row) = Mtot;
-		ncomp(row) = ncomps;
-	}
-	rng.store(threadID());
 }
 
 DEFINE_TEXTURE(color0, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);

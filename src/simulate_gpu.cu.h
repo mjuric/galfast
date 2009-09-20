@@ -681,6 +681,7 @@ KERNEL(
 	rng.store(threadID());
 }
 
+#if 0
 #if BUILD_FOR_CPU && HAVE_CUDA
 extern __TLS std::vector<cuxSmartPtr<float> > *locuses;
 extern __TLS std::vector<cuxSmartPtr<uint> >   *flags;
@@ -688,8 +689,19 @@ extern __TLS std::vector<cuxSmartPtr<uint> >   *flags;
 __TLS std::vector<cuxSmartPtr<float> > *locuses;
 __TLS std::vector<cuxSmartPtr<uint> >   *flags;
 #endif
+#endif
 
-#if HAVE_CUDA && !BUILD_FOR_CPU
+DEFINE_TEXTURE(color0, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(color1, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(color2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(color3, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+
+DEFINE_TEXTURE(cflags0, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags1, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags2, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags3, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
+
+#if 0
 texture<float4, 2, cudaReadModeElementType> color0(false, cudaFilterModeLinear, cudaAddressModeClamp);
 texture<float4, 2, cudaReadModeElementType> color1(false, cudaFilterModeLinear, cudaAddressModeClamp);
 texture<float4, 2, cudaReadModeElementType> color2(false, cudaFilterModeLinear, cudaAddressModeClamp);
@@ -701,6 +713,8 @@ texture<uint4, 2, cudaReadModeElementType> cflags3(false, cudaFilterModePoint, c
 
 texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color1, &color2, &color3 };
 texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
+#endif
+
 
 __device__ uint fill(float *&colors, uint &flags, const float4 clr, const uint4 f, int &ncolors)
 {
@@ -716,14 +730,14 @@ __device__ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 	uint4 f;
 	uint flags = 0;
 
-	clr = tex2D(color0, FeH, Mr); f = tex2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = tex2D(color1, FeH, Mr); f = tex2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = tex2D(color2, FeH, Mr); f = tex2D(cflags2, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = tex2D(color3, FeH, Mr); f = tex2D(cflags3, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = TEX2D(color0, FeH, Mr); f = TEX2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = TEX2D(color1, FeH, Mr); f = TEX2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = TEX2D(color2, FeH, Mr); f = TEX2D(cflags2, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = TEX2D(color3, FeH, Mr); f = TEX2D(cflags3, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
 	return 0xFFFFFFFF;
 }
 
-#else
+#if 0
 uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 {
 	int f = (int)FeH;
@@ -739,6 +753,7 @@ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 }
 #endif
 
+#if 0
 #if HAVE_CUDA && BUILD_FOR_CPU
 std::map<std::string, cuxSmartPtr<float4> > os_photometry_tex_c;
 std::map<std::string, cuxSmartPtr<uint4> >  os_photometry_tex_f;
@@ -753,73 +768,15 @@ void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<u
 	os_photometry_tex_f[id] = f;
 }
 #endif
-
-#if !BUILD_FOR_CPU || !HAVE_CUDA
-
-void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
-void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
-
-void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs)
-{
-	locuses = loc;
-	flags = flgs;
-
-#if HAVE_CUDA
-	activeDevice dev(gpuExecutionEnabled("os_photometry_kernel")? 0 : -1);
-	if(gpuGetActiveDevice() < 0) { return; }
-
-	size_t width  = (*loc)[0].width();
-	size_t height = (*loc)[0].height();
-
-	//
-	// Optimization strategy for (Mr,FeH)->{colors} lookup
-	//
-	// Since the cost of a texture fetch of float4 is equal to that of just a float (I _think_!)
-	// we pack up to four colors into a single float4 texture, instead of having each
-	// (Mr, FeH)->color mapping in a separate texture.
-	//
-	// The packed textures are built on first use, and are cached across subsequent
-	// kernel calls.
-	//
-	cuxSmartPtr<float4> texc;
-	cuxSmartPtr<uint4>  texf;
-	int texid = 0;
-	for(int i=0; i < loc->size(); i += 4)
-	{
-		// Get the pre-built arrays cached across kernel calls
-		char idx[50];
-		snprintf(idx, 50, "%s%d", id, i);
-		os_photometry_tex_get(idx, texc, texf);
-		if(!texc || !texf)
-		{
-			texc = cuxSmartPtr<float4>(width, height);
-			texf =  cuxSmartPtr<uint4>(width, height);
-
-			// Pack the lookups to float4
-			for(int y=0; y != height; y++)
-			{
-				for(int x=0; x != width; x++)
-				{
-					texc(x, y).x =                     (*loc)[i+0](x, y)    ;
-					texc(x, y).y = i+1 < loc->size() ? (*loc)[i+1](x, y) : 0;
-					texc(x, y).z = i+2 < loc->size() ? (*loc)[i+2](x, y) : 0;
-					texc(x, y).w = i+3 < loc->size() ? (*loc)[i+3](x, y) : 0;
-
-					texf(x, y).x =                      (*flgs)[i+0](x, y)    ;
-					texf(x, y).y = i+1 < flgs->size() ? (*flgs)[i+1](x, y) : 0;
-					texf(x, y).z = i+2 < flgs->size() ? (*flgs)[i+2](x, y) : 0;
-					texf(x, y).w = i+3 < flgs->size() ? (*flgs)[i+3](x, y) : 0;
-				}
-			}
-			os_photometry_tex_set(idx, texc, texf);
-		}
-		texc.bind_texture( *colorTextures[texid]);
-		texf.bind_texture(*cflagsTextures[texid]);
-		texid++;
-	}
 #endif
-}
 
+#if 1
+//#if !BUILD_FOR_CPU || !HAVE_CUDA
+
+//void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
+//void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
+
+#if 0
 // Unbind photometry textures
 void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs)
 {
@@ -845,21 +802,29 @@ void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<fl
 }
 
 #endif
-
-typedef cfloat_t::gpu_t gcfloat;
-typedef cint_t::gpu_t gcint;
+#endif
 
 __constant__ os_photometry_data os_photometry_params;
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, gcfloat Am, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp),
+	os_photometry_kernel(otable_ks ks, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp),
 	os_photometry_kernel,
 	(ks, Am, flags, DM, Mr, nabsmag, mags, FeH, comp)
 )
 {
 	os_photometry_data &lt = os_photometry_params;
 	float *c = ks.sharedMemory<float>();
+
+#if 1 && __DEVICE_EMULATION__
+	// test if texture sampling is correct
+	float test_M = 3.281f;
+	float test_FeH = -2.f;
+	int flag = sampleColors(c, test_FeH, test_M, lt.ncolors);
+	printf("(FeH, Mr) = %f %f;  color = %f %f %f %f;  flag = %d\n", test_FeH, test_M,    c[0], c[1], c[2], c[3],   flag);
+	abort();
+#endif
+
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
 		// should we process this star (based on the galactic model component it belongs to)?
@@ -868,21 +833,24 @@ KERNEL(
 
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH(row);
-		float iFeH = (fFeH - lt.FeH0) / lt.dFeH;
 
-		// generate system components, compute system luminosity
+		// If this is a multiple system, the following loop will loop through
+		// each system component, compute its luminosity in each band, and
+		// sum up the luminosities to obtain the total luminosity of the system
+		//
+		// For a single star it reduces to computing its luminosity in the
+		// photometric system's bands.
 		for(int syscomp = 0; syscomp < nabsmag; syscomp++)
 		{
 			float fMr = Mr(row, syscomp);
 			if(fMr >= ABSMAG_NOT_PRESENT) { break; }
 
-			float iMr  = (fMr  -  lt.Mr0) / lt.dMr;
-			int flag = sampleColors(c, iFeH, iMr, lt.ncolors);
+			// get colors of a star with (fFeH, fMr)
+			int flag = sampleColors(c, fFeH, fMr, lt.ncolors);
 			if(syscomp) { flag &= flags(row); }
 			flags(row) = flag;
 
-			// compute absolute magnitudes in different bands, and store
-			// as luminosity
+			// compute the luminosities in all bands
 			for(int b = 0; b <= lt.ncolors; b++)
 			{
 				float M = fMr;
@@ -895,18 +863,19 @@ KERNEL(
 			}
 		}
 
-		float dm = DM(row);
-		float Am0 = Am(row);
+		float dm = DM(row);	// distance modulus to the star
+		float Am0 = Am(row);	// extinction to the star (in bootstrap band)
 
 		// convert luminosity to apparent magnitude of the system
+		// taking extinction and reddening into account
 		for(int b = 0; b <= lt.ncolors; b++)
 		{
-			float Mtot = -2.5f * log10f(mags(row, b));
-			float mtot = dm + Mtot;
+			float Msys = -2.5f * log10f(mags(row, b));
+			float msys = dm + Msys;
 
 			float Am = Am0 * lt.reddening[b];
 
-			mags(row, b) = mtot + Am;
+			mags(row, b) = msys + Am;
 		}
 	}
 }

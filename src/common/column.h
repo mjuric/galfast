@@ -54,8 +54,12 @@ private:
 };
 
 // convenience typedefs
-typedef column<double> cdouble_t;
-typedef column<int> cint_t;
-typedef column<float> cfloat_t;
+typedef column<double>	cdouble_t;
+typedef column<int>	cint_t;
+typedef column<float>	cfloat_t;
+
+typedef column<double>::gpu_t	gcdouble_t;
+typedef column<int>::gpu_t	gcint_t;
+typedef column<float>::gpu_t	gcfloat_t;
 
 #endif

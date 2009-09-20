@@ -495,6 +495,7 @@ public:
 	uint32_t height()      const { return m_impl->m_data.extent[1]; }	// logical height of the data array
 	uint32_t depth()       const { return m_impl->m_data.extent[2]; }	// logical depth of the data array
 	uint32_t size()        const { return width()*height()*depth(); }	// logical size (number of elements) in the data array
+	uint32_t memsize()     const { return m_impl->memsize(); }		// physical size, in bytes, of the array (including any padding)
 	uint32_t extent(int n) const						// logical size (number of elements) of the requested dimension (0=first, 1=second, ...)
 		{ return n == 0 ? width() : m_impl->m_data.extent[n]; }
 
@@ -666,12 +667,19 @@ struct cuxTexture : public cuxSmartPtr<T>
 	cuxTexture()						{ }
 	cuxTexture(const cuxTexture<T, dim>& a)			{ *this = a; }
 
-	// other most commonly needed constructors (utilities)
+	// other commonly used constructors
 	explicit cuxTexture(const cuxSmartPtr<T>& a)					 { set(a, make_float2(0., 1.)); }
 	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tc)				 { set(a, tc); }
 	explicit cuxTexture(const cuxSmartPtr<T>& a, const float2 *tc)			 { set(a, tc); }
 	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tcx, float2 tcy)		 { set(a, tcx, tcy); }
 	explicit cuxTexture(const cuxSmartPtr<T>& a, float2 tcx, float2 tcy, float2 tcz) { set(a, tcx, tcy, tcz); }
+
+	explicit cuxTexture(size_t nx, float2 tcx = make_float2(0., 1.))
+		{ set(cuxSmartPtr<T>(nx), tcx); }
+	explicit cuxTexture(size_t nx, size_t ny, float2 tcx = make_float2(0., 1.), float2 tcy = make_float2(0., 1.))
+		{ set(cuxSmartPtr<T>(nx, ny), tcx, tcy); }
+	explicit cuxTexture(size_t nx, size_t ny, size_t nz, float2 tcx = make_float2(0., 1.), float2 tcy = make_float2(0., 1.), float2 tcz = make_float2(0., 1.))
+		{ set(cuxSmartPtr<T>(nx, ny, nz), tcx, tcy, tcz); }
 
 	// assignment
 	cuxTexture<T, dim>& operator =(const cuxTexture<T, dim>& a)	{ set(a, a.coords); return *this; }
@@ -985,7 +993,7 @@ template<typename T, typename Texref>
 			return sample(r, x, tc[0]);
 		}
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(texture<T, 2, mode> r, float x, float y, float z, cuxTexCoords<2> tc)
+		inline __device__ T sample(texture<T, 2, mode> r, float x, float y, cuxTexCoords<2> tc)
 		{
 			return sample(r, x, y, tc[0], tc[1]);
 		}

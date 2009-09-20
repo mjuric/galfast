@@ -43,6 +43,7 @@ protected:
 public:
 	spline() : f(NULL), acc(NULL) {}
 	spline(const double *x, const double *y, int n);
+	spline(const std::vector<double> &x, const std::vector<double> &y) : f(NULL), acc(NULL) { construct(x, y); }
 	void construct(const double *x, const double *y, int n);
 	void construct(const std::valarray<double> &x, const std::valarray<double> &y)
 		{ ASSERT(x.size() == y.size()); construct(&x[0], &y[0], x.size()); }

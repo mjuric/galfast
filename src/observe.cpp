@@ -364,7 +364,7 @@ void print_matrix(gsl_matrix *m)
     }
   fprintf(stderr, "\n");
 }
-
+#endif
 
 
 struct trivar_gauss
@@ -424,47 +424,53 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 // convert input absolute/apparent magnitudes to ugriz colors
 class os_photometry : public osink, public os_photometry_data
 {
-	protected:
-		std::string bandset2;			// name of this filter set
-		std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
-		std::string photoFlagsName;		// Name of the photometric flags field
-		std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
-		std::vector<cuxSmartPtr<float> > isochrones;	// A rectangular, fine-grained, (Mr,FeH) -> colors map
-		std::vector<cuxSmartPtr<uint> > eflags;	// Flags noting if a pixel in an isochrone was extrapolated
-		std::pair<cuxTexture<float, 3>, cuxTexture<float, 3> > extinction;	// north/south extinction maps (for bootstrap band)
+protected:
+	/* Aux structure used while loading the isochrones */
+	struct Mr2col
+	{
+		static const size_t maxcolors = N_REDDENING-1;
 
- 		int nMr, nFeH;
-		float Mr1, FeH1;
+		double Mr;
+		double c[maxcolors];
 
-		float color(int ic, double FeH, double Mr, int *e = NULL)
-		{
-			ASSERT(ic >= 0 && ic < isochrones.size()) { std::cerr << "ic = " << ic << "\nclt.size() = " << isochrones.size() << "\n"; }
-			ASSERT(Mr0 <= Mr && Mr <= Mr1) { std::cerr << Mr0 << " <= " << Mr << " <= " << Mr1 << "\n"; }
-			ASSERT(FeH0 <= FeH && FeH <= FeH1) { std::cerr << FeH0 << " <= " << FeH << " <= " << FeH1 << "\n"; }
+		bool operator <(const Mr2col &a) const { return Mr < a.Mr; }
+	};
 
-			int f = (int)((FeH - FeH0) / dFeH);
-			int m = (int)((Mr  -  Mr0) / dMr);
-//			std::cerr << "fm = " << f << " " << m << "   " << ((FeH - FeH0) / dFeH) << " " << ((Mr  -  Mr0) / dMr) << "\n";
-//			int idx = m*nFeH + f;
-//			if(e) { *e = eclt[ic][idx]; }
-			if(e) { *e = eflags[ic](f, m); }
-//			return clt[ic][idx];
-			return isochrones[ic](f, m);
-		}
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
-		virtual bool runtime_init(otable &t);
-		virtual const std::string &name() const { static std::string s("photometry"); return s; }
+	/* Aux structure used while resampling isochrones to textures */
+	struct colsplines
+	{
+		double Mrmin, Mrmax;
+		spline s[Mr2col::maxcolors];
+		spline &operator [](const size_t i) { return s[i]; }
+	};
 
-		os_photometry() : osink()
-		{
-			comp0 = 0;
-			comp1 = 0xffffffff;
-			FOR(0, N_REDDENING) { reddening[i] = 1.f; }
+protected:
+	std::string bandset2;			// name of this filter set
+	std::string absbband;			// Absolute magnitude band for which the datafile gives col(absmag,FeH) values. By default, it's equal to "abs$bband". Must be supplied by other modules.
+	std::string photoFlagsName;		// Name of the photometric flags field
+	std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
+	std::vector<cuxTexture<float4, 2> > isochrones;	// Isochrone (stellar loci) texture
+	std::vector<cuxTexture<uint4, 2> > eflags;	// Flags
+	std::pair<cuxTexture<float, 3>, cuxTexture<float, 3> > extinction;	// north/south extinction maps (for bootstrap band)
 
-			req.insert("FeH");
-		}
+protected:
+	typedef boost::shared_ptr<cuxTextureBinder> tbptr;
+	void bind_isochrone(std::list<tbptr> &binders, cuxTextureReferenceInterface &texc, cuxTextureReferenceInterface &texf, int idx);
+
+public:
+	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+	virtual bool runtime_init(otable &t);
+	virtual const std::string &name() const { static std::string s("photometry"); return s; }
+
+	os_photometry() : osink()
+	{
+		comp0 = 0;
+		comp1 = 0xffffffff;
+		FOR(0, N_REDDENING) { reddening[i] = 1.f; }
+
+		req.insert("FeH");
+	}
 };
 
 bool os_photometry::runtime_init(otable &t)
@@ -472,22 +478,78 @@ bool os_photometry::runtime_init(otable &t)
 	return osink::runtime_init(t);
 }
 
-struct Mr2col
+DECLARE_TEXTURE(color0, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(color1, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(color2, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(color3, float4, 2, cudaReadModeElementType);
+
+DECLARE_TEXTURE(cflags0, uint4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags1, uint4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags2, uint4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags3, uint4, 2, cudaReadModeElementType);
+
+#if 0
+// TODO: Set texture coordinates !!!
+void packToTextures(std::vector<cuxTexture<float4, 2> > &texcOut, std::vector<cuxTexture<uint4, 2> > &texfOut, const std::vector<cuxSmartPtr<float> > &ichrones0, const std::vector<cuxSmartPtr<uint> > &flags)
 {
-	static const size_t maxcolors = 20;	// ug,gr,ri,iz,zy
+	//
+	// Optimization strategy for (Mr,FeH)->{colors} lookup
+	//
+	// Since the cost of a texture fetch of float4 is equal to that of just a float (I _think_!)
+	// we pack up to four colors into a single float4 texture, instead of having each
+	// (Mr, FeH)->color mapping in a separate texture.
+	//
+	// The packed textures are built on first use, and are cached across subsequent
+	// kernel calls.
+	//
 
-	double Mr;
-	double c[maxcolors];
+	assert(ichrones0.size());
+	assert(ichrones0.size() == flags.size());
 
-	bool operator <(const Mr2col &a) const { return Mr < a.Mr; }
-};
+	// pad the isochrone array with the last isochrone, to make it a multiple
+	// of four. Won't matter later, and makes packing easier.
+	std::vector<cuxSmartPtr<float> > ichrones = ichrones0;
+	while(ichrones.size() % 4)
+	{
+		ichrones.push_back(ichrones.back());
+	}
 
-struct colsplines
-{
-	double Mrmin, Mrmax;
-	spline s[Mr2col::maxcolors];
-	spline &operator [](const size_t i) { return s[i]; }
-};
+	// dimensions (it's assumed that all isochrones are of the same dimension)
+	size_t width  = ichrones[0].width();
+	size_t height = ichrones[0].height();
+
+	// Pack the isochrones and their flags to (float/uint)4 textures
+	texcOut.clear();
+	texfOut.clear();
+	for(int i=0; i < ichrones.size(); i += 4)
+	{
+		cuxTexture<float4, 2> texc(width, height);
+		cuxTexture<uint4, 2>  texf(width, height);
+
+		for(int y=0; y != height; y++)
+		{
+			for(int x=0; x != width; x++)
+			{
+				texc(x, y) = make_float4(
+					ichrones[i](x, y),
+					ichrones[i+1](x, y),
+					ichrones[i+2](x, y),
+					ichrones[i+3](x, y)
+				);
+				texf(x, y) = make_uint4(
+					flags[i](x, y),
+					flags[i+1](x, y),
+					flags[i+2](x, y),
+					flags[i+3](x, y)
+				);
+			}
+		}
+
+		texcOut.push_back(texc);
+		texfOut.push_back(texf);
+	}
+}
+#endif
 
 bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
@@ -499,7 +561,7 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	std::string tmp, bname;
 	cfg.get(bandset2,   "bandset",   "LSSTugrizy");
 
-	// load band names and construct field definition
+	// load band names and construct otable field definition
 	cfg.get(tmp,   "bands",   "LSSTu LSSTg LSSTr LSSTi LSSTz LSSTy");
 	std::istringstream ss(tmp);
 	std::ostringstream sbnames;
@@ -510,28 +572,27 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 		bnames.push_back(bname);
 	}
-
 	const size_t nbands = bnames.size();
+	ncolors = bnames.size()-1;
+
 	std::string bfield = bandset2 + "[" + str(nbands) + "]{class=magnitude;fieldNames=" + sbnames.str() + ";}";
 	prov.insert(bfield);
 
-	// determine the number of colors
-	ncolors = bnames.size()-1;
+	// check the number of colors doesn't exceed the maximum
 	if(ncolors >= Mr2col::maxcolors)
 	{
 		THROW(EAny, "This module cannot handle more than " + str(Mr2col::maxcolors+1) + " bands.");
 	}
 
-	// deduce photoFlags name
+	// construct photoFlags otable field definition
 	std::string bandsetname = bandset2;
 	photoFlagsName = bandsetname + "PhotoFlags";
 	prov.insert(photoFlagsName + "{class=flags;}");
 
-	// bootstap band setup
+	// convert the bootstrap band name into band index
 	std::string bband;
-	cfg.get(bband,   "bootstrap_band",   "LSSTr");
-	cfg.get(absbband,   "absband",   "abs"+bband);
-	//req.insert(bband);
+	cfg.get(   bband,   "bootstrap_band",   "LSSTr");
+	cfg.get(absbband,   "absband",      "abs"+bband);
 	req.insert("DM");
 	req.insert(absbband);
 	typeof(bnames.begin()) b = std::find(bnames.begin(), bnames.end(), bband);
@@ -549,29 +610,47 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		if(!(ss >> reddening[i])) { break; }
 	}
 
-	// sampling parameters
-	cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
-	ss.clear(); ss.str(tmp);
+	// load isochrone texture sampling parameters
+	float FeH0, FeH1, dFeH, Mr0, Mr1, dMr;
+	cfg.get(tmp,   "absmag_grid",   "3 15 0.01"); ss.clear(); ss.str(tmp);
 	if(!(ss >> Mr0 >> Mr1 >> dMr))
 	{
 		THROW(EAny, "Error reading Mr field from config file. Expect Mr = <Mr0> <Mr1> <dMr>, got Mr = " + tmp);
 	}
-	cfg.get(tmp,   "FeH_grid",   "-3 0.5 0.01");
-	ss.clear(); ss.str(tmp);
+	cfg.get(tmp,   "FeH_grid",   "-3 0.5 0.01"); ss.clear(); ss.str(tmp);
 	if(!(ss >> FeH0 >> FeH1 >> dFeH))
 	{
 		THROW(EAny, "Error reading FeH field from config file. Expect FeH = <FeH0> <FeH1> <dFeH>, got FeH = " + tmp);
 	}
 
+	// find and open the definition file for the isochrones
 	cfg.get(tmp,   "file",   "");
-	if(tmp == "") { // Try to find internal definitions for the photometric system
+	if(tmp == "")
+	{
+		// Try to find internal definitions for the photometric system
 		tmp = datadir() + "/" + bandset2 + ".photosys.txt";
 		if(!file_exists(tmp))
 		{
 			THROW(EAny, "Default photosys. definition file " + tmp + " for " + bandset2 + " not found. Specify it explicitly using the file=xxx keyword.");
 		}
 	}
+
+	// load the isochrone table into a map indexed by FeH
 	text_input_or_die(in, tmp);
+	std::map<double, std::vector<Mr2col> > v; // map of the form v[FeH] -> vec(Mr,colors)
+	Mr2col mc; double FeH;
+	bind(in, mc.Mr,0, FeH,1);
+	FOR(0, ncolors) { bind(in, mc.c[i], i+2); }
+	while(in.next())
+	{
+		v[FeH].push_back(mc);
+	}
+
+	// compute the needed texture size, and the texture coordinates
+	int nFeH = (int)((FeH1-FeH0)/dFeH + 1);	// +1 pads it a little, to ensure FeH1 gets covered
+	int nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
+	float2 tcFeH = texcoord_from_range(0, nFeH, FeH0, FeH0 + nFeH*dFeH);
+	float2 tcMr  = texcoord_from_range(0, nMr,   Mr0,  Mr0 +  nMr*dMr);
 
 	MLOG(verb1) << "Photometry: Generating " << bandset2 << " ( " << bnames << ")";
 	MLOG(verb2) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
@@ -581,112 +660,116 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	MLOG(verb2) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
 	MLOG(verb2) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";
 
-	// load the data
-	std::map<double, std::vector<Mr2col> > v;
-	std::set<double> uFeH;
-	Mr2col mc; double FeH;
-	bind(in, mc.Mr,0, FeH,1);
-	FOR(0, ncolors) { bind(in, mc.c[i], i+2); }
-	while(in.next())
-	{
-		v[FeH].push_back(mc);
-		uFeH.insert(FeH);
-	}
-	std::vector<double> vFeH(uFeH.begin(), uFeH.end());
-
-	// construct col(Mr) splines for each FeH line present in the input
-	std::map<double, colsplines> s;
+	// construct col(Mr) splines for each FeH line present in the input.
+	// The map s will hold nband splines giving color(Mr) at fixed FeH (FeH is the key).
+	std::map<double, colsplines> s;	// s[FeH] -> (colors)=spline(Mr)
+	std::vector<double> vFeH;	// keys of s
+	vFeH.reserve(v.size());
 	FOREACH(v)
 	{
 		double FeH = i->first;
-		std::vector<Mr2col> &m2c = i->second;
-		colsplines &ss = s[FeH];		// Splines that will return col(Mr) for this FeH
+		vFeH.push_back(FeH);
 
-		std::sort(m2c.begin(), m2c.end());
-		std::vector<double> Mr(m2c.size()), c(m2c.size());
-		FOR(0, m2c.size()) { Mr[i] = m2c[i].Mr; }	// Construct (sorted) array of Mr
-		FOR(0, ncolors) // for each color i, construct its col_i(Mr) spline
+		std::vector<Mr2col> &m2c = i->second;
+		colsplines &ss = s[FeH];			// Splines that will return col(Mr) for this FeH
+
+		std::sort(m2c.begin(), m2c.end());		// Sort m2c array by Mr
+		std::vector<double> 	Mr(m2c.size()),
+					 c(m2c.size());
+		FOR(0, m2c.size()) { Mr[i] = m2c[i].Mr; }	// A sorted array of Mr
+		FOR(0, ncolors) 				// for each color i, construct and store its color_i(Mr) spline
 		{
 			FORj(j, 0, m2c.size()) { c[j] = m2c[j].c[i]; }
 			ss[i].construct(Mr, c);
-//			std::cerr << FeH << " " << ss[i].f << "\n";
 		}
-		// remember beginning/end for test of extrapolation
+
+		// store beginning/end for test of extrapolation
 		ss.Mrmin = Mr.front();
 		ss.Mrmax = Mr.back();
 	}
 
-	// allocate memory for output tables
-	nMr  = (int)((Mr1 -Mr0) /dMr  + 1);
-	nFeH = (int)((FeH1-FeH0)/dFeH + 1);
-	isochrones.resize(ncolors); FOREACH(isochrones)  { *i = cuxSmartPtr<float>(nFeH, nMr); }
-	eflags.resize(ncolors);     FOREACH(eflags)      { *i = cuxSmartPtr<uint>(nFeH, nMr); }
-
-	// thread in Fe/H direction, constructing col(FeH) spline for each given Mr,
-	// using knots derived from previously calculated col(Mr) splines for FeHs given in the input file
-	std::vector<double> vcol(vFeH.size());	// col knots
-	std::vector<double> vecol(vFeH.size());	// 1 if corresponding col knot was extrapolated, 0 otherwise
+	// thread in Fe/H direction through the texture, constructing a col(FeH)
+	// spline at given Mr using knots computed from previously precomputed
+	// col(Mr) splines. Resample the resulting spline to texture grid.
+	std::vector<double>  vcol(s.size());			// this will hold the knots of col(FeH) spline
+	std::vector<double> vecol(s.size());			// will be set to 1 if the corresponding color knot was extrapolated, 0 otherwise
+	int compidx = -1;
+	std::vector<double> fraction_extrapolated(ncolors, 0.);	// collecting statistics: how many points in (FeH,Mr) grid had to be extrapolated
 	FORj(ic, 0, ncolors)
 	{
+		//
+		// Since the cost of a texture fetch of float4 is equal to that of just a float (I _think_! TODO: check)
+		// we pack up to four colors into a single float4 texture, instead of having each
+		// (Mr, FeH)->color mapping from a separate texture.
+		//
+		compidx++; compidx %= 4;	// ic % 4; the index of the (float/uint)4 component within the texture where this color will be stored
+		if(compidx == 0)
+		{
+			// add new texture
+			isochrones.push_back( cuxTexture<float4, 2>(nFeH, nMr, tcFeH, tcMr) );
+			    eflags.push_back(  cuxTexture<uint4, 2>(nFeH, nMr, tcFeH, tcMr) );
+		}
+
+		cuxTexture<float4, 2> texc = isochrones.back();
+		cuxTexture<uint4, 2> texf  = eflags.back();
+
+		// go throught all texture pixels, Mr first
 		FORj(m, 0, nMr)
 		{
 			double Mr = Mr0 + m*dMr;
 
-			// construct col(FeH) splines for given Mr
+			// construct col(FeH) and eflag(FeH) spline at given Mr
 			int k=0;
-//			std::cerr << "Mr = " << Mr << "\n";
 			FOREACH(s)
 			{
-				vcol[k]  = i->second[ic](Mr);
-				vecol[k] = i->second.Mrmin > Mr || Mr > i->second.Mrmax;
-//				std::cerr << i->first << " " << vcol[k] << " " << vecol[k] << "\n";
+				 vcol[k] = i->second[ic](Mr);					// compute color(FeH|Mr). FeH is i->first (and in vFeH)
+				vecol[k] = i->second.Mrmin > Mr || Mr > i->second.Mrmax;	// 1 if extrapolation was needed to compute vcol[k]
 				k++;
 			}
-			spline s, es;
-			s.construct(vFeH, vcol);
-			es.construct(vFeH, vecol);	// zero where neither adjacent knot was extrapolated, nonzero otherwise
 
-			FORj(f, 0, nFeH) // compute col(FeH, Mr)
+			spline FeH_to_color(vFeH, vcol);
+			spline FeH_to_eflag(vFeH, vecol);	// zero where neither adjacent knot was extrapolated, nonzero otherwise
+			FORj(f, 0, nFeH)
 			{
+				// compute color(FeH, Mr)
 				double FeH = FeH0 + f*dFeH;
-				int idx = m*nFeH + f;
 
-//				clt[ic][idx] = s(FeH);
-				isochrones[ic](f, m) = s(FeH);
-//				eclt[ic][idx] = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
-				eflags[ic](f, m) = (vFeH.front() > FeH || FeH > vFeH.back() || es(FeH) != 0.) << ic;
-//				if(eflags[ic](f, m) && ic > 1) { std::cerr << ic << " " << Mr << " " << FeH << " : " << isochrones[ic](f, m) << " " << eflags[ic](f,m) << "\n"; }
+				float color   = FeH_to_color(FeH);
+				uint  eflag   = vFeH.front() > FeH || FeH > vFeH.back()		// extrapolated in FeH direction
+						|| FeH_to_eflag(FeH) != 0.;			// extrapolated in Mr direction
+				      eflag <<= ic;						// final flag, drawn in the kernel, will be a bitfield where each bit corresponds to the color
+
+				// pack into float4 texture
+				float *texcval = (float *)&(texc(f, m));
+				uint  *texfval =  (uint *)&(texf(f, m));
+
+				texcval[compidx] = color;
+				texfval[compidx] = eflag;
+
+				// compute some summary statistics
+				if(eflag) { fraction_extrapolated[ic]++; }
 			}
 		}
+
+		fraction_extrapolated[ic] /= nFeH*nMr;
 	}
 
-	std::vector<double> nextrap(ncolors);
-	FOR(0, ncolors)
-	{
-		nextrap[i] = 0;
-		hptr<uint> ptr = eflags[i];
-		FORj(x, 0, nFeH)
-		{
-			FORj(y, 0, nMr)
-			{
-				if(ptr(x, y) != 0) { nextrap[i] += 1; }
-			}
-		}
-		nextrap[i] /= nFeH*nMr;
-	}
-	MLOG(verb2) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].size() << ").";
-	MLOG(verb2) << bandset2 << ":    extrapolation fractions = " << nextrap;
+	MLOG(verb2) << bandset2 << ":    grid size = " << nFeH << " x " << nMr << " (" << isochrones[0].memsize() << " bytes).";
+	MLOG(verb2) << bandset2 << ":    extrapolation fractions = " << fraction_extrapolated;
 
 	return true;
 }
 
+// helper for os_photometry::process()
+inline void os_photometry::bind_isochrone(std::list<tbptr> &binders, cuxTextureReferenceInterface &texc, cuxTextureReferenceInterface &texf, int idx)
+{
+	if(idx >= isochrones.size()) { return; }
 
-typedef cfloat_t::gpu_t gcfloat;
-typedef cint_t::gpu_t gcint;
-DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcfloat Am, gcint flags, gcfloat DM, gcfloat Mr, int nabsmag, gcfloat mags, gcfloat FeH, gcint comp));
-void os_photometry_set_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
-void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs);
+	binders.push_back(tbptr(new cuxTextureBinder(texc, isochrones[idx])));
+	binders.push_back(tbptr(new cuxTextureBinder(texf, eflags[idx])));
+}
 
+DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp));
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	cint_t &comp     = in.col<int>("comp");
@@ -701,13 +784,20 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 				in.col<float>(absmagSys) :
 				in.col<float>(absbband);
 
-/*	os_photometry_data lt = { ncolors, bidx, FeH0, dFeH, Mr0, dMr, comp0, comp1 };*/
-	cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));
-	os_photometry_set_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
+	{
+		// Bind all used textures. The list will be autodeallocated on exit
+		// from the block, triggering cuxTextureBinder destructors and
+		// unbinding the textures.
+		std::list<tbptr> binders;
+		bind_isochrone(binders, color0, cflags0, 0);
+		bind_isochrone(binders, color1, cflags1, 1);
+		bind_isochrone(binders, color2, cflags2, 2);
+		bind_isochrone(binders, color3, cflags3, 3);
 
-	CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+		cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));
 
-	os_photometry_cleanup_isochrones(getUniqueId().c_str(), &isochrones, &eflags);
+		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+	}
 
 	return nextlink->process(in, begin, end, rng);
 }

@@ -28,7 +28,7 @@ INCLUDES = -I$(top_srcdir)/src/common $(all_includes)
 SUBDIRS = common gpc
 
 # explicit dependency for CUDA sources
-include ./$(DEPDIR)/cuda.Po
+include ./$(DEPDIR)/kernels_gpu.Po
 
 noinst_HEADERS = model_J08.h model_densityCube.h model_expDisk.h \
 	model_powerLawEllipsoid.h simulate_base.h simulate_gpu.cu.h skyconfig_impl.h skygen.cu.h skygen.h \

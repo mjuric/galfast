@@ -483,73 +483,10 @@ DECLARE_TEXTURE(color1, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(color2, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(color3, float4, 2, cudaReadModeElementType);
 
-DECLARE_TEXTURE(cflags0, uint4, 2, cudaReadModeElementType);
-DECLARE_TEXTURE(cflags1, uint4, 2, cudaReadModeElementType);
-DECLARE_TEXTURE(cflags2, uint4, 2, cudaReadModeElementType);
-DECLARE_TEXTURE(cflags3, uint4, 2, cudaReadModeElementType);
-
-#if 0
-// TODO: Set texture coordinates !!!
-void packToTextures(std::vector<cuxTexture<float4, 2> > &texcOut, std::vector<cuxTexture<uint4, 2> > &texfOut, const std::vector<cuxSmartPtr<float> > &ichrones0, const std::vector<cuxSmartPtr<uint> > &flags)
-{
-	//
-	// Optimization strategy for (Mr,FeH)->{colors} lookup
-	//
-	// Since the cost of a texture fetch of float4 is equal to that of just a float (I _think_!)
-	// we pack up to four colors into a single float4 texture, instead of having each
-	// (Mr, FeH)->color mapping in a separate texture.
-	//
-	// The packed textures are built on first use, and are cached across subsequent
-	// kernel calls.
-	//
-
-	assert(ichrones0.size());
-	assert(ichrones0.size() == flags.size());
-
-	// pad the isochrone array with the last isochrone, to make it a multiple
-	// of four. Won't matter later, and makes packing easier.
-	std::vector<cuxSmartPtr<float> > ichrones = ichrones0;
-	while(ichrones.size() % 4)
-	{
-		ichrones.push_back(ichrones.back());
-	}
-
-	// dimensions (it's assumed that all isochrones are of the same dimension)
-	size_t width  = ichrones[0].width();
-	size_t height = ichrones[0].height();
-
-	// Pack the isochrones and their flags to (float/uint)4 textures
-	texcOut.clear();
-	texfOut.clear();
-	for(int i=0; i < ichrones.size(); i += 4)
-	{
-		cuxTexture<float4, 2> texc(width, height);
-		cuxTexture<uint4, 2>  texf(width, height);
-
-		for(int y=0; y != height; y++)
-		{
-			for(int x=0; x != width; x++)
-			{
-				texc(x, y) = make_float4(
-					ichrones[i](x, y),
-					ichrones[i+1](x, y),
-					ichrones[i+2](x, y),
-					ichrones[i+3](x, y)
-				);
-				texf(x, y) = make_uint4(
-					flags[i](x, y),
-					flags[i+1](x, y),
-					flags[i+2](x, y),
-					flags[i+3](x, y)
-				);
-			}
-		}
-
-		texcOut.push_back(texc);
-		texfOut.push_back(texf);
-	}
-}
-#endif
+DECLARE_TEXTURE(cflags0, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags1, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags2, float4, 2, cudaReadModeElementType);
+DECLARE_TEXTURE(cflags3, float4, 2, cudaReadModeElementType);
 
 bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
@@ -735,13 +672,12 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 				double FeH = FeH0 + f*dFeH;
 
 				float color   = FeH_to_color(FeH);
-				uint  eflag   = vFeH.front() > FeH || FeH > vFeH.back()		// extrapolated in FeH direction
-						|| FeH_to_eflag(FeH) != 0.;			// extrapolated in Mr direction
-				      eflag <<= ic;						// final flag, drawn in the kernel, will be a bitfield where each bit corresponds to the color
+				bool  eflag   = vFeH.front() > FeH || FeH > vFeH.back()		// extrapolated in FeH direction ?
+						|| FeH_to_eflag(FeH) != 0.;			// extrapolated in Mr direction ?
 
 				// pack into float4 texture
 				float *texcval = (float *)&(texc(f, m));
-				uint  *texfval =  (uint *)&(texf(f, m));
+				float *texfval = (float *)&(texf(f, m));
 
 				texcval[compidx] = color;
 				texfval[compidx] = eflag;

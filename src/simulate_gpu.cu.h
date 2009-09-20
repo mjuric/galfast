@@ -696,10 +696,10 @@ DEFINE_TEXTURE(color1, float4, 2, cudaReadModeElementType, false, cudaFilterMode
 DEFINE_TEXTURE(color2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(color3, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
-DEFINE_TEXTURE(cflags0, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
-DEFINE_TEXTURE(cflags1, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
-DEFINE_TEXTURE(cflags2, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
-DEFINE_TEXTURE(cflags3, uint4, 2, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags0, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags1, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(cflags3, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 #if 0
 texture<float4, 2, cudaReadModeElementType> color0(false, cudaFilterModeLinear, cudaAddressModeClamp);
@@ -715,25 +715,36 @@ texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color
 texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
 #endif
 
-
-__device__ uint fill(float *&colors, uint &flags, const float4 clr, const uint4 f, int &ncolors)
+__device__ uint shiftFlag(float f, int ncolors)
 {
-	*colors = clr.x; colors++; flags |= f.x; if(--ncolors == 0) return flags;
-	*colors = clr.y; colors++; flags |= f.y; if(--ncolors == 0) return flags;
-	*colors = clr.z; colors++; flags |= f.z; if(--ncolors == 0) return flags;
-	*colors = clr.w; colors++; flags |= f.w; --ncolors; return flags;
+	uint flag =   (f == 0.f) ? (0.f) : (1U << ncolors >> 1);
+
+#if 1 && __DEVICE_EMULATION__
+	printf("ncolors = %d, sampled flag = %f, returning flag = %u\n", ncolors, f, flag);
+#endif
+	return flag;
+}
+
+__device__ uint fill(float *&colors, uint &flags, const float4 clr, const float4 f, int &ncolors)
+{
+	*colors = clr.x; colors++; flags |= shiftFlag(f.x, ncolors); if(--ncolors == 0) { return flags; }
+	*colors = clr.y; colors++; flags |= shiftFlag(f.y, ncolors); if(--ncolors == 0) { return flags; }
+	*colors = clr.z; colors++; flags |= shiftFlag(f.z, ncolors); if(--ncolors == 0) { return flags; }
+	*colors = clr.w; colors++; flags |= shiftFlag(f.w, ncolors);    --ncolors;        return flags;
 }
 
 __device__ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 {
 	float4 clr;
-	uint4 f;
+	float4 f;
 	uint flags = 0;
 
-	clr = TEX2D(color0, FeH, Mr); f = TEX2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = TEX2D(color1, FeH, Mr); f = TEX2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = TEX2D(color2, FeH, Mr); f = TEX2D(cflags2, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
-	clr = TEX2D(color3, FeH, Mr); f = TEX2D(cflags3, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) return flags;
+	clr = TEX2D(color0, FeH, Mr); f = TEX2D(cflags0, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) { return flags; }
+	clr = TEX2D(color1, FeH, Mr); f = TEX2D(cflags1, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) { return flags; }
+	clr = TEX2D(color2, FeH, Mr); f = TEX2D(cflags2, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) { return flags; }
+	clr = TEX2D(color3, FeH, Mr); f = TEX2D(cflags3, FeH, Mr); fill(colors, flags, clr, f, ncolors); if(ncolors == 0) { return flags; }
+
+	// We should never reach this point
 	return 0xFFFFFFFF;
 }
 
@@ -816,10 +827,10 @@ KERNEL(
 	os_photometry_data &lt = os_photometry_params;
 	float *c = ks.sharedMemory<float>();
 
-#if 1 && __DEVICE_EMULATION__
+#if (1 && __DEVICE_EMULATION__)
 	// test if texture sampling is correct
-	float test_M = 3.281f;
-	float test_FeH = -2.f;
+	float test_M = 12.05f;
+	float test_FeH = -1.2f;
 	int flag = sampleColors(c, test_FeH, test_M, lt.ncolors);
 	printf("(FeH, Mr) = %f %f;  color = %f %f %f %f;  flag = %d\n", test_FeH, test_M,    c[0], c[1], c[2], c[3],   flag);
 	abort();

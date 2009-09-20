@@ -681,16 +681,6 @@ KERNEL(
 	rng.store(threadID());
 }
 
-#if 0
-#if BUILD_FOR_CPU && HAVE_CUDA
-extern __TLS std::vector<cuxSmartPtr<float> > *locuses;
-extern __TLS std::vector<cuxSmartPtr<uint> >   *flags;
-#else
-__TLS std::vector<cuxSmartPtr<float> > *locuses;
-__TLS std::vector<cuxSmartPtr<uint> >   *flags;
-#endif
-#endif
-
 DEFINE_TEXTURE(color0, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(color1, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(color2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
@@ -701,26 +691,12 @@ DEFINE_TEXTURE(cflags1, float4, 2, cudaReadModeElementType, false, cudaFilterMod
 DEFINE_TEXTURE(cflags2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(cflags3, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
-#if 0
-texture<float4, 2, cudaReadModeElementType> color0(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<float4, 2, cudaReadModeElementType> color1(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<float4, 2, cudaReadModeElementType> color2(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<float4, 2, cudaReadModeElementType> color3(false, cudaFilterModeLinear, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags0(false, cudaFilterModePoint, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags1(false, cudaFilterModePoint, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags2(false, cudaFilterModePoint, cudaAddressModeClamp);
-texture<uint4, 2, cudaReadModeElementType> cflags3(false, cudaFilterModePoint, cudaAddressModeClamp);
-
-texture<float4, 2, cudaReadModeElementType> *colorTextures[] = { &color0, &color1, &color2, &color3 };
-texture<uint4, 2, cudaReadModeElementType> *cflagsTextures[] = { &cflags0, &cflags1, &cflags2, &cflags3 };
-#endif
-
 __device__ uint shiftFlag(float f, int ncolors)
 {
 	uint flag =   (f == 0.f) ? (0.f) : (1U << ncolors >> 1);
 
-#if 1 && __DEVICE_EMULATION__
-	printf("ncolors = %d, sampled flag = %f, returning flag = %u\n", ncolors, f, flag);
+#if 0 && __DEVICE_EMULATION__
+       printf("ncolors = %d, sampled flag = %f, returning flag = %u\n", ncolors, f, flag);
 #endif
 	return flag;
 }
@@ -748,73 +724,6 @@ __device__ uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
 	return 0xFFFFFFFF;
 }
 
-#if 0
-uint sampleColors(float *colors, float FeH, float Mr, int ncolors)
-{
-	int f = (int)FeH;
-	int m = (int)Mr;
-
-	uint fl = 0;
-	for(int ic=0; ic != ncolors; ic++)
-	{
-		colors[ic] = (*locuses)[ic](f, m);
-		fl |= (*flags)[ic](f, m);
-	}
-	return fl;
-}
-#endif
-
-#if 0
-#if HAVE_CUDA && BUILD_FOR_CPU
-std::map<std::string, cuxSmartPtr<float4> > os_photometry_tex_c;
-std::map<std::string, cuxSmartPtr<uint4> >  os_photometry_tex_f;
-void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f)
-{
-	c = os_photometry_tex_c[id];
-	f = os_photometry_tex_f[id];
-}
-void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f)
-{
-	os_photometry_tex_c[id] = c;
-	os_photometry_tex_f[id] = f;
-}
-#endif
-#endif
-
-#if 1
-//#if !BUILD_FOR_CPU || !HAVE_CUDA
-
-//void os_photometry_tex_get(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
-//void os_photometry_tex_set(const char *id, cuxSmartPtr<float4> &c, cuxSmartPtr<uint4> &f);
-
-#if 0
-// Unbind photometry textures
-void os_photometry_cleanup_isochrones(const char *id, std::vector<cuxSmartPtr<float> > *loc, std::vector<cuxSmartPtr<uint> > *flgs)
-{
-#if HAVE_CUDA
-	activeDevice dev(gpuExecutionEnabled("os_photometry_kernel")? 0 : -1);
-	if(gpuGetActiveDevice() < 0) { return; }
-
-	cuxSmartPtr<float4> texc;
-	cuxSmartPtr<uint4>  texf;
-	int texid = 0;
-	for(int i=0; i < loc->size(); i += 4)
-	{
-		char idx[50];
-		snprintf(idx, 50, "%s%d", id, i);
-		os_photometry_tex_get(idx, texc, texf);
-
-		texc.unbind_texture( *colorTextures[texid]);
-		texf.unbind_texture(*cflagsTextures[texid]);
-
-		texid++;
-	}
-#endif
-}
-
-#endif
-#endif
-
 __constant__ os_photometry_data os_photometry_params;
 
 KERNEL(
@@ -827,12 +736,15 @@ KERNEL(
 	os_photometry_data &lt = os_photometry_params;
 	float *c = ks.sharedMemory<float>();
 
-#if (1 && __DEVICE_EMULATION__)
+#if (0 && __DEVICE_EMULATION__)
 	// test if texture sampling is correct
 	float test_M = 12.05f;
 	float test_FeH = -1.2f;
 	int flag = sampleColors(c, test_FeH, test_M, lt.ncolors);
-	printf("(FeH, Mr) = %f %f;  color = %f %f %f %f;  flag = %d\n", test_FeH, test_M,    c[0], c[1], c[2], c[3],   flag);
+	printf("(FeH, Mr) = %f %f;  color = %f %f %f %f %f;  flag = %d\n", test_FeH, test_M,
+		c[0], c[1], c[2], c[3],
+		c[4],
+		flag);
 	abort();
 #endif
 

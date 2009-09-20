@@ -413,13 +413,7 @@ struct trivar_gauss
 	}
 };
 
-inline double modfun(double Rsquared, double Z, double a, double b, double c, double d, double e)
-{
-	return a + b*pow(fabs(Z), c) + d*pow(Rsquared, 0.5*e);
-}
-
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
-
 
 // convert input absolute/apparent magnitudes to ugriz colors
 class os_photometry : public osink, public os_photometry_data
@@ -460,7 +454,6 @@ protected:
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
-	virtual bool runtime_init(otable &t);
 	virtual const std::string &name() const { static std::string s("photometry"); return s; }
 
 	os_photometry() : osink()
@@ -473,16 +466,15 @@ public:
 	}
 };
 
-bool os_photometry::runtime_init(otable &t)
-{
-	return osink::runtime_init(t);
-}
-
+// Textures with "isochrones" (note that we're assuming a
+// single-age population here; no actual dependence on age)
 DECLARE_TEXTURE(color0, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(color1, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(color2, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(color3, float4, 2, cudaReadModeElementType);
 
+// Textures with extrapolation flags for isochrones -- return
+// nonzero if the isochrone at that point is an extrapolation
 DECLARE_TEXTURE(cflags0, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(cflags1, float4, 2, cudaReadModeElementType);
 DECLARE_TEXTURE(cflags2, float4, 2, cudaReadModeElementType);

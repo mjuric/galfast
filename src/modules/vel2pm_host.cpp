@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#include "../simulate_base.h"
+#include "module_lib.h"
 #include "../pipeline.h"
 #include "vel2pm_gpu.cu.h"
 

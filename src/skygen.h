@@ -24,7 +24,7 @@
 #include <cuda_runtime_api.h>
 #include "gpu.h"
 #include "column.h"
-#include "simulate_base.h"
+#include "modules/module_lib.h"
 #include <astro/types.h>
 
 typedef prngs::gpu::mwc gpuRng;
@@ -38,6 +38,30 @@ using peyton::Radians;
 	// galactic center distance, CPU version
 	extern double Rg_impl;
 	inline double Rg() { return Rg_impl; }
+#endif
+
+#if 1
+namespace peyton { namespace system { class Config; }};
+class otable;
+class osink;
+class opipeline;
+
+struct skygenConfig;
+struct skypixel;
+struct skyConfigInterface
+{
+	virtual bool init(
+		otable &t,
+		const peyton::system::Config &cfg,	// model cfg file
+		const skygenConfig &sc,
+		const skypixel *pixels) = 0;
+	virtual void initRNG(rng_t &rng) = 0;		// initialize the random number generator from CPU RNG
+	virtual double integrateCounts() = 0;		// return the expected starcounts contributed by this model
+	virtual void setDensityNorm(float norm) = 0;
+	virtual size_t run(otable &in, osink *nextlink) = 0;
+	virtual ~skyConfigInterface() {};
+};
+
 #endif
 
 // these must be overloaded by models

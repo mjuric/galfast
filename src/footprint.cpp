@@ -21,7 +21,6 @@
 #include "config.h"
 
 #include "gpc_cpp.h"
-#include "simulate_base.h"
 #include "sph_polygon.h"
 
 #include <astro/exceptions.h>
@@ -29,6 +28,9 @@
 #include <astro/system/config.h>
 #include <astro/coordinates.h>
 #include <astro/useall.h>
+
+// returns numeric_limits::epsilon() for the type of x
+#define EPSILON_OF(x) std::numeric_limits<typeof(x)>::epsilon()
 
 template<typename T> inline void memzero(T &x) { memset(&x, 0, sizeof(x)); }
 

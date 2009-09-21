@@ -24,7 +24,7 @@
 #endif
 
 #include "column.h"
-#include "simulate_base.h"
+#include "modules/module_lib.h"
 
 #include "modules/FeH_gpu.cu.h"
 #include "modules/fixedFeH_gpu.cu.h"

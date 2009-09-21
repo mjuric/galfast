@@ -20,22 +20,16 @@
 
 #include "config.h"
 
-#include "observe.h"
-#include "spline.h"
 #include "analysis.h"
 #include "io.h"
-#include "gpu.h"
+#include "pipeline.h"
 
-#include <gsl/gsl_vector.h>
-#include <gsl/gsl_matrix.h>
-#include <gsl/gsl_blas.h>
-#include <gsl/gsl_linalg.h>
+#include <fstream>
 
 #include <astro/io/format.h>
 #include <astro/system/log.h>
+#include <astro/system/config.h>
 #include <astro/useall.h>
-
-#include <fstream>
 
 bool opipeline_stage::runtime_init(otable &t)
 {
@@ -60,154 +54,6 @@ bool opipeline_stage::runtime_init(otable &t)
 }
 
 
-#if 1
-void print_matrix(gsl_matrix *m)
-{
-/* print matrix the hard way */
-  printf("Matrix m\n");
-  for (int i=0;i<m->size1;i++)
-    {
-      for (int j=0;j<m->size2;j++)
-	{
-	  fprintf(stderr, "%f ",gsl_matrix_get(m,i,j));
-	}
-      fprintf(stderr, "\n");
-    }
-  fprintf(stderr, "\n");
-}
-#endif
-
-
-struct trivar_gauss
-{
-	gsl_matrix *A;
-	gsl_vector *Z;
-
-	trivar_gauss()
-	{
-		A = gsl_matrix_alloc(3, 3);
-		Z = gsl_vector_alloc(3);
-
-		gsl_matrix_set_zero(A);
-	}
-
-	void set(double s11, double s12, double s13, double s22, double s23, double s33)
-	{
-		// populate A (assumes the upper triang is already 0), calculate Cholesky decomp
-		gsl_matrix_set(A, 0, 0, sqr(s11));
-		gsl_matrix_set(A, 1, 0,     s12 ); gsl_matrix_set(A, 1, 1, sqr(s22));
-		gsl_matrix_set(A, 2, 0,     s13 ); gsl_matrix_set(A, 2, 1,     s23 ); gsl_matrix_set(A, 2, 2, sqr(s33));
-		//print_matrix(A);
-
-		int status = gsl_linalg_cholesky_decomp(A);
-		ASSERT(status == 0);
-		//print_matrix(A); std::cerr << "status=" << status << "\n";
-	}
-
-	void draw(gsl_vector *y, rng_t &rng, bool zero = false)
-	{
-		gsl_vector_set(Z, 0, rng.gaussian(1.));
-		gsl_vector_set(Z, 1, rng.gaussian(1.));
-		gsl_vector_set(Z, 2, rng.gaussian(1.));
-
-		if(zero) { gsl_vector_set_zero(y); }
-		//gsl_blas_dgemv(CblasNoTrans, 1., A, Z, 1., y);
-		gsl_blas_dtrmv(CblasLower, CblasNoTrans, CblasNonUnit, A, Z);
-		gsl_vector_add(y, Z);
-		//std::cout << "XXXXX: " << y->data[0] << " " << y->data[1] << " " << y->data[2] << "\n";
-	}
-
-	~trivar_gauss()
-	{
-		gsl_vector_free(Z);
-		gsl_matrix_free(A);
-	}
-};
-
-#if 0
-/////////////////////////////////////////////////////////////
-#if 0
-// mix in photometric errors
-class os_photoErrors : public osink
-{
-public:
-	struct photoerr_t
-	{
-		spline sigma;
-
-		photoerr_t() {}
-
-		float draw(const float mag, gsl_rng *rng)
-		{
-			double s = sigma(mag);
-			float err = gsl_ran_gaussian(rng, s);
-			return err;
-		}
-	};
-	std::map<std::string, photoerr_t> photoerrs;	// band -> error definitions
-
-public:
-	std::map<size_t, photoerr_t *> photoerrsI;	// sstruct idx -> error definitions (optimization, this is populated on init)
-
-public:
-	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
-	virtual bool init(const Config &cfg, otable &t);
-	virtual const std::string &name() const { static std::string s("photoErrors"); return s; }
-
-	os_photoErrors() : osink()
-	{
-		req.insert("lb");
-	}
-};
-
-size_t os_photoErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
-{
-	// ASSUMPTIONS:
-	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
-	//
-	// OUTPUT:
-	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
-	//	Radial velocity in km/s in pm[2]
-	for(size_t i=0; i != count; i++)
-	{
-		sstruct &s = in[i];
-
-		// fetch prerequisites
-		const double *lb0 = s.lb(); double lb[2];
-		lb[0] = rad(lb0[0]);
-		lb[1] = rad(lb0[1]);
-
-		// rotate to output coordinate system
-		double *out;
-		switch(coordsys)
-		{
-		case EQU:
-			out = s.radec();
-			galequ(lb[0], lb[1], out[0], out[1]);
-			break;
-		default:
-			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
-			break;
-		}
-
-		// convert to degrees
-		out[0] /= ctn::d2r;
-		out[1] /= ctn::d2r;
-	}
-
-	return nextlink->push(in, count, rng);
-}
-
-bool os_photoErrors::init(const Config &cfg, otable &t)
-{
-	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	cfg.get(cs, "coordsys", "gal");
-
-	return true;
-}
-#endif
-
-#endif
 // in/out ends of the chain
 class os_textout : public osink
 {
@@ -217,13 +63,6 @@ class os_textout : public osink
 		bool headerWritten;
 		ticker tick;
 
-#if 0 // not implemented yet
-	protected:
-		// map of field name -> formatter string, for output
-		std::map<std::string, std::string> outputs;
-		// map of field index -> formatter string (optimization)
-		std::map<size_t, std::string> outputsI;
-#endif
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
@@ -252,7 +91,6 @@ struct mask_output : otable::mask_functor
 
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
-//	if(tick.step <= 0) { tick.open("Writing output", 10000); }
 	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
 	if(!headerWritten)
@@ -282,15 +120,6 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
 
-// 	// quick hack to limit the number of stars that can be generated
-// 	static int ntotal = 0;
-// 	ntotal += nserialized;
-// 	const static int nmax = 100*1000*1000;
-// 	if(ntotal > nmax)
-// 	{
-// 		THROW(EAny, "Output currently limited to not (much) more than " + str(ntotal) + " stars.");
-// 	}
-
 	return nserialized;
 }
 
@@ -300,18 +129,6 @@ bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 	out.open(fn);
 	MLOG(verb1) << "Output file: " << fn << " (text)\n";
 
-#if 0 // not implemented
-	// slurp up any output/formatting information
-	// the formats are written in the configuration file as:
-	//	format.<fieldname> = <formatter_fmt_string>
-	std::set<std::string> keys;
-	cfg.get_matching_keys(keys, "format\\.[a-zA-Z0-9_]+$");
-	FOREACH(keys)
-	{
-		std::string name = i->substr(7);
-		outputs[name] = cfg[*i];
-	}
-#endif
 	return out.out();
 }
 
@@ -363,7 +180,7 @@ struct write_fits_rows_state
 
 	write_fits_rows_state(os_fitsout::coldef *columns_, int from_, int to_)
 	{
-		hidden.reset(); // make_hptr2D<int>(NULL, 0);
+		hidden.reset();
 		rowswritten = 0;
 
 		columns = columns_;
@@ -636,7 +453,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	boost::shared_ptr<opipeline_stage> s;
 
 	if(name == "textin") { s.reset(new os_textin); }
-	else if(name == "skygen") { s.reset(new os_skygen); }
+//	else if(name == "skygen") { s.reset(new os_skygen); }
 	else if(name == "textout") { s.reset(new os_textout); }
 #if HAVE_LIBCFITSIO
 	else if(name == "fitsout") { s.reset(new os_fitsout); }
@@ -647,7 +464,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 //	else if(name == "fixedFeH") { s.reset(new os_fixedFeH); }
 //	else if(name == "photometry") { s.reset(new os_photometry); }
 //	else if(name == "photometricErrors") { s.reset(new os_photometricErrors); }
-	else if(name == "clipper") { s.reset(new os_clipper); }
+//	else if(name == "clipper") { s.reset(new os_clipper); }
 //	else if(name == "vel2pm") { s.reset(new os_vel2pm); }
 //	else if(name == "gal2other") { s.reset(new os_gal2other); }
 //	else if(name == "kinTMIII") { s.reset(new os_); }

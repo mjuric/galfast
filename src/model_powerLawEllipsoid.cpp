@@ -24,6 +24,9 @@
 #include "skyconfig_impl.h"
 
 #include <astro/system/config.h>
+#include <astro/math.h>
+
+#include <astro/useall.h>
 
 void powerLawEllipsoid::prerun(host_state_t &hstate, bool draw)
 {

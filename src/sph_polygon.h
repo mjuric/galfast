@@ -22,6 +22,7 @@
 #define sph_polygon_h__
 
 #include <list>
+#include "gpc_cpp.h"
 
 /**
 	sph_contour -- A simple (nonintersecting) contour on a sphere

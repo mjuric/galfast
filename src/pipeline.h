@@ -25,6 +25,8 @@
 
 #include <list>
 
+namespace peyton { namespace system { class Config; }};
+
 class osink;
 class opipeline;
 class opipeline_stage

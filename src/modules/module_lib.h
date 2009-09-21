@@ -18,23 +18,20 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef __simulate_base_h
-#define __simulate_base_h
-
-#include "gpu.h"
-#include <astro/constants.h>
-
 /**
-	Things "C"-ish enough for CUDA to swallow (and to upload to GPU) go into this header.
+	Constants and common device functions shared by all modules
 */
 
-// returns numeric_limits::epsilon() for the type of x
-#define EPSILON_OF(x) std::numeric_limits<typeof(x)>::epsilon()
+#ifndef module_lib_h__
+#define module_lib_h__
 
-static const float ABSMAG_NOT_PRESENT = 99.999f;
+	#include "gpu.h"
+	#include <astro/constants.h>
 
-static const int GAL = 0;
-static const int EQU = 1;
+	static const float ABSMAG_NOT_PRESENT = 99.999f;
+
+	static const int GAL = 0;
+	static const int EQU = 1;
 
 	namespace galequ_constants
 	{
@@ -57,26 +54,5 @@ static const int EQU = 1;
 
 		static const float halfpi = (float)galequ_constants::halfpi;
 	};
-
-namespace peyton { namespace system { class Config; }};
-class otable;
-class osink;
-class opipeline;
-
-struct skygenConfig;
-struct skypixel;
-struct skyConfigInterface
-{
-	virtual bool init(
-		otable &t,
-		const peyton::system::Config &cfg,	// model cfg file
-		const skygenConfig &sc,
-		const skypixel *pixels) = 0;
-	virtual void initRNG(rng_t &rng) = 0;		// initialize the random number generator from CPU RNG
-	virtual double integrateCounts() = 0;		// return the expected starcounts contributed by this model
-	virtual void setDensityNorm(float norm) = 0;
-	virtual size_t run(otable &in, osink *nextlink) = 0;
-	virtual ~skyConfigInterface() {};
-};
 
 #endif

@@ -7,3 +7,4 @@ libmodules_la_SOURCES = FeH_gpu.cu.h FeH_host.cpp fixedFeH_gpu.cu.h \
 	photometry_gpu.cu.h photometry_host.cpp unresolvedMultiples_gpu.cu.h \
 	unresolvedMultiples_host.cpp vel2pm_gpu.cu.h vel2pm_host.cpp
 libmodules_la_LDFLAGS = -module
+noinst_HEADERS = module_lib.h

@@ -19,7 +19,9 @@
  ***************************************************************************/
 
 #include "skygen.h"
-#include "observe.h"
+#include "otable.h"
+#include "pipeline.h"
+
 #include <iomanip>
 #include <ext/numeric>	// for iota
 

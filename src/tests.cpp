@@ -1422,4 +1422,153 @@ void test_pm_conversions()
 	}
 	else
 #endif
+
+#if 1
+void print_matrix(gsl_matrix *m)
+{
+/* print matrix the hard way */
+  printf("Matrix m\n");
+  for (int i=0;i<m->size1;i++)
+    {
+      for (int j=0;j<m->size2;j++)
+	{
+	  fprintf(stderr, "%f ",gsl_matrix_get(m,i,j));
+	}
+      fprintf(stderr, "\n");
+    }
+  fprintf(stderr, "\n");
+}
+#endif
+
+
+struct trivar_gauss
+{
+	gsl_matrix *A;
+	gsl_vector *Z;
+
+	trivar_gauss()
+	{
+		A = gsl_matrix_alloc(3, 3);
+		Z = gsl_vector_alloc(3);
+
+		gsl_matrix_set_zero(A);
+	}
+
+	void set(double s11, double s12, double s13, double s22, double s23, double s33)
+	{
+		// populate A (assumes the upper triang is already 0), calculate Cholesky decomp
+		gsl_matrix_set(A, 0, 0, sqr(s11));
+		gsl_matrix_set(A, 1, 0,     s12 ); gsl_matrix_set(A, 1, 1, sqr(s22));
+		gsl_matrix_set(A, 2, 0,     s13 ); gsl_matrix_set(A, 2, 1,     s23 ); gsl_matrix_set(A, 2, 2, sqr(s33));
+		//print_matrix(A);
+
+		int status = gsl_linalg_cholesky_decomp(A);
+		ASSERT(status == 0);
+		//print_matrix(A); std::cerr << "status=" << status << "\n";
+	}
+
+	void draw(gsl_vector *y, rng_t &rng, bool zero = false)
+	{
+		gsl_vector_set(Z, 0, rng.gaussian(1.));
+		gsl_vector_set(Z, 1, rng.gaussian(1.));
+		gsl_vector_set(Z, 2, rng.gaussian(1.));
+
+		if(zero) { gsl_vector_set_zero(y); }
+		//gsl_blas_dgemv(CblasNoTrans, 1., A, Z, 1., y);
+		gsl_blas_dtrmv(CblasLower, CblasNoTrans, CblasNonUnit, A, Z);
+		gsl_vector_add(y, Z);
+		//std::cout << "XXXXX: " << y->data[0] << " " << y->data[1] << " " << y->data[2] << "\n";
+	}
+
+	~trivar_gauss()
+	{
+		gsl_vector_free(Z);
+		gsl_matrix_free(A);
+	}
+};
+
+#if 0
+/////////////////////////////////////////////////////////////
+#if 0
+// mix in photometric errors
+class os_photoErrors : public osink
+{
+public:
+	struct photoerr_t
+	{
+		spline sigma;
+
+		photoerr_t() {}
+
+		float draw(const float mag, gsl_rng *rng)
+		{
+			double s = sigma(mag);
+			float err = gsl_ran_gaussian(rng, s);
+			return err;
+		}
+	};
+	std::map<std::string, photoerr_t> photoerrs;	// band -> error definitions
+
+public:
+	std::map<size_t, photoerr_t *> photoerrsI;	// sstruct idx -> error definitions (optimization, this is populated on init)
+
+public:
+	virtual size_t push(sstruct *&data, const size_t count, gsl_rng *rng);
+	virtual bool init(const Config &cfg, otable &t);
+	virtual const std::string &name() const { static std::string s("photoErrors"); return s; }
+
+	os_photoErrors() : osink()
+	{
+		req.insert("lb");
+	}
+};
+
+size_t os_photoErrors::push(sstruct *&in, const size_t count, gsl_rng *rng)
+{
+	// ASSUMPTIONS:
+	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
+	//
+	// OUTPUT:
+	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
+	//	Radial velocity in km/s in pm[2]
+	for(size_t i=0; i != count; i++)
+	{
+		sstruct &s = in[i];
+
+		// fetch prerequisites
+		const double *lb0 = s.lb(); double lb[2];
+		lb[0] = rad(lb0[0]);
+		lb[1] = rad(lb0[1]);
+
+		// rotate to output coordinate system
+		double *out;
+		switch(coordsys)
+		{
+		case EQU:
+			out = s.radec();
+			galequ(lb[0], lb[1], out[0], out[1]);
+			break;
+		default:
+			THROW(EAny, "Unknown coordinate system [id=" + str(coordsys) + "] requested");
+			break;
+		}
+
+		// convert to degrees
+		out[0] /= ctn::d2r;
+		out[1] /= ctn::d2r;
+	}
+
+	return nextlink->push(in, count, rng);
+}
+
+bool os_photoErrors::init(const Config &cfg, otable &t)
+{
+	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
+	cfg.get(cs, "coordsys", "gal");
+
+	return true;
+}
+#endif
+#endif
+
 #endif

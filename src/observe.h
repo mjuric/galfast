@@ -108,41 +108,4 @@ protected:
 	void load_extinction_maps(const std::string &econf);
 };
 
-// os_vel2pm -- Convert velocities to proper motions
-class os_vel2pm : public osink , public os_vel2pm_data
-{
-protected:
-	std::string output_col_name;
-public:
-	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
-
-	os_vel2pm() : osink()
-	{
-		coordsys=GAL;
-		req.insert("lb");
-		req.insert("XYZ");
-		req.insert("vcyl");
-	}
-};
-	
-
-// os_kinTMIII -- Generate kinematics based on Bond et al. (in prep)
-class os_kinTMIII : public osink, os_kinTMIII_data
-{	
-	float DeltavPhi;
-	public:
-		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
-		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
-
-		os_kinTMIII() : osink()
-		{
-			prov.insert("vcyl");
-			req.insert("comp");
-			req.insert("XYZ");
-		}
-};
-
 #endif // __observe_h

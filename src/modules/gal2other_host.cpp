@@ -20,53 +20,57 @@
 
 #include "config.h"
 
-#include "observe.h"
+#include "../simulate_base.h"
+#include "../pipeline.h"
+#include "gal2other_gpu.cu.h"
+
+#include "spline.h"
+#include "analysis.h"
+#include "io.h"
+#include <fstream>
 
 #include <astro/system/config.h>
 #include <astro/useall.h>
 
+// convert between coordinate systems
+class os_gal2other : public osink
+{
+public:
+	int coordsys;
 
-//size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
-DECLARE_KERNEL(
-	os_vel2pm_kernel(
-		otable_ks ks, os_vel2pm_data par, gpu_rng_t rng, 
-		cdouble_t::gpu_t lb0,
-		cfloat_t::gpu_t XYZ,
-		cfloat_t::gpu_t vcyl,
-		cfloat_t::gpu_t pmlb))
+public:
+	size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
 
-size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{ 
-	// ASSUMPTIONS:
-	//	vcyl() velocities are in km/s, XYZ() distances in parsecs
-	//
-	// OUTPUT:
-	//	Proper motions in mas/yr for l,b directions in pm[0], pm[1]
-	//	Radial velocity in km/s in pm[2]
-	cdouble_t &lb0 = in.col<double>("lb");
-	cfloat_t  &XYZ  = in.col<float>("XYZ");
-	cfloat_t  &vcyl = in.col<float>("vcyl");
-	cfloat_t  &pmlb = in.col<float>(output_col_name);
+	os_gal2other() : osink(), coordsys(GAL)
+	{
+		req.insert("lb");
+	}
+};
+extern "C" opipeline_stage *create_module_gal2other() { return new os_gal2other(); }	// Factory; called by opipeline_stage::create()
 
-	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl,pmlb);
+size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	cdouble_t &lb   = in.col<double>("lb");
+
+	if(coordsys == EQU)
+	{
+		cdouble_t &out = in.col<double>("radec");
+		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
+	}
+
 	return nextlink->process(in, begin, end, rng);
 }
 
-bool os_vel2pm::construct(const Config &cfg, otable &t, opipeline &pipe)
+bool os_gal2other::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
 	cfg.get(cs, "coordsys", "gal");
-	     if(cs == "gal") { coordsys = GAL; output_col_name = "pmlb"; }
-	else if(cs == "equ") { coordsys = EQU; output_col_name = "pmradec"; }
+	     if(cs == "gal") { coordsys = GAL; /* -- noop -- */ }
+	else if(cs == "equ") { coordsys = EQU; prov.insert("radec[2]"); }
 	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
-	prov.insert(output_col_name);
-
-	// LSR and peculiar Solar motion
-	cfg.get(vLSR, "vLSR", -220.0f);
-	cfg.get(u0,   "u0",    -10.0f);
-	cfg.get(v0,   "v0",     -5.3f);
-	cfg.get(w0,   "w0",      7.2f);
 
 	return true;
 }

@@ -21,6 +21,16 @@
 #ifndef unresolvedMultiples_gpu_cu_h__
 #define unresolvedMultiples_gpu_cu_h__
 
+namespace multiplesAlgorithms
+{
+	enum algo
+	{
+		LF_M2_GT_M1	= 1,
+		LF		= 2,
+		EQUAL_MASS	= 3
+	};
+}
+
 //
 // Device kernel implementation
 //

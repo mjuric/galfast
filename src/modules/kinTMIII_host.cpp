@@ -20,10 +20,55 @@
 
 #include "config.h"
 
-#include "observe.h"
+#include "../simulate_base.h"
+#include "../pipeline.h"
+#include "kinTMIII_gpu.cu.h"
+
+#include "spline.h"
+#include "analysis.h"
+#include "io.h"
+#include <fstream>
 
 #include <astro/system/config.h>
 #include <astro/useall.h>
+
+// os_kinTMIII -- Generate kinematics based on Bond et al. (in prep)
+class os_kinTMIII : public osink, os_kinTMIII_data
+{	
+	float DeltavPhi;
+	public:
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
+		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
+
+		os_kinTMIII() : osink()
+		{
+			prov.insert("vcyl");
+			req.insert("comp");
+			req.insert("XYZ");
+		}
+};
+extern "C" opipeline_stage *create_module_kintmiii() { return new os_kinTMIII(); }	// Factory; called by opipeline_stage::create()
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+
+size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
+{
+	// ASSUMPTIONS:
+	//	- Bahcall-Soneira component tags exist in input
+	//	- galactocentric XYZ coordinates exist in input
+
+	// fetch prerequisites
+	cint_t   &comp  = in.col<int>("comp");
+	cfloat_t &XYZ   = in.col<float>("XYZ");
+	cfloat_t &vcyl   = in.col<float>("vcyl");
+
+	cuxUploadConst("os_kinTMIII_par", static_cast<os_kinTMIII_data&>(*this));
+	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end), rng, comp, XYZ, vcyl);
+	return nextlink->process(in, begin, end, rng);
+}
 
 int split_fvec(std::vector<float>& arr, const std::string &text)
 {
@@ -60,37 +105,6 @@ void farray_to_i8array(farray5& fa, i8array5& ia)
 	for (int i=0;i<5;i++)
 		ia[i]=char(fa[i]/10);
 }
-
-extern os_kinTMIII_data os_kinTMIII_par;
-
-DECLARE_KERNEL(os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl))
-size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
-{
-	// ASSUMPTIONS:
-	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
-
-	// fetch prerequisites
-	cint_t   &comp  = in.col<int>("comp");
-	cfloat_t &XYZ   = in.col<float>("XYZ");
-	cfloat_t &vcyl   = in.col<float>("vcyl");
-
-#if HAVE_CUDA
-	{
-		activeDevice dev(gpuExecutionEnabled("os_kinTMIII_kernel")? 0 : -1);
-		if(gpuGetActiveDevice() >= 0)
-		{
-			cudaError err = cudaMemcpyToSymbol("os_kinTMIII_par", (os_kinTMIII_data*)this, sizeof(os_kinTMIII_data));
-			if(err != cudaSuccess) { MLOG(verb1) << "CUDA Error: " << cudaGetErrorString(err); abort(); }
-		}
-	}
-#endif
-	os_kinTMIII_par = *this;
-
-	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end), rng, comp, XYZ, vcyl);
-	return nextlink->process(in, begin, end, rng);
-}
-
 
 template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out << *i << " "; }; return out; }
 

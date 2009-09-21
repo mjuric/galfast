@@ -22,6 +22,7 @@
 #define __simulate_base_h
 
 #include "gpu.h"
+#include <astro/constants.h>
 
 /**
 	Things "C"-ish enough for CUDA to swallow (and to upload to GPU) go into this header.
@@ -32,60 +33,30 @@
 
 static const float ABSMAG_NOT_PRESENT = 99.999f;
 
-struct ALIGN(16) os_photometry_data
-{
-	int ncolors, bidx;	// number of colors, bootstrap band index
-
-	uint32_t comp0, comp1;	// component ID range [comp0, comp1) to which this photometry module will be asigning magnitudes
-
-	static const int N_REDDENING = 17; // This number is set by the number of textures out of which the colors are sampled (4x4=16, currently)
-	float reddening[N_REDDENING];	// reddening coefficients for the loaded bands (NOTE: hardcoded maximum of 17 bands (16 colors))
-};
-
-struct os_vel2pm_data
-{
-	int coordsys;
-
-	float vLSR,		// Local standard of rest velocity
- 	      u0, v0, w0;	// Solar peculiar motion
-};
-
 static const int GAL = 0;
 static const int EQU = 1;
 
-struct farray5
-{
-	float data[5];
-	
-	__device__ float& operator [] (int i) { return data[i]; }
-	__device__ const float& operator [] (int i) const { return data[i]; }
-};
+	namespace galequ_constants
+	{
+		static const double angp = peyton::ctn::d2r * 192.859508333; //  12h 51m 26.282s (J2000)
+		static const double dngp = peyton::ctn::d2r * 27.128336111;  // +27d 07' 42.01" (J2000)
+		static const double l0   = peyton::ctn::d2r * 32.932;	// galactic longitude of ascending node of galactic coordinate system (where b=0, dec=0)
+		static const double ce   = 0.88998740217659689; // cos(dngp)
+		static const double se   = 0.45598511375586859; // sin(dngp)
 
-struct iarray5
-{
-	short int data[5];
-	
-	__device__ short int& operator [] (int i) { return data[i]; } 
-	__device__ const short int& operator [] (int i) const { return data[i]; } 
-};
+		static const double halfpi = peyton::ctn::halfpi;
+	};
 
-struct i8array5
-{
-	char data[5];
-	
-	__device__ char& operator [] (int i) { return data[i]; } 
-	__device__ const char& operator [] (int i) const { return data[i]; }
-};
+	namespace float_galequ_constants
+	{
+		static const float angp = (float)galequ_constants::angp; //  12h 51m 26.282s (J2000)
+		static const float dngp = (float)galequ_constants::dngp;  // +27d 07' 42.01" (J2000)
+		static const float ce   = (float)galequ_constants::ce;
+		static const float se   = (float)galequ_constants::se;
+		static const float l0   = (float)galequ_constants::l0;
 
-struct os_kinTMIII_data
-{
-	int comp_thin, comp_thick, comp_halo;
-	float fk, DeltavPhi;
-	farray5 	vPhi1, vPhi2, vR, vZ,
-		sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
-		HvPhi, HvR, HvZ,
-		HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
-};
+		static const float halfpi = (float)galequ_constants::halfpi;
+	};
 
 namespace peyton { namespace system { class Config; }};
 class otable;
@@ -107,14 +78,5 @@ struct skyConfigInterface
 	virtual size_t run(otable &in, osink *nextlink) = 0;
 	virtual ~skyConfigInterface() {};
 };
-
-namespace multiplesAlgorithms
-{
-	enum algo {
-		LF_M2_GT_M1	= 1,
-		LF		= 2,
-		EQUAL_MASS	= 3
-	};
-}
 
 #endif

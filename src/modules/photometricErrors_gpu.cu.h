@@ -18,18 +18,22 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef __CONFIG_H
-#define __CONFIG_H
-#include "config.h"
-#endif
+#ifndef photometricErrors_gpu_cu_h__
+#define photometricErrors_gpu_cu_h__
 
-#include "column.h"
-#include "simulate_base.h"
+//
+// Module data passed to device kernel
+//
 
-#include "modules/FeH_gpu.cu.h"
-#include "modules/fixedFeH_gpu.cu.h"
-#include "modules/unresolvedMultiples_gpu.cu.h"
-#include "modules/photometry_gpu.cu.h"
-#include "modules/kinTMIII_gpu.cu.h"
-#include "modules/vel2pm_gpu.cu.h"
-#include "modules/gal2other_gpu.cu.h"
+// -- none for now (this is a CPU module; TODO: port this module to GPU)
+
+//
+// Device kernel implementation
+//
+#if (__CUDACC__ || BUILD_FOR_CPU)
+
+// -- no kernel yet (this is a CPU module; TODO: port this module to GPU)
+
+#endif // (__CUDACC__ || BUILD_FOR_CPU)
+
+#endif // photometricErrors_gpu_cu_h__

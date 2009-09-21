@@ -34,11 +34,7 @@
 #include "gpu.h"
 #include "io.h"
 #include "analysis.h"
-
-#if HAVE_CUDA
-#include <cuda_runtime.h>
-#include <cuda.h>
-#endif // HAVE_CUDA
+#include "spline.h"
 
 size_t arrayMemSize_impl(size_t nx, size_t ny, size_t nz, size_t align, size_t elementSize)
 {
@@ -274,6 +270,64 @@ void cuxSmartPtr_impl_t::unbind_texture(textureReference &texref)
 	boundTextures.erase(&texref);
 }
 
+//
+// texture load and creation utilities
+//
+
+cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
+{
+	cuxTexture<float, 1> tex(2);
+	tex(0U) = val;
+	tex(1U) = val;
+	tex.coords[0].x = X0;
+	tex.coords[0].y = 1./(X1 - X0);
+	return tex;
+}
+
+cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
+{
+	spline tx;
+	tx.construct(X, Y, ndata);
+
+	// resample to texture
+	cuxTexture<float, 1> tex(nsamp);
+	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
+	for(int i=0; i != nsamp; i++)
+	{
+		tex(i) = tx(X0 + i*dX);
+	}
+
+	// construct 
+	tex.coords[0].x = X0;
+	tex.coords[0].y = 1./dX;
+	return tex;
+}
+
+cuxTexture<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
+{
+	// load the points from the file, and construct
+	// a spline to resample from
+	text_input_or_die(txin, fn);
+	std::vector<double> X, Y;
+	::load(txin, X, 0, Y, 1);
+
+	return construct_1D_texture_by_resampling(&X[0], &Y[0], X.size(), nsamp);
+}
+
+//
+// Return texcoord that will map x to imgx and y to imgy
+//
+float2 texcoord_from_range(float imgx, float imgy, float x, float y)
+{
+	float2 tc;
+
+	tc.x = (-imgy * x + imgx * y)/(imgx - imgy);
+	tc.y = (imgx - imgy) / (x - y);
+
+	return tc;
+}
+
+/***********************************************************************/
 
 stopwatch kernelRunSwatch;
 gpu_rng_t::persistent_rng gpu_rng_t::gpuRNG;
@@ -585,7 +639,10 @@ bool gpuExecutionEnabled(const char *kernel)
 	return cuda_enabled;
 }
 
-bool cuda_init()
+/**
+	Initialize cux library and CUDA device.
+*/
+bool cux_init()
 {
 	if(cuda_initialized) { return true; }
 
@@ -642,6 +699,7 @@ bool cuda_init()
 
 	cuda_initialized = 1;
 	cuda_enabled = 1;
+
 	return true;
 }
 

@@ -16,64 +16,7 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-// Struct alignment is handled differently between the CUDA compiler and other
-// compilers (e.g. GCC, MS Visual C++ .NET)
-#ifdef __CUDACC__
-	#define ALIGN(x)  __align__(x)
-#else
-	#if defined(_MSC_VER) && (_MSC_VER >= 1300)
-		// Visual C++ .NET and later
-		#define ALIGN(x) __declspec(align(x))
-	#else
-		#if defined(__GNUC__)
-			// GCC
-			#define ALIGN(x)  __attribute__ ((aligned (x)))
-		#else
-		// all other compilers
-			#define ALIGN(x)
-		#endif
-	#endif
-#endif
-
-// Thread local storage -- use for shared memory emulation in CPU mode
-//#define __TLS __thread
-#define __TLS
-
-//////////////////////////////////////////////////////////////////////////
-// CUDA (or emulation) APIs
-//////////////////////////////////////////////////////////////////////////
-#if HAVE_CUDA
-	#include <cuda_runtime.h>
-#else
-	#include "cuda_emulation.h"
-#endif
-
-//////////////////////////////////////////////////////////////////////////
-// Shared memory access and CPU emulation
-//////////////////////////////////////////////////////////////////////////
-#if __CUDACC__
-	extern __shared__ char impl_shmem[];
-#else
-	// For CPU versions of GPU algorithms
-	extern __TLS char impl_shmem[16384];
-	namespace gpuemu // prevent collision with nvcc's symbols
-	{
-		extern __TLS uint3 blockIdx;
-		extern __TLS uint3 threadIdx;
-		extern __TLS uint3 blockDim;		// Note: uint3 instead of dim3, because __TLS variables have to be PODs
-		extern __TLS uint3 gridDim;		// Note: uint3 instead of dim3, because __TLS variables have to be PODs
-	}
-	using namespace gpuemu;
-#endif
-// template<typename T> inline __device__ T* shmem()              { return (T*)impl_shmem; }
-// template<typename T> inline __device__ T& shmem(const int idx) { return ((T*)impl_shmem)[idx]; }
-// 
-// // explicit instantiations are necessary to work around a bug in nvcc, that appears to
-// // forget __device__ when automatically instantiating the templates above (?)
-// template<> inline __device__ uint32_t& shmem(const int idx) { return ((uint32_t*)impl_shmem)[idx]; }
-// template<> inline __device__      int& shmem(const int idx) { return      ((int*)impl_shmem)[idx]; }
-
-#define shmem(type) ((type*)impl_shmem)
+#include "cux.h"
 
 // Based on NVIDIA's LinuxStopWatch class
 // TODO: Should be moved to libpeyton
@@ -167,46 +110,6 @@ private:
 	}
 };
 extern stopwatch kernelRunSwatch;
-
-//////////////////////////////////////////////////////////////////////////
-// Useful host and device functions
-//////////////////////////////////////////////////////////////////////////
-
-// Rounds up v to nearest integer divisable by mod
-inline int roundUpModulo(int v, int mod)
-{
-	int r = v % mod;
-	int pitch = r ? v + (mod-r) : v;
-	return pitch;
-}
-
-// Computes the linear ID of the thread
-inline __device__ uint32_t threadID()
-{
-	// this supports 3D grids with 1D blocks of threads
-	// NOTE: This could/should be optimized to use __mul24 (but be careful not to overflow a 24-bit number!)
-	// Number of cycles (I think...): 4*4 + 16 + 3*4
-#if 0 && __CUDACC__
-	// This below is untested...
-	const uint32_t id =
-		  threadIdx.x
-		+ __umul24(blockDim.x, blockIdx.x)
-		+ __umul24(blockDim.x, blockIdx.y) * gridDim.x
-		+ __umul24(blockDim.x, blockIdx.z) * __umul24(gridDim.x, gridDim.y);
-#else
-	// 16 + 16 + 16 cycles (assuming FMAD)
-	const uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
-#endif
-	return id;
-}
-
-bool cuda_init();
-bool calculate_grid_parameters(dim3 &gridDim, int threadsPerBlock, int neededthreads, int dynShmemPerThread, int staticShmemPerBlock);
-
-//////////////////////////////////////////////////////////////////////////
-// cux/tptr/gptr/hptr abstraction layer
-//////////////////////////////////////////////////////////////////////////
-#include "cuda_cux.h"
 
 //////////////////////////////////////////////////////////////////////////
 // Support structures and macros

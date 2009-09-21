@@ -24,7 +24,7 @@
 #include <cuda_runtime_api.h>
 #include "gpu.h"
 #include "column.h"
-#include "modules/module_lib.h"
+#include "module_lib.h"
 #include <astro/types.h>
 
 typedef prngs::gpu::mwc gpuRng;
@@ -208,7 +208,7 @@ struct ALIGN(16) runtime_state
 	void constructor()	// as CUDA doesn't allow real constructors
 	{
 		cont = ilb = im = iM = k = bc = ndraw = 0;
-		pos = 0; D = 0; pix = 0;
+		pos = 0; D = 0; Am = 0; pix = 0;
 		ms = 0;
 	}
 	void destructor()
@@ -279,7 +279,7 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 
 	cuxDevicePtr<skypixel> pixels;	// pixels on the sky to process
 
-	cuxDevicePtr<int> lock;
+//	cuxDevicePtr<int> lock;
 	cuxDevicePtr<int> nstars;
 	cuxDevicePtr<float> counts, countsCovered;
 	ocolumns stars;

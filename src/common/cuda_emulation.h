@@ -18,13 +18,16 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+//
+// Emulate CUDA types and keywords when no CUDA toolkit has been
+// found on the system.
+//
+
 #ifndef _cuda_emulation_h__
 #define _cuda_emulation_h__
 
 #include <string.h>
 #include <assert.h>
-
-// Emulate CUDA types and keywords
 
 #define __device__
 #define __host__
@@ -189,6 +192,6 @@ inline cudaError cudaFreeArray(cudaArray* array ) { assert(0); }
 inline cudaError cudaMallocArray(cudaArray** array, const struct cudaChannelFormatDesc* desc, size_t width, size_t height ) { assert(0); }
 inline cudaError cudaMemcpy2DToArray(cudaArray* dstArray, size_t dstX, size_t dstY, const void* src, size_t spitch, size_t width, size_t height, enum cudaMemcpyKind kind) { assert(0); }
 
-inline bool cuda_init() { return true; }
+inline bool cux_init() { return true; }
 
 #endif // _cuda_emulation_h__

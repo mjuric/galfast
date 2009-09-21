@@ -26,9 +26,42 @@
 #include <set>
 #include <algorithm>
 
-//
-// CUDA API wrappers
-//
+#include "cux_lowlevel.h"
+
+/**
+	Initialize compute device. Must be called before any other
+	calls involving the device.
+*/
+bool cux_init();
+
+//////////////////////////////////////////////////////////////////////////
+// Useful host and device functions
+//////////////////////////////////////////////////////////////////////////
+
+/**
+	Rounds up v to the nearest integer divisible by mod. Usually used to
+	compute size of padded and aligned arrays.
+*/
+inline int roundUpModulo(int v, int mod)
+{
+	int r = v % mod;
+	int pitch = r ? v + (mod-r) : v;
+	return pitch;
+}
+
+/**
+	Computes the global linear ID of the thread. Used from kernels.
+*/
+inline __device__ uint32_t threadID()
+{
+	// NOTE: Supports 3D grids with 1D blocks of threads
+	const uint32_t id = ((blockIdx.z * gridDim.y + blockIdx.y) * gridDim.x + blockIdx.x) * blockDim.x + threadIdx.x;
+	return id;
+}
+
+/** ********************************************************************
+    cux API classes
+************************************************************************/
 
 /**
 	cuxException -- thrown if a CUDA-related error is detected
@@ -175,27 +208,6 @@ template<typename T, int dim = 1>
 		}
 	};
 
-#if 0
-/**
-	make_arrayPtr() -- load an allocated pointer and size information to arrayPtr
-
-	Construct an arrayPtr object out of an existing pointer and size. The size of
-	the first dimension must be in bytes, and include any padding that may exist.
-	
-	DEPRECATED: You should allocate arrays using cuxSmartPtr.
-*/
-template<typename T, int dim>
-	inline arrayPtr<T, dim> make_arrayPtr(T *data, uint32_t pitch, uint32_t ny = 1, uint32_t nz = 1)
-	{
-		arrayPtr<T, 3> ptr;
-		ptr.ptr = data;
-		if(dim > 1) { ptr.extent[0] = pitch; }
-		if(dim > 2) { ptr.extent[1] = ny; }
-		if(dim > 3) { ptr.extent[2] = nz; }
-		return ptr;
-	}
-#endif
-
 /**
 	cuxDevicePtr<T, dim, align> -- n-dimensional array on the device
 
@@ -214,50 +226,6 @@ template<typename T, int dim = 1, int align = 128>
 	struct cuxDevicePtr : public arrayPtr<T, dim>
 	{
 	protected:
-#if 0
-		void alloc(size_t nlastdim)
-		{
-			assert(dim <= 4); // not implemented for dim > 4
-
-			if(this->ptr) { return; }
-
-			switch(dim)
-			{
-				case 1:
-					alloc(nlastdim); break;
-				case 2:
-					alloc(this->extent[0], nlastdim); break;
-				case 3:
-					alloc(this->extent[0], this->extent[1], nlastdim); break;
-				default:
-					assert(dim <= 3);
-			}
-			}
-
-			size_t size;	// size of the memory to be transfered, in bytes
-
-			if(dim == 1) { size = nlastdim*sizeof(T); }
-			else
-			{
-				size = 1;
-				for(int i = 0; i != dim; i++)
-				{
-					size *= this->extent[i];
-				}
-			}
-
-			switch(direction)
-			{
-				case cudaMemcpyHostToDevice:
-					cuxErrCheck( cudaMemcpy(this->ptr, hostptr, size, cudaMemcpyHostToDevice) );
-					break;
-				case cudaMemcpyDeviceToHost:
-					cuxErrCheck( cudaMemcpy(hostptr, this->ptr, size, cudaMemcpyDeviceToHost) );
-					break;
-			}
-		}
-#endif
-
 		size_t memsize(size_t lastdim)
 		{
 			if(dim == 1) return lastdim*sizeof(T);

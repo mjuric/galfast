@@ -22,9 +22,8 @@
 
 #include "skygen.h"
 #include "analysis.h"
-#include "sph_polygon.h"
-#include "spline.h"
-#include "pipeline.h"
+#include "../sph_polygon.h"
+#include "../pipeline.h"
 
 #include <fstream>
 #include <iomanip>
@@ -115,61 +114,7 @@ protected:
 };
 extern "C" opipeline_stage *create_module_skygen() { return new os_skygen(); }	// Factory; called by opipeline_stage::create()
 
-/***********************************************************************/
-
-cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
-{
-	cuxTexture<float, 1> tex(2);
-	tex(0U) = val;
-	tex(1U) = val;
-	tex.coords[0].x = X0;
-	tex.coords[0].y = 1./(X1 - X0);
-	return tex;
-}
-
-cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
-{
-	spline tx;
-	tx.construct(X, Y, ndata);
-
-	// resample to texture
-	cuxTexture<float, 1> tex(nsamp);
-	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
-	for(int i=0; i != nsamp; i++)
-	{
-		tex(i) = tx(X0 + i*dX);
-	}
-
-	// construct 
-	tex.coords[0].x = X0;
-	tex.coords[0].y = 1./dX;
-	return tex;
-}
-
-cuxTexture<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
-{
-	// load the points from the file, and construct
-	// a spline to resample from
-	text_input_or_die(txin, fn);
-	std::vector<double> X, Y;
-	::load(txin, X, 0, Y, 1);
-
-	return construct_1D_texture_by_resampling(&X[0], &Y[0], X.size(), nsamp);
-}
-
-//
-// Return texcoord that will map x to imgx and y to imgy
-//
-float2 texcoord_from_range(float imgx, float imgy, float x, float y)
-{
-	float2 tc;
-
-	tc.x = (-imgy * x + imgx * y)/(imgx - imgy);
-	tc.y = (imgx - imgy) / (x - y);
-
-	return tc;
-}
-
+////////////////////////////////////////////////////////////////////////////////////
 
 int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION);
 Radians clip_zone_of_avoidance(std::list<sph_polygon> &poly, int npoly, const Config &cfg)
@@ -612,7 +557,7 @@ void resample_and_output_texture(const std::string &outfn, cuxTexture<float, 3> 
 	}
 }
 
-void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0req, Radians b0req)
+extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0req, Radians b0req)
 {
 	Radians l0, b0;
 	cuxTexture<float, 3> tex = load_extinction_map(texfn, l0, b0);

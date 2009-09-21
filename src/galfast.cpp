@@ -33,7 +33,7 @@ using namespace std;
 
 ///////////////////////////////////
 
-void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
+extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
 void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules);
 
 int main(int argc, char **argv)
@@ -137,7 +137,7 @@ try
 
 	/////// Application starts here
 
-	if(!cuda_init())
+	if(!cux_init())
 	{
 		MLOG(verb1) << "Error initializing GPU acceleration. Aborting.";
 		return -1;
@@ -150,7 +150,7 @@ try
 	}
 	if(cmd == "util resample3d")
 	{
-		resample_texture(output, input, crange, npix, deproject, rad(l0), rad(b0));
+		(output, input, crange, npix, deproject, rad(l0), rad(b0));
 		return 0;
 	}
 

@@ -22,19 +22,18 @@ else
 endif
 
 # set the include path found by configure
-INCLUDES = -I$(top_srcdir)/src/common $(all_includes)
+INCLUDES = -I$(top_srcdir)/src/common -I$(top_srcdir)/src/modules \
+	-I$(top_srcdir)/src/skygen $(all_includes)
 
 # the library search path.
-SUBDIRS = common gpc modules
+SUBDIRS = common gpc modules skygen
 
 # explicit dependency for CUDA sources
 include ./$(DEPDIR)/kernels_gpu.Po
 
-noinst_HEADERS = model_J08.h model_densityCube.h model_expDisk.h \
-	model_powerLawEllipsoid.h simulate_gpu.cu.h skyconfig_impl.h skygen.cu.h skygen.h sph_polygon.h \
-	pipeline.h
+noinst_HEADERS = simulate_gpu.cu.h sph_polygon.h pipeline.h
 galfast_x_SOURCES = footprint.cpp galfast.cpp kernels_cpu.cpp kernels_gpu.cu \
-	model_J08.cpp model_densityCube.cpp model_expDisk.cpp model_powerLawEllipsoid.cpp \
-	os_skygen.cpp pipeline.cpp tests.cpp
-galfast_x_LDADD = $(top_builddir)/src/modules/libmodules.la \
-	$(top_builddir)/src/common/libcommon.a $(top_builddir)/src/gpc/libgpc.a
+	pipeline.cpp tests.cpp
+galfast_x_LDADD = $(top_builddir)/src/skygen/libskygen.la \
+	$(top_builddir)/src/common/libcommon.a $(top_builddir)/src/gpc/libgpc.a \
+	$(top_builddir)/src/modules/libmodules.la

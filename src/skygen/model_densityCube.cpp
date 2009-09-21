@@ -24,7 +24,7 @@
 #include <fstream>
 
 #include "model_densityCube.h"
-#include "gdc.h"
+#include "../gdc.h"
 #include "skyconfig_impl.h"
 
 #include <astro/system/config.h>

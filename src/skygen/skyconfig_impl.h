@@ -20,7 +20,7 @@
 
 #include "skygen.h"
 #include "otable.h"
-#include "pipeline.h"
+#include "../pipeline.h"
 
 #include <iomanip>
 #include <ext/numeric>	// for iota
@@ -72,12 +72,13 @@ skyConfig<T>::skyConfig()
 	cpurng = NULL;
 
 	this->pixels = 0;
-	this->lock = 0;
+	this->nstars = 0;
 	this->counts = 0;
 	this->countsCovered = 0;
-	this->nstars = 0;
-	this->norm = 1.f;
+	this->rhoHistograms = 0;
+	this->maxCount = 0;
 
+	this->norm = 1.f;
 	this->ks.constructor();
 }
 
@@ -90,7 +91,6 @@ skyConfig<T>::~skyConfig()
 	delete [] cpu_state;
 	delete rng;
 
-	this->lock.free();
 	this->pixels.free();
 	this->counts.free();
 	this->countsCovered.free();
@@ -178,13 +178,8 @@ void skyConfig<T>::upload(bool draw)
 	// Upload pixels to be processed
 	this->pixels.upload(cpu_pixels, this->npixels);
 
-	// prepare locks and outputs
-	int zero = 0;
-
 	if(!draw)
 	{
-		this->lock.upload(&zero, 1);
-
 		this->rhoHistograms.alloc(this->nthreads*this->nhistbins);
 		cudaMemset(this->rhoHistograms.ptr, 0, this->nthreads*this->nhistbins*4);
 
@@ -198,6 +193,7 @@ void skyConfig<T>::upload(bool draw)
 	}
 	else
 	{
+		int zero = 0;
 		this->nstars.upload(&zero, 1);
 
 		this->stopstars = output_table_capacity;

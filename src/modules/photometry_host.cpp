@@ -61,7 +61,7 @@ protected:
 	std::string photoFlagsName;		// Name of the photometric flags field
 	std::vector<std::string> bnames;	// band names (e.g., LSSTr, LSSTg, SDSSr, V, B, R, ...)
 	std::vector<cuxTexture<float4, 2> > isochrones;	// Isochrone (stellar loci) texture
-	std::vector<cuxTexture<uint4, 2> > eflags;	// Flags
+	std::vector<cuxTexture<float4, 2> > eflags;	// Flags
 	std::pair<cuxTexture<float, 3>, cuxTexture<float, 3> > extinction;	// north/south extinction maps (for bootstrap band)
 
 protected:
@@ -242,11 +242,11 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		{
 			// add new texture
 			isochrones.push_back( cuxTexture<float4, 2>(nFeH, nMr, tcFeH, tcMr) );
-			    eflags.push_back(  cuxTexture<uint4, 2>(nFeH, nMr, tcFeH, tcMr) );
+			    eflags.push_back( cuxTexture<float4, 2>(nFeH, nMr, tcFeH, tcMr) );
 		}
 
 		cuxTexture<float4, 2> texc = isochrones.back();
-		cuxTexture<uint4, 2> texf  = eflags.back();
+		cuxTexture<float4, 2> texf  = eflags.back();
 
 		// go throught all texture pixels, Mr first
 		FORj(m, 0, nMr)

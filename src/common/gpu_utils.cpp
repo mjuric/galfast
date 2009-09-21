@@ -102,6 +102,14 @@ cuxSmartPtr_impl_t::allocated_pointers::~allocated_pointers()
 	if(!empty())
 	{
 		MLOG(verb1) << "ERROR: Memory leak -- " << size() << " cuxSmartPtr<> pointers were not deallocated\n";
+		int k = 0;
+		FOREACH(*this)
+		{
+			cuxSmartPtr_impl_t *p = *i;
+			MLOG(verb1) << "  " << k << ": " << p->m_width << " x " << p->m_data.extent[1] << " x " << p->m_data.extent[2]
+				<< " (elementSize=" << p->m_elementSize << ")";
+			k++;
+		}
 	}
 }
 

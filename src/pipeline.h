@@ -51,6 +51,7 @@ class opipeline_stage
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe) = 0;
 		virtual bool runtime_init(otable &t);
 		virtual size_t run(otable &t, rng_t &rng) = 0;
+		virtual ~opipeline_stage() {};
 
 		static const int PRIORITY_INPUT      = -10000;
 		static const int PRIORITY_STAR       =      0;

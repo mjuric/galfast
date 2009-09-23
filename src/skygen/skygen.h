@@ -55,10 +55,10 @@ struct skyConfigInterface
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenConfig &sc,
 		const skypixel *pixels) = 0;
-	virtual void initRNG(rng_t &rng) = 0;		// initialize the random number generator from CPU RNG
-	virtual double integrateCounts() = 0;		// return the expected starcounts contributed by this model
+	virtual void initRNG(rng_t &rng) = 0;			// initialize the random number generator from CPU RNG
+	virtual double integrateCounts(float &runtime) = 0;	// return the expected starcounts contributed by this model
 	virtual void setDensityNorm(float norm) = 0;
-	virtual size_t run(otable &in, osink *nextlink) = 0;
+	virtual size_t run(otable &in, osink *nextlink, float &runtime) = 0;
 	virtual ~skyConfigInterface() {};
 };
 
@@ -325,9 +325,8 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	dim3 gridDim, blockDim;		// CUDA grid dimension, block dimension
 	int shb;			// shared memory per block needed by skygen kernel
 	int output_table_capacity;	// number of rows in the output table
-	stopwatch swatch;
+	stopwatch swatch;		// runtime of this model (measured in integrateCounts() and run()).
 
-	int bufferSafetyMargin();
 	void upload_self(bool draw = false);
 
 	void compute(bool draw = false);
@@ -339,14 +338,14 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 
 	// external interface
 	virtual void initRNG(rng_t &rng);	// initialize the random number generator from CPU RNG
-	virtual double integrateCounts();	// return the expected starcounts contributed by this model
+	virtual double integrateCounts(float &runtime);	// return the expected starcounts contributed by this model
 	virtual void setDensityNorm(float norm);// set the density normalization of the model
 	virtual bool init(
 		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenConfig &sc,
 		const skypixel *pixels);
-	virtual size_t run(otable &in, osink *nextlink);
+	virtual size_t run(otable &in, osink *nextlink, float &runtime);
 };
 
 //

@@ -531,6 +531,7 @@ int otable::getSortedColumnsForOutput(std::vector<const columndef*> &outColumns)
 	field["vcyl"] = ord++;
 	field["pmlb"] = ord++;
 	field["pmradec"] = ord++;
+	field["Am"] = ord++;
 	std::sort(outColumns.begin(), outColumns.end(), pred_col_less(field));
 
 	return outColumns.size();

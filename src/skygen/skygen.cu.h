@@ -499,8 +499,7 @@ void skyConfig<T>::compute(bool draw)
 {
 	cuxErrCheck( cudaThreadSynchronize() );
 
-	swatch.reset();
-	swatch.start();
+	kernelRunSwatch.start();
 	if(draw)
 	{
 		draw_sky<T><<<gridDim, blockDim, shb>>>();
@@ -510,7 +509,7 @@ void skyConfig<T>::compute(bool draw)
 		compute_sky<T><<<gridDim, blockDim, shb>>>();
 	}
 	cuxErrCheck( cudaThreadSynchronize() );
-	swatch.stop();
+	kernelRunSwatch.stop();
 }
 
 #include "model_J08.h"

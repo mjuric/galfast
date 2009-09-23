@@ -758,14 +758,18 @@ DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
 
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
+	swatch.reset();
+	swatch.start();
+
 	cuxTextureBinder tb_north(::ext_north, ext_north);
 	cuxTextureBinder tb_south(::ext_south, ext_south);
 
 	double nstarsExpected = 0;
 	FOREACH(kernels)
 	{
+		float runtime;
 		(*i)->initRNG(rng);
-		nstarsExpected += (*i)->integrateCounts();
+		nstarsExpected += (*i)->integrateCounts(runtime);
 	}
 
 	//
@@ -795,10 +799,14 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 			);
 	}
 
+	swatch.stop();
+
 	size_t starsGenerated = 0;
 	FOREACH(kernels)
 	{
-		starsGenerated += (*i)->run(in, nextlink);
+		float runtime;
+		starsGenerated += (*i)->run(in, nextlink, runtime);
+		swatch.addTime(runtime);
 	}
 	return starsGenerated;
 }
@@ -870,6 +878,8 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const
 // the exact input sky footprint
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
+	swatch.start();
+
 	// fetch prerequisites
 	cint_t::host_t pIdx     = in.col<int>("projIdx");
 	cfloat_t::host_t projXY = in.col<float>("projXY");
@@ -912,6 +922,8 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	DLOG(verb1) << "nstars north: " << nstars[0];
 	DLOG(verb1) << "nstars south: " << nstars[1];
+
+	swatch.stop();
 
 	return nextlink->process(in, begin, end, rng);
 }

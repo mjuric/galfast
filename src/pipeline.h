@@ -33,7 +33,7 @@ class opipeline_stage
 {
 	protected:
 		std::set<std::string> prov, req;	// add here the fields required/provided by this modules, if using stock runtime_init() implementation
-		std::string uniqueId;			// a string uniquely identifying this module instance
+//		std::string uniqueId;			// a string uniquely identifying this module instance
 		stopwatch swatch;			// times how long it takes to process() this stage
 
 		osink *nextlink;
@@ -41,8 +41,8 @@ class opipeline_stage
 		void chain(osink *nl) { nextlink = nl; }
 		float getProcessingTime() { return swatch.getTime(); }
 
-		void setUniqueId(const std::string &uid) { uniqueId = uid; }
-		const std::string &getUniqueId() const { return uniqueId; }
+//		void setUniqueId(const std::string &uid) { uniqueId = uid; }
+//		const std::string &getUniqueId() const { return uniqueId; }
 
 	public:
 		static boost::shared_ptr<opipeline_stage> create(const std::string &name);
@@ -91,7 +91,9 @@ class opipeline
 		std::list<boost::shared_ptr<opipeline_stage> > stages;	// the pipeline (an ordered list of stages)
 
 	public:
-		void add(boost::shared_ptr<opipeline_stage> pipe) { stages.push_back(pipe); }
+		void add(const boost::shared_ptr<opipeline_stage> &pipe) { stages.push_back(pipe); }
+		bool create_and_add(const std::string &name, peyton::system::Config &modcfg, otable &t, const std::string &input = "", const std::string &output = "");
+
 		virtual size_t run(otable &t, rng_t &rng);
 
 		bool has_module_of_type(const std::string &type) const;

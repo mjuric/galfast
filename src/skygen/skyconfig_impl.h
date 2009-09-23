@@ -281,11 +281,14 @@ void skyConfig<T>::setDensityNorm(float norm_)	// set the density normalization 
 }
 
 template<typename T>
-double skyConfig<T>::integrateCounts()
+double skyConfig<T>::integrateCounts(float &runtime)
 {
 	//
 	// First pass: compute total expected starcounts
 	//
+	swatch.reset();
+	swatch.start();
+
 	upload(false);
 	compute(false);
 	download(false);
@@ -306,12 +309,13 @@ double skyConfig<T>::integrateCounts()
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb2) << ss.str();
 
-	MLOG(verb1) << "Expected starcount: " << std::setprecision(9) << this->nstarsExpected;
-	MLOG(verb2) << "Total expected star count: " <<
-		std::setprecision(9) << this->nstarsExpected <<
-		" (" << this->nstarsExpectedToGenerate << " in pixelized area)";
-	DLOG(verb1) << "Skygen kernel runtime: " << this->swatch.getAverageTime();
+	MLOG(verb1) << "Model starcount: " << std::setprecision(9) << this->nstarsExpected
+		<< " (" << this->nstarsExpectedToGenerate << " in pixelized area)";
 
+	swatch.stop();
+	runtime = swatch.getTime();
+	DLOG(verb1) << "integrateCounts() runtime: " << runtime << "s";
+	
 	return this->nstarsExpected;
 }
 
@@ -319,8 +323,11 @@ double skyConfig<T>::integrateCounts()
 // Draw the catalog
 //
 template<typename T>
-size_t skyConfig<T>::run(otable &in, osink *nextlink)
+size_t skyConfig<T>::run(otable &in, osink *nextlink, float &runtime)
 {
+	swatch.reset();
+	swatch.start();
+
 	this->output_table_capacity = in.capacity();
 
 	this->ks.alloc(this->nthreads);
@@ -381,12 +388,14 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 		}
 
 		DLOG(verb1) << "Skygen generated " << this->stars_generated << " stars ";
-		DLOG(verb1) << "Kernel runtime: " << this->swatch.getAverageTime();
+		//DLOG(verb1) << "Kernel runtime: " << swatch.getAverageTime();
 
+		swatch.stop();
 		if(in.size())
 		{
 			total += nextlink->process(in, 0, in.size(), *cpurng);
 		}
+		swatch.start();
 		
 		double pctdone = 100. * total / this->nstarsExpected;
 		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
@@ -397,6 +406,10 @@ size_t skyConfig<T>::run(otable &in, osink *nextlink)
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
 	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
+
+	swatch.stop();
+	runtime = swatch.getTime();
+	DLOG(verb1) << "run() runtime: " << runtime << "s";
 
 	return total;
 }

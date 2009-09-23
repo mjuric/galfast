@@ -24,8 +24,8 @@ class stopwatch
 {
 protected:
 	struct timeval  start_time;	// Start of measurement
-	float  diff_time;		// Time difference between the last start and stop
-	float  total_time;		// TOTAL time difference between starts and stops
+	float  diff_time;		// Time difference between the last start and stop (in ms)
+	float  total_time;		// TOTAL time difference between starts and stops (in ms)
 	bool running;			// flag if the stop watch is running
 	int clock_sessions;		// Number of times clock has been started and stopped (for averaging)
 
@@ -81,6 +81,13 @@ public:
 			retval += getDiffTime();
 		}
 		return 0.001 * retval;
+	}
+
+	// Add dt seconds of time to the counter. Does not increment the number of
+	// clock sessions
+	void addTime(const float dt)
+	{
+		total_time += 1000*dt;
 	}
 
 	// Time in msec. for a single run based on the total number of COMPLETED runs
@@ -207,7 +214,7 @@ typedef kernel_state otable_ks;
 				gpulaunch_##kName(__VA_ARGS__); \
 			} \
 			swatch.stop(); \
-			static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } \
+			if(0) { static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } } \
 		}
 #endif
 
@@ -223,7 +230,7 @@ typedef kernel_state otable_ks;
 		swatch.start(); \
 		cpulaunch_##kName(__VA_ARGS__); \
 		swatch.stop(); \
-		static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } \
+		if(0) { static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; } } \
 	}
 #endif
 

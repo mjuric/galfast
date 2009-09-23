@@ -34,7 +34,7 @@ using namespace std;
 ///////////////////////////////////
 
 extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
-void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules);
+void generate_catalog(int seed, std::set<std::string> modules, const std::string &input, const std::string &output);
 
 int main(int argc, char **argv)
 {
@@ -48,8 +48,8 @@ try
 	std::map<std::string, boost::shared_ptr<Options> > sopts;
 	Options opts(argv[0], progdesc, version, Authorship::majuric);
 	opts.argument("cmd").bind(cmd).desc(
-		"What to make. Can be one of:\n"
-		"postprocess - \tpostprocess the mock catalog (e.g., derive photometry, add instrumental errors, etc.)\n"
+		"What to do. Can be one of:\n\n"
+		"    catalog - \tcreate a mock catalog\n"
 		"       util - \tvarious utilities\n"
 					   );
 	opts.stop_after_final_arg = true;
@@ -58,14 +58,18 @@ try
 
 	Radians dx = 4.;
 
+	int seed = 19821129;
 	std::vector<std::string> modules;
-	std::string infile(""), outfile("");
-	sopts["postprocess"].reset(new Options(argv0 + " postprocess", progdesc + " Apply postprocessing steps to catalog sources.", version, Authorship::majuric));
-	sopts["postprocess"]->argument("conf").bind(input).desc("Postprocessing (\"postprocess.conf\") configuration file");
-	sopts["postprocess"]->argument("modules").bind(modules).optional().gobble().desc("List of postprocessing module configuration files (or module names)");
-	sopts["postprocess"]->option("i").addname("input").bind(infile).param_required().desc("Input catalog file");
-	sopts["postprocess"]->option("o").addname("output").bind(outfile).param_required().desc("Output catalog file");
-	sopts["postprocess"]->add_standard_options();
+	std::string
+		infile(""),
+		outfile("");
+	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Generate and postprocess a mock catalog.", version, Authorship::majuric));
+	sopts["catalog"]->argument("seed").bind(seed).desc("Seed for the random number generator");
+	sopts["catalog"]->argument("module").bind(input).desc("Module configuration file.");
+	sopts["catalog"]->argument("other_modules").bind(modules).optional().gobble().desc("More module configuration files.");
+	sopts["catalog"]->option("i").addname("input").bind(infile).param_required().desc("Input catalog file");
+	sopts["catalog"]->option("o").addname("output").bind(outfile).param_required().desc("Output catalog file");
+	sopts["catalog"]->add_standard_options();
 
 	std::string util_cmd;
 	sopts["util"].reset(new Options(argv0 + " util", progdesc + " Utilities subcommand.", version, Authorship::majuric));
@@ -157,12 +161,13 @@ try
 	ifstream in(input.c_str());
 	if(!in) { THROW(EFile, "Error accessing " + input + "."); }
 
-	if(cmd == "postprocess")
+	if(cmd == "catalog")
 	{
-		// ./galfast.x postprocess postprocess.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
+		// ./galfast.x catalog catalog.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
 		std::set<std::string> mset;
+		mset.insert(input);
 		mset.insert(modules.begin(), modules.end());
-		postprocess_catalog(input, infile, outfile, mset);
+		generate_catalog(seed, mset, infile, outfile);
 	}
 	else
 	{

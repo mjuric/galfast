@@ -59,7 +59,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>postprocess postprocess.conf skygen.conf fitsout.conf</globaldebugarguments>
+      <globaldebugarguments>catalog 111 skygen.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>

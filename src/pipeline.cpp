@@ -91,6 +91,8 @@ struct mask_output : otable::mask_functor
 
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
+	swatch.start();
+
 	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
 	if(!headerWritten)
@@ -101,10 +103,9 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 		headerWritten = true;
 	}
 
-	swatch.start();
 
 	size_t nserialized = 0;
-#if 1
+
 	if(t.using_column("hidden"))
 	{
 		cint_t::host_t   hidden = t.col<int>("hidden");
@@ -114,11 +115,11 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	{
 		nserialized = t.serialize_body(out.out(), from, to);
 	}
-#endif
-	swatch.stop();
-	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
 	if(!out.out()) { THROW(EIOException, "Error outputing data"); }
+
+	swatch.stop();
+	//static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
 	return nserialized;
 }
@@ -340,7 +341,7 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 	fits_delete_rows(fptr, nrows + st.rowswritten + 1, to-from-st.rowswritten, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
 
 	swatch.stop();
-	static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
+	//static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 
 	if(status != 0) { fits_report_error(stderr, status); }
 
@@ -435,7 +436,7 @@ size_t os_textin::run(otable &t, rng_t &rng)
 		swatch.stop();
 		if(t.size() > 0)
 		{
-			static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
+			//static bool firstTime = true; if(firstTime) { swatch.reset(); kernelRunSwatch.reset(); firstTime = false; }
 			total += nextlink->process(t, 0, t.size(), rng);
 		}
 	} while(in.in());
@@ -578,12 +579,12 @@ size_t opipeline::run(otable &t, rng_t &rng)
 
 	int ret = source->run(t, rng);
 
-	DLOG(verb2) << "Postprocessing times:";
+	MLOG(verb2) << "Module runtimes:";
 	FOREACH(pipeline)
 	{
-		DLOG(verb2) << io::format("  %10s: %f") << (*i)->name() << (*i)->getProcessingTime();
+		MLOG(verb2) << io::format("  %17s: %f") << (*i)->name() << (*i)->getProcessingTime();
 	}
-	DLOG(verb2) << "Pure kernel run time: " << kernelRunSwatch.getTime();
+	MLOG(verb2) << "GPU kernels runtime: " << kernelRunSwatch.getTime();
 
 	return ret;
 }
@@ -597,13 +598,35 @@ bool opipeline::has_module_of_type(const std::string &type) const
 	return false;
 }
 
-void postprocess_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules)
+bool opipeline::create_and_add(const std::string &name, Config &modcfg, otable &t, const std::string &input, const std::string &output)
 {
-	Config cfg; cfg.load(conffn);
+	// create the module
+	boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
+	if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
+
+	/**
+		Convenience: allow the user to override the default input/output
+		specified in input/output module configuration files from the
+		command line.
+	*/
+	if(stage->type() == "input"  && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
+	if(stage->type() == "output" && !output.empty()) { modcfg.insert(make_pair("filename", output)); }
+
+	// allow the module to construct itself from the command line
+	if(!stage->construct(modcfg, t, *this)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
+	DLOG(verb2) << "module loaded: " << name << " (type: " << stage->type() << ")";
+
+	add(stage);
+}
+
+void generate_catalog(int seed, std::set<std::string> modules, const std::string &input, const std::string &output)
+//void generate_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules)
+{
+/*	Config cfg; cfg.load(conffn);
 
 	int seed;
 	std::string inmod, outmod;
-	cfg.get(seed,	  "seed", 	  42);
+	cfg.get(seed,	  "seed", 	  42);*/
 	rng_gsl_t rng(seed);
 
 	// output table
@@ -619,12 +642,13 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	EnvVar kb("KBATCH");
 	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
 
-	DLOG(verb1) << "Postprocessing in batches of " << Kbatch << " objects";
+	DLOG(verb1) << "Processing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 
 	std::string name;
 	std::ostringstream msg;
 
+#if 0
 	// merge in any modules with module.<module_name>.XXXX present and
 	// module.<module_name>.enabled != 0. Configuration will be read from
 	// module.<module_name>.XXXX keys.
@@ -645,6 +669,7 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 	}
 	modules.insert(smodules.begin(), smodules.end());
 	//DLOG(verb2) << "Adding modules from config file:" << msg.str();
+#endif
 
 	// merge-in modules with options given in the config file
 	opipeline pipe;
@@ -663,48 +688,72 @@ void postprocess_catalog(const std::string &conffn, const std::string &input, co
 		}
 		else
 		{
+			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
+#if 0
 			// load from subkeys
 			cfg.get_subset(modcfg, "module." + cffn + ".", true);
 			modcfg.insert(make_pair("module", cffn));
 
 			// get module name, in case the user is using module.name{uniqident}.xxx syntax
 			name = cffn.substr(0, cffn.find('{'));
+#endif
 		}
 
+#if 0
+		// create the module
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
 
-		stage->setUniqueId(modcfg["module"]);
+//		stage->(modcfg["module"]);
 
-		if(stage->type() == "input" && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
+		/**
+			Convenience: allow the user to override the default input/output
+			specified in input/output module configuration files from the
+			command line.
+		*/
+		if(stage->type() == "input"  && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
 		if(stage->type() == "output" && !output.empty()) { modcfg.insert(make_pair("filename", output)); }
 
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
-		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
+		// allow the module to construct itself from the command line
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
+		DLOG(verb2) << "module loaded: " << name << " (type: " << stage->type() << ")";
 
 		pipe.add(stage);
+#else
+		pipe.create_and_add(name, modcfg, t, input, output);
+#endif
 	}
 
-	// set default I/O, if not overriden by othe modules
+	// Add default I/O modules, if no I/O modules were found above
 	if(!pipe.has_module_of_type("input"))
 	{
+#if 0
 		name = "textin";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		if(!input.empty()) modcfg.insert(make_pair("filename", input));
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
 		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
+#else
+		Config modcfg;
+		pipe.create_and_add("textin", modcfg, t, input, output);
+#endif
 	}
 	if(!pipe.has_module_of_type("output"))
 	{
+#if 0
 		name = "textout";
 		Config modcfg;
 		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
 		if(!output.empty()) modcfg.insert(make_pair("filename", output));
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize output pipeline stage '" + name + "'"); }
+		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
 		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
 		pipe.add(stage);
+#else
+		Config modcfg;
+		pipe.create_and_add("textout", modcfg, t, input, output);
+#endif
 	}
 
 	int nstars = pipe.run(t, rng);

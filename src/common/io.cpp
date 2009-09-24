@@ -30,6 +30,18 @@
 
 #include "io.h"
 
+// 'normalize' a keyword by turning it lower case and removing any non-alphanumeric characters
+std::string normalizeKeyword(const std::string &s)
+{
+	std::string ret;
+	FOREACH(s)
+	{
+		if(!isalnum(*i)) { continue; }
+		ret += tolower(*i);
+	}
+	return ret;
+}
+
 // Get the autoconf/automake set datadir
 const std::string &datadir()
 {

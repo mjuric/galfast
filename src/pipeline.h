@@ -92,7 +92,11 @@ class opipeline
 
 	public:
 		void add(const boost::shared_ptr<opipeline_stage> &pipe) { stages.push_back(pipe); }
-		bool create_and_add(const std::string &name, peyton::system::Config &modcfg, otable &t, const std::string &input = "", const std::string &output = "");
+		bool create_and_add(
+			peyton::system::Config &modcfg, otable &t,
+			size_t maxstars, size_t nstars,
+			const std::string &models, const std::string &foots, const std::string &extmaps,
+			const  std::string &input, const std::string &output);
 
 		virtual size_t run(otable &t, rng_t &rng);
 

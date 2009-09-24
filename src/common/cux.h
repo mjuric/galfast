@@ -975,9 +975,16 @@ template<typename T, typename Texref>
 /**
 	texture loading/construction utilities
 */
-cuxTexture<float, 1> construct_1D_texture_by_resampling	(double *X, double *Y, int ndata, int nsamp = 1024);
-cuxTexture<float, 1> load_constant_texture			(float val, float X0 = -100, float X1 = 100);
-cuxTexture<float, 1> load_and_resample_1D_texture		(const char *fn, int nsamp = 1024);
+cuxTexture<float, 1> construct_texture_by_resampling_1D	(double *X, double *Y, int ndata, int nsamp = 1024);
+cuxTexture<float, 1> load_constant_texture_1D			(float val, float x0, float x1);
+cuxTexture<float, 3> load_constant_texture_3D(
+	float val,
+	float x0, float x1,	// range of x texture coordinates [x0,x1]->[0,nx-1]
+	float y0, float y1,
+	float z0, float z1
+);
+cuxTexture<float, 1> load_and_resample_texture_1D		(const char *fn, int nsamp = 1024);
+
 float2		     texcoord_from_range			(float imgx, float imgy, float x, float y);
 
 /**

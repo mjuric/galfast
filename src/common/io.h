@@ -24,6 +24,7 @@
 #include <iostream>
 #include <boost/iostreams/filtering_stream.hpp>
 
+std::string normalizeKeyword(const std::string &s); // 'normalize' a keyword by turning it lower case and removing any non-alphanumeric characters
 const std::string &datadir(); // return the path to built-in datafiles (TODO: move it to someplace where it belongs)
 
 class flex_output

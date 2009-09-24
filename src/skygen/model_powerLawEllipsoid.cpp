@@ -125,11 +125,11 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 
 	if(cfg.count("lumfunc"))
 	{
-		hstate.lf = load_and_resample_1D_texture(cfg["lumfunc"].c_str());
+		hstate.lf = load_and_resample_texture_1D(cfg["lumfunc"].c_str());
 	}
 	else
 	{
-		hstate.lf = load_constant_texture(1.f);
+		hstate.lf = load_constant_texture_1D(1.f, -100., 100.);
 	}
 }
 

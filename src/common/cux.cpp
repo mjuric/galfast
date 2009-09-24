@@ -274,7 +274,7 @@ void cuxSmartPtr_impl_t::unbind_texture(textureReference &texref)
 // texture load and creation utilities
 //
 
-cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
+cuxTexture<float, 1> load_constant_texture_1D(float val, float X0, float X1)
 {
 	cuxTexture<float, 1> tex(2);
 	tex(0U) = val;
@@ -284,7 +284,23 @@ cuxTexture<float, 1> load_constant_texture(float val, float X0, float X1)
 	return tex;
 }
 
-cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, int ndata, int nsamp)
+cuxTexture<float, 3> load_constant_texture_3D(
+	float val,
+	float x0, float x1,
+	float y0, float y1,
+	float z0, float z1
+)
+{
+	float2 tcx = make_float2(x0, 1./(x1-x0)), tcy = make_float2(y0, 1./(y1-y0)), tcz = make_float2(z0, 1./(z1-z0));
+	cuxTexture<float, 3> tex(2, 2, 2, tcx, tcy, tcz);
+
+	FORj(i, 0, 2) FORj(j, 0, 2) FORj(k, 0, 2)
+		tex(i, j, k) = val;
+
+	return tex;
+}
+
+cuxTexture<float, 1> construct_texture_by_resampling_1D(double *X, double *Y, int ndata, int nsamp)
 {
 	spline tx;
 	tx.construct(X, Y, ndata);
@@ -303,7 +319,7 @@ cuxTexture<float, 1> construct_1D_texture_by_resampling(double *X, double *Y, in
 	return tex;
 }
 
-cuxTexture<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
+cuxTexture<float, 1> load_and_resample_texture_1D(const char *fn, int nsamp)
 {
 	// load the points from the file, and construct
 	// a spline to resample from
@@ -311,7 +327,7 @@ cuxTexture<float, 1> load_and_resample_1D_texture(const char *fn, int nsamp)
 	std::vector<double> X, Y;
 	::load(txin, X, 0, Y, 1);
 
-	return construct_1D_texture_by_resampling(&X[0], &Y[0], X.size(), nsamp);
+	return construct_texture_by_resampling_1D(&X[0], &Y[0], X.size(), nsamp);
 }
 
 //

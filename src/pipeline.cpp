@@ -479,12 +479,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 			THROW(EAny, err);
 		}
 
-		std::string factory_name = "create_module_";
-		FOREACH(name)
-		{
-			if(!isalnum(*i)) { continue; }
-			factory_name += tolower(*i);
-		}
+		std::string factory_name = "create_module_" + normalizeKeyword(name);
 
 		DLOG(verb2) << "Looking for " << factory_name << " factory function (for module '" << name << "')";
 		moduleFactory_t factory = (moduleFactory_t)dlsym(me, factory_name.c_str());
@@ -598,164 +593,122 @@ bool opipeline::has_module_of_type(const std::string &type) const
 	return false;
 }
 
-bool opipeline::create_and_add(const std::string &name, Config &modcfg, otable &t, const std::string &input, const std::string &output)
+bool opipeline::create_and_add(
+	Config &modcfg, otable &t,
+	size_t maxstars, size_t nstars,
+	const std::string &models, const std::string &foots, const std::string &extmaps,
+	const std::string &input, const std::string &output
+)
 {
 	// create the module
-	boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-	if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
+	std::string module = modcfg["module"];
+	boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create( module ) );
+	if(!stage) { THROW(EAny, "Module " + module + " unknown or failed to load."); }
 
 	/**
 		Convenience: allow the user to override the default input/output
 		specified in input/output module configuration files from the
 		command line.
 	*/
-	if(stage->type() == "input"  && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
-	if(stage->type() == "output" && !output.empty()) { modcfg.insert(make_pair("filename", output)); }
+	if(stage->type() == "input")
+	{
+		if(!input.empty()) { modcfg.insert(make_pair("filename", input)); } // override only if explicitly given
+		modcfg.insert(make_pair("model", models));
+		modcfg.insert(make_pair("foot", foots));
+		modcfg.insert(make_pair("maxstars", str(maxstars)));
+		modcfg.insert(make_pair("nstars", str(nstars)));
+		modcfg.insert(make_pair("extmaps", extmaps));
+	}
+	if(stage->type() == "output" && !output.empty())
+	{
+		modcfg.insert(make_pair("filename", output));
+	}
 
 	// allow the module to construct itself from the command line
-	if(!stage->construct(modcfg, t, *this)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
-	DLOG(verb2) << "module loaded: " << name << " (type: " << stage->type() << ")";
+	if(!stage->construct(modcfg, t, *this)) { THROW(EAny, "Failed to initialize module '" + module + "'"); }
+	DLOG(verb2) << "module loaded: " << module << " (type: " << stage->type() << ")";
 
 	add(stage);
 }
 
-void generate_catalog(int seed, std::set<std::string> modules, const std::string &input, const std::string &output)
-//void generate_catalog(const std::string &conffn, const std::string &input, const std::string &output, std::set<std::string> modules)
+void generate_catalog(int seed, size_t maxstars, size_t nstars, std::set<std::string> modules, const std::string &input, const std::string &output)
 {
-/*	Config cfg; cfg.load(conffn);
-
-	int seed;
-	std::string inmod, outmod;
-	cfg.get(seed,	  "seed", 	  42);*/
 	rng_gsl_t rng(seed);
 
-	// output table
-//	static const size_t Kbatch = 99999;
-//	static const size_t Kbatch = 500000;
-//	static const size_t Kbatch = 2500000 / 2;
-//	static const size_t Kbatch = 735000;
-//	static const size_t Kbatch = 5000000;
-//	static const size_t Kbatch = 23;
-
+	// output table setup
 	// HACK: Kbatch should be read from skygen.conf, or auto-computed to maximize memory use otherwise
 	size_t Kbatch = 5000000;
 	EnvVar kb("KBATCH");
 	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
-
 	DLOG(verb1) << "Processing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 
-	std::string name;
-	std::ostringstream msg;
-
-#if 0
-	// merge in any modules with module.<module_name>.XXXX present and
-	// module.<module_name>.enabled != 0. Configuration will be read from
-	// module.<module_name>.XXXX keys.
-	std::set<std::string> keys, smodules;
-	cfg.get_matching_keys(keys, "module\\.[a-zA-Z0-9_}{]+\\..*$");
-	FOREACH(keys)
-	{
-		const std::string &key = *i;
-		name = key.substr(key.find('.')+1);
-		name = name.substr(0, name.find('.'));
-		//std::cerr << "key = " << key << " name=" << name << "\n";
-
-		std::string enkey = "module." + name + ".enabled";
-		if(cfg.count(enkey) && !cfg[enkey].vbool()) { continue; } // skip the disabled modules
-
-		if(!smodules.count(name)) { msg << " " << name; }
-		smodules.insert(name);
-	}
-	modules.insert(smodules.begin(), smodules.end());
-	//DLOG(verb2) << "Adding modules from config file:" << msg.str();
-#endif
-
-	// merge-in modules with options given in the config file
-	opipeline pipe;
-
+	// load all module config files and detect and set aside
+	// models and footprints
+	std::list<Config> module_configs;
+	std::string models, foots, extmaps;
 	FOREACH(modules)
 	{
 		const std::string &cffn = *i;
 
-		Config modcfg;
-		if(file_exists(cffn))
+		if(!file_exists(cffn))
 		{
-			// load from filename
-			modcfg.load(cffn);
-			if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
-			name = modcfg["module"];
+			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
+		}
+
+		// load from file
+		Config modcfg(cffn);
+
+		if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
+		std::string module = normalizeKeyword(modcfg["module"]);
+
+		// set aside "special" modules -- models and footprints
+		if(module == "model")
+		{
+			if(!models.empty()) { models += " "; }
+			models += cffn;
+		}
+		else if(module == "footprint")
+		{
+			if(!foots.empty()) { foots += " "; }
+			foots += cffn;
+		}
+		else if(module == "extinction")
+		{
+			if(!extmaps.empty()) { extmaps += " "; }
+			extmaps += cffn;
 		}
 		else
 		{
-			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
-#if 0
-			// load from subkeys
-			cfg.get_subset(modcfg, "module." + cffn + ".", true);
-			modcfg.insert(make_pair("module", cffn));
-
-			// get module name, in case the user is using module.name{uniqident}.xxx syntax
-			name = cffn.substr(0, cffn.find('{'));
-#endif
+			module_configs.push_back(modcfg);
 		}
+	}
+	MLOG(verb1) << "Models: " << (models.empty() ? "<none>" : models);
+	MLOG(verb1) << "Footprints: " << (foots.empty() ? "<none>" : foots);
+	MLOG(verb1) << "Extinction maps: " << (extmaps.empty() ? "<none>" : extmaps);
 
-#if 0
-		// create the module
-		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-		if(!stage) { THROW(EAny, "Module " + name + " unknown or failed to load."); }
-
-//		stage->(modcfg["module"]);
-
-		/**
-			Convenience: allow the user to override the default input/output
-			specified in input/output module configuration files from the
-			command line.
-		*/
-		if(stage->type() == "input"  && !input.empty())  { modcfg.insert(make_pair("filename", input)); }
-		if(stage->type() == "output" && !output.empty()) { modcfg.insert(make_pair("filename", output)); }
-
-		// allow the module to construct itself from the command line
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
-		DLOG(verb2) << "module loaded: " << name << " (type: " << stage->type() << ")";
-
-		pipe.add(stage);
-#else
-		pipe.create_and_add(name, modcfg, t, input, output);
-#endif
+	// Create the modules and construct the pipeline
+	opipeline pipe;
+	FOREACH(module_configs)
+	{
+		pipe.create_and_add(*i, t, maxstars, nstars, models, foots, extmaps, input, output);
 	}
 
 	// Add default I/O modules, if no I/O modules were found above
 	if(!pipe.has_module_of_type("input"))
 	{
-#if 0
-		name = "textin";
 		Config modcfg;
-		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-		if(!input.empty()) modcfg.insert(make_pair("filename", input));
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
-		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
-		pipe.add(stage);
-#else
-		Config modcfg;
-		pipe.create_and_add("textin", modcfg, t, input, output);
-#endif
+		modcfg.insert(std::make_pair("module", "textin"));
+		pipe.create_and_add(modcfg, t, maxstars, nstars, models, foots, extmaps, input, output);
 	}
 	if(!pipe.has_module_of_type("output"))
 	{
-#if 0
-		name = "textout";
 		Config modcfg;
-		boost::shared_ptr<opipeline_stage> stage( opipeline_stage::create(name) );
-		if(!output.empty()) modcfg.insert(make_pair("filename", output));
-		if(!stage->construct(modcfg, t, pipe)) { THROW(EAny, "Failed to initialize module '" + name + "'"); }
-		DLOG(verb2) << "postprocessing module loaded: " << name << " (type: " << stage->type() << ")";
-		pipe.add(stage);
-#else
-		Config modcfg;
-		pipe.create_and_add("textout", modcfg, t, input, output);
-#endif
+		modcfg.insert(std::make_pair("module", "textout"));
+		pipe.create_and_add(modcfg, t, maxstars, nstars, models, foots, extmaps, input, output);
 	}
 
-	int nstars = pipe.run(t, rng);
-	MLOG(verb2) << "Observing pipeline generated " << nstars << " point sources.";
+	// execute the pipeline
+	int nstarsGenerated = pipe.run(t, rng);
+	MLOG(verb2) << "Observing pipeline generated " << nstarsGenerated << " point sources.";
 }

@@ -126,12 +126,12 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 	// Load binary fraction
 	if(!binaryFractionFile.empty())
 	{
-		secProb = load_and_resample_1D_texture(binaryFractionFile.c_str(), 64);
+		secProb = load_and_resample_texture_1D(binaryFractionFile.c_str(), 64);
 	}
 	else
 	{
 		// 100% binary fraction across all plausible absolute magnitudes
-		secProb = load_constant_texture(1, -100, +100);
+		secProb = load_constant_texture_1D(1, -100, +100);
 	}
 
 	// Load luminosity function
@@ -177,8 +177,8 @@ bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &
 
 	// NOTE: WARNING: because of resampling, invCumLF(cumLF(x)) != x,
 	// so DONT EVER DEPEND ON IT!
-	cumLF    = construct_1D_texture_by_resampling(&xcum[0], &ycum[0], xcum.size(), NPIX);
-	invCumLF = construct_1D_texture_by_resampling(&ycum[0], &xcum[0], xcum.size(), NPIX);
+	cumLF    = construct_texture_by_resampling_1D(&xcum[0], &ycum[0], xcum.size(), NPIX);
+	invCumLF = construct_texture_by_resampling_1D(&ycum[0], &xcum[0], xcum.size(), NPIX);
 	//FOR(0, xcum.size()) { std::cerr << xcum[i] << " " << ycum[i] << " " << cumLFManager.sample(xcum[i]) << "\n"; }
 
 // 	for(float u=0; u <=1; u += 0.01)

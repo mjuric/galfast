@@ -24,6 +24,7 @@
 #include "analysis.h"
 #include "../sph_polygon.h"
 #include "../pipeline.h"
+#include "io.h"
 
 #include <fstream>
 #include <iomanip>
@@ -95,7 +96,7 @@ class os_skygen : public osource
 {
 protected:
 	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
-	size_t nstarLimit;	// maximum number of stars to generate
+	size_t maxstars;	// maximum number of stars to generate
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
 	cuxTexture<float, 3>	ext_north, ext_south;	// north/south extinction maps
 
@@ -277,6 +278,10 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 
 	std::vector<std::string> footstr;
 	split(footstr, footprints);
+	if(footstr.empty())
+	{
+		THROW(EAny, "No observational footprint specifications given. Aborting");
+	}
 	FOREACH(footstr)
 	{
 		Config cfg(*i);									// load footprint config
@@ -310,12 +315,7 @@ skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 		THROW(EAny, err);
 	}
 
-	std::string factory_name = "create_model_";
-	FOREACH(model)
-	{
-		if(!isalnum(*i)) { continue; }
-		factory_name += tolower(*i);
-	}
+	std::string factory_name = "create_model_" + normalizeKeyword(model);
 
 	modelFactory_t factory = (modelFactory_t)dlsym(me, factory_name.c_str());
 	if(factory)
@@ -354,6 +354,10 @@ int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model
 	// and configure the correct skyConfig kernels
 	std::vector<std::string> models;
 	split(models, model_cfg_list);
+	if(models.empty())
+	{
+		THROW(EAny, "No density models given. Aborting");
+	}
 	FOREACH(models)
 	{
 		Config cfg(*i);		// model configuration file
@@ -650,50 +654,62 @@ extern "C" void resample_texture(const std::string &outfn, const std::string &te
 	MLOG(verb2) << "Resampled.";
 }
 
-bool load_extinction_maps(cuxTexture<float, 3> &ext_north, cuxTexture<float, 3> &ext_south, const std::string &econf)
+/**
+	Load north and south extinction textures based on the configuration
+	found in econf.
+*/
+void os_skygen::load_extinction_maps(const std::string &econf)
 {
-	if(!econf.size())	// no extinction
-	{
-		cuxSmartPtr<float> tex(2, 2, 2);
-		FORj(i, 0, 2) FORj(j, 0, 2) FORj(k, 0, 2)
-			tex(i, j, k) = 0.f;
-		float2 tc = make_float2(-2, 1./4.);
+	cuxTexture<float, 3> zeroExtinctionTex = load_constant_texture_3D(0., -2., 2., -2., 2., -2., 2.);
+	ext_south = ext_north = zeroExtinctionTex;
 
-		ext_south = ext_north = cuxTexture<float, 3>(tex, tc);
+	// zero extinction if extinction unspecified
+	if(econf.empty()) { return; }
 
-		MLOG(verb2) << "Extinction maps not given, assuming no extinction.";
+#if !HAVE_LIBCFITSIO
 
-		return false;
-	}
-
-	// load 3D FITS file
-#if HAVE_LIBCFITSIO
-	// econf format: <ext_north.fits> <ext_south.fits> [scaling_factor]
-	std::string northfn, southfn;
-	std::istringstream ss(econf);
-	if(!(ss >> northfn >> southfn))
-	{
-		THROW(EAny, "'<ext_north.fits> <ext_south.fits> [scaling_factor]' format expected for extinction map specification (keyword 'econf')");
-	}
-	float scale = 1.f;
-	ss >> scale;
+	THROW(EAny, "Cannot load extinction maps; recompile with FITS I/O support.");
+#else
+	// load the extinction maps from config file
+	Config cfg;
+	std::string northfn = cfg.get("north");
+	std::string southfn = cfg.get("south");
+	float scale;
+	cfg.get(scale, "scale", 1.f);
 
 	Radians l0, b0;
-	ext_north = load_extinction_map(northfn, l0, b0);
-	if(
-		(l0 != -100. && fabs(l0 - ctn::halfpi) > 1e-5) ||
-		(b0 != -100. && fabs(b0 - ctn::halfpi) > 1e-5)
-	)
+	if(northfn.empty())
 	{
-		MLOG(verb1) << "WARNING: Expecting l=90, b=90 as pole of northern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+		MLOG(verb2) << "WARNING: Extinction for northern hemisphere unspecified. Assuming zero.";
+		northfn = "<none>";
 	}
-	ext_south = load_extinction_map(southfn, l0, b0);
-	if(
-		(l0 != -100. && fabs(l0 + ctn::halfpi) > 1e-5) ||
-		(b0 != -100. && fabs(b0 + ctn::halfpi) > 1e-5)
-	)
+	else
 	{
-		MLOG(verb1) << "WARNING: Expecting l=-90, b=-90 as pole of southern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+		ext_north = load_extinction_map(northfn, l0, b0);
+		if(
+			(l0 != -100. && fabs(l0 - ctn::halfpi) > 1e-5) ||
+			(b0 != -100. && fabs(b0 - ctn::halfpi) > 1e-5)
+		)
+		{
+			MLOG(verb1) << "WARNING: Expecting l=90, b=90 as pole of northern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+		}
+	}
+
+	if(southfn.empty())
+	{
+		MLOG(verb2) << "WARNING: Extinction for southern hemisphere unspecified. Assuming zero.";
+		southfn = "<none>";
+	}
+	else
+	{
+		ext_south = load_extinction_map(southfn, l0, b0);
+		if(
+			(l0 != -100. && fabs(l0 + ctn::halfpi) > 1e-5) ||
+			(b0 != -100. && fabs(b0 + ctn::halfpi) > 1e-5)
+		)
+		{
+			MLOG(verb1) << "WARNING: Expecting l=-90, b=-90 as pole of southern hemisphere projection. Got " << deg(l0) << " " << deg(b0) << " instead.";
+		}
 	}
 
 	FOREACH(ext_north) { *i *= scale; }
@@ -704,40 +720,18 @@ bool load_extinction_maps(cuxTexture<float, 3> &ext_north, cuxTexture<float, 3> 
 	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
 	MLOG(verb2) << "Ext. scale factor: " << scale << "\n";
 
-#if 0	// debug -- resample the north sky into a text file
-	float2 crange[3];
-	int npix[3];
-	crange[0] = make_float2(-2, 2);
-	crange[1] = make_float2(-2, 2);
-	crange[2] = make_float2(0, 30);
-	npix[0] = 20;
-	npix[1] = 30;
-	npix[2] = 40;
-	resample_and_output_texture("northAr.txt", ext_north, tc_ext_north, crange, npix, NULL);
-	abort();
-#endif
-
-#else // HAVE_LIBCFITSIO
-	THROW(EAny, "Cannot load extinction maps from FITS files; recompile with FITS I/O support.");
-#endif // HAVE_LIBCFITSIO
-
-	return true;
-}
-
-void os_skygen::load_extinction_maps(const std::string &econf)
-{
-	::load_extinction_maps(ext_north, ext_south, econf);
+#endif // #else !HAVE_LIBCFITSIO
 }
 
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// maximum number of stars skygen is allowed to generate (0 for unlimited)
-	cfg.get(nstarLimit, "nstarlimit", (size_t)100*1000*1000);
+	cfg.get(maxstars, "maxstars", (size_t)100*1000*1000);
 	// mean number of stars skygen should generate (0 to leave it to the model to determine this)
 	cfg.get(nstars, "nstars", 0.f);
 
 	// load extinction volume maps
-	load_extinction_maps(cfg["extinction"]);
+	load_extinction_maps(cfg["extmaps"]);
 
 	// load PDF/sky pixelization config and prepare the table for output
 	skygenConfig sc;
@@ -791,11 +785,11 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 	//
 	// Stop if the expected number of stars is more than the limit
 	//
-	if(nstarsExpected > nstarLimit && nstarLimit != 0)
+	if(nstarsExpected > maxstars && maxstars != 0)
 	{
 		THROW(EAny, "The expected number of generated stars (" + str(nstarsExpected) + ") "
-			"exceeds the configuration limit (" + str(nstarLimit) + "). Increase "
-			"nstarlimit or set to zero for unlimited."
+			"exceeds the configuration limit (" + str(maxstars) + "). Increase "
+			"maxstars or set to zero for unlimited."
 			);
 	}
 

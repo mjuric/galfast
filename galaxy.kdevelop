@@ -53,20 +53,20 @@
         <merge_volumes.x/>
         <fitscatread.x/>
         <mlcolor.x/>
-        <galfast.x></galfast.x>
+        <galfast.x/>
         <locusfit.x/>
         <fitter.x/>
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog 111 skygen.conf</globaldebugarguments>
+      <globaldebugarguments>catalog 111 skygen.conf FeH.66f506.conf photometry.a69e1d.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
       <debugarguments>
         <selector.x/>
-        <galfast.x></galfast.x>
+        <galfast.x/>
       </debugarguments>
       <cwd>
         <selector.x>/home/mjuric/projects/galaxy/galaxy/debug/./src</selector.x>

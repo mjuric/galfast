@@ -20,9 +20,8 @@
 
 #include "config.h"
 
-#include "module_lib.h"
 #include "../pipeline.h"
-#include "photometry_gpu.cu.h"
+#include "photometry.h"
 
 #include "spline.h"
 #include "analysis.h"

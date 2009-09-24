@@ -20,7 +20,6 @@
 
 #include "config.h"
 
-#include "module_lib.h"
 #include "../pipeline.h"
 #include "FeH_gpu.cu.h"
 

@@ -29,7 +29,7 @@
 
 /***********************************************************************/
 
-// aux. class for sorting the rows. Used in skyConfig<T>::run().
+// aux. class for sorting the rows. Used in skygenHost<T>::drawSources().
 struct star_comp
 {
 	cdouble_t::host_t	lb;
@@ -62,7 +62,7 @@ struct star_comp
 };
 
 template<typename T>
-skyConfig<T>::skyConfig()
+skygenHost<T>::skygenHost()
 {
 	cpu_pixels = NULL;
 	cpu_hist = NULL;
@@ -83,7 +83,7 @@ skyConfig<T>::skyConfig()
 }
 
 template<typename T>
-skyConfig<T>::~skyConfig()
+skygenHost<T>::~skygenHost()
 {
 	delete [] cpu_pixels;
 	delete [] cpu_hist;
@@ -104,7 +104,7 @@ skyConfig<T>::~skyConfig()
 // by launch of a kernel to draw stars, or to compute the overal normalization.
 //
 template<typename T>
-void skyConfig<T>::download(bool draw)
+void skygenHost<T>::download(bool draw)
 {
 	if(draw)
 	{
@@ -173,7 +173,7 @@ void skyConfig<T>::download(bool draw)
 // by a launch of a kernel to draw stars, or to compute the overal normalization.
 //
 template<typename T>
-void skyConfig<T>::upload(bool draw)
+void skygenHost<T>::upload(bool draw)
 {
 	// Upload pixels to be processed
 	this->pixels.upload(cpu_pixels, this->npixels);
@@ -209,11 +209,11 @@ void skyConfig<T>::upload(bool draw)
 }
 
 template<typename T>
-bool skyConfig<T>::init(
+bool skygenHost<T>::init(
 		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
-		const skygenConfig &sc,
-		const skypixel *pixels
+		const skygenParams &sc,
+		const pencilBeam *pixels
 )
 {
 	// Galactic center distance (in pc)
@@ -223,8 +223,8 @@ bool skyConfig<T>::init(
 	this->model.load(model_host_state, cfg);
 
 	// setup config & pixels
-	(skygenConfig &)*this = sc;
-	cpu_pixels = new skypixel[this->npixels];
+	(skygenParams &)*this = sc;
+	cpu_pixels = new pencilBeam[this->npixels];
 	FOR(0, this->npixels) { cpu_pixels[i] = pixels[i]; }
 
 	// For debugging/stats
@@ -233,7 +233,7 @@ bool skyConfig<T>::init(
 
 #if 1	// should be moved elsewhere
 
-	// GPU kernel execution setup (TODO: should I load this through skygenConfig? Or autodetect based on the GPU?)
+	// GPU kernel execution setup (TODO: should I load this through skygenParams? Or autodetect based on the GPU?)
 	blockDim.x = 64; //256;
 	gridDim.x = 120; // 30;
 
@@ -258,7 +258,7 @@ bool skyConfig<T>::init(
 }
 
 template<typename T>
-void skyConfig<T>::initRNG(rng_t &cpurng)	// initialize the random number generator from CPU RNG
+void skygenHost<T>::initRNG(rng_t &cpurng)	// initialize the random number generator from CPU RNG
 {
 	// initialize rng
 	this->cpurng = &cpurng;
@@ -266,7 +266,7 @@ void skyConfig<T>::initRNG(rng_t &cpurng)	// initialize the random number genera
 }
 
 template<typename T>
-void skyConfig<T>::setDensityNorm(float norm_)	// set the density normalization of the model
+void skygenHost<T>::setDensityNorm(float norm_)	// set the density normalization of the model
 {
 	this->norm = norm_;
 	if(cpu_maxCount != NULL)
@@ -281,7 +281,7 @@ void skyConfig<T>::setDensityNorm(float norm_)	// set the density normalization 
 }
 
 template<typename T>
-double skyConfig<T>::integrateCounts(float &runtime)
+double skygenHost<T>::integrateCounts(float &runtime)
 {
 	//
 	// First pass: compute total expected starcounts
@@ -323,7 +323,7 @@ double skyConfig<T>::integrateCounts(float &runtime)
 // Draw the catalog
 //
 template<typename T>
-size_t skyConfig<T>::run(otable &in, osink *nextlink, float &runtime)
+size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 {
 	swatch.reset();
 	swatch.start();

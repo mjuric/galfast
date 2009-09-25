@@ -35,9 +35,10 @@
 #include <astro/system/config.h>
 #include <astro/useall.h>
 
+//
 // Clips out stars not within the requested observation area
 // Currently only used as support to os_skygen
-class partitioned_skymap;
+//
 class os_clipper : public osink
 {
 protected:
@@ -91,11 +92,14 @@ public:
 };
 extern "C" opipeline_stage *create_module_clipper() { return new os_clipper(); }	// Factory; called by opipeline_stage::create()
 
-// GPU generator input
+//
+// Mock catalog generator driver -- instantiates skygenHost<> instances for each
+// model and generates the stars.
+//
 class os_skygen : public osource
 {
 protected:
-	std::vector<boost::shared_ptr<skyConfigInterface> > kernels;
+	std::vector<boost::shared_ptr<skygenInterface> > kernels;
 	size_t maxstars;	// maximum number of stars to generate
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
 	cuxTexture<float, 3>	ext_north, ext_south;	// north/south extinction maps
@@ -108,9 +112,9 @@ public:
 
 protected:
 	const os_clipper &load_footprints(const std::string &footprints, float dx, opipeline &pipe);
-	skyConfigInterface *create_kernel_for_model(const std::string &model);
-	int load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper);
-	void load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn);
+	skygenInterface *create_kernel_for_model(const std::string &model);
+	int load_models(otable &t, skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper);
+	void load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &t, const Config &cfg);
 	void load_extinction_maps(const std::string &econf);
 };
 extern "C" opipeline_stage *create_module_skygen() { return new os_skygen(); }	// Factory; called by opipeline_stage::create()
@@ -304,9 +308,9 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	return clipper;
 }
 
-typedef skyConfigInterface *(*modelFactory_t)();
+typedef skygenInterface *(*modelFactory_t)();
 
-skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
+skygenInterface *os_skygen::create_kernel_for_model(const std::string &model)
 {
 	void *me = dlopen(NULL, RTLD_LAZY);
 	if(me == NULL)
@@ -320,7 +324,7 @@ skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 	modelFactory_t factory = (modelFactory_t)dlsym(me, factory_name.c_str());
 	if(factory)
 	{
-		skyConfigInterface *ret = factory();
+		skygenInterface *ret = factory();
 		if(ret) { return ret; }
 	}
 
@@ -328,7 +332,7 @@ skyConfigInterface *os_skygen::create_kernel_for_model(const std::string &model)
 	return NULL;
 }
 
-int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model_cfg_list, const os_clipper &clipper)
+int os_skygen::load_models(otable &t, skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper)
 {
 	// projections the pixels are bound to
 	std::vector<std::pair<double, double> > lb0;	// projection poles
@@ -342,16 +346,16 @@ int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model
 	// prepare the skypixels to be processed by subsequently loaded models
 	std::vector<os_clipper::pixel> pix;
 	sc.npixels = clipper.getPixelCenters(pix);
-	std::vector<skypixel> skypixels(sc.npixels);
+	std::vector<pencilBeam> skypixels(sc.npixels);
 	FOR(0, sc.npixels)
 	{
 		os_clipper::pixel &p = pix[i];
 		float coveredFraction = p.coveredArea / p.pixelArea;
-		skypixels[i] = skypixel(p.l, p.b, p.X, p.Y, p.projIdx, sqrt(p.pixelArea), coveredFraction);
+		skypixels[i] = pencilBeam(p.l, p.b, p.X, p.Y, p.projIdx, sqrt(p.pixelArea), coveredFraction);
 	}
 
 	// Load density model configurations, instantiate
-	// and configure the correct skyConfig kernels
+	// and configure the correct skygenHost kernels
 	std::vector<std::string> models;
 	split(models, model_cfg_list);
 	if(models.empty())
@@ -361,7 +365,7 @@ int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model
 	FOREACH(models)
 	{
 		Config cfg(*i);		// model configuration file
-		boost::shared_ptr<skyConfigInterface> kernel(create_kernel_for_model(cfg.get("model")));
+		boost::shared_ptr<skygenInterface> kernel(create_kernel_for_model(cfg.get("model")));
 
 		// setup the sky pixels to be processed by this model
 		kernel->init(t, cfg, sc, &skypixels[0]);
@@ -370,11 +374,8 @@ int os_skygen::load_models(otable &t, skygenConfig &sc, const std::string &model
 	}
 }
 
-void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::string &cfgfn)
+void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &t, const Config &cfg)
 {
-	// load PDF config
-	Config cfg(cfgfn);
-
 	// sky binning scale
 	cfg.get(dx,	"dx", 1.f);
 	dx = rad(dx);
@@ -400,6 +401,7 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 	t.use_column("Am");
 	t.use_column("XYZ");
 	t.use_column("comp");
+	t.use_column("DM");
 
 	// prepare the PDF-related table columns for output
 	std::string 	absmagName, bandName;
@@ -409,7 +411,6 @@ void os_skygen::load_pdf(float &dx, skygenConfig &sc, otable &t, const std::stri
 	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
 				  t.alias_column(absmagName, "M1");
 				  t.set_column_property("absmag", "band", bandName);
-	t.use_column("DM");
 }
 
 #if HAVE_LIBCFITSIO
@@ -667,16 +668,17 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	if(econf.empty()) { return; }
 
 #if !HAVE_LIBCFITSIO
-
 	THROW(EAny, "Cannot load extinction maps; recompile with FITS I/O support.");
 #else
-	// load the extinction maps from config file
-	Config cfg;
+	// load the extinction configuration
+	Config cfg(econf);
 	std::string northfn = cfg.get("north");
 	std::string southfn = cfg.get("south");
-	float scale;
-	cfg.get(scale, "scale", 1.f);
+	float nscale, sscale;
+	cfg.get(nscale, "nscale", 1.f);
+	cfg.get(sscale, "sscale", 1.f);
 
+	// load the extinction maps
 	Radians l0, b0;
 	if(northfn.empty())
 	{
@@ -712,14 +714,15 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 		}
 	}
 
-	FOREACH(ext_north) { *i *= scale; }
-	FOREACH(ext_south) { *i *= scale; }
+	// rescale the maps
+	float nmin = ext_north(0), nmax = ext_north(0), smin = ext_south(0), smax = ext_south(0);
+	FOREACH(ext_north) { *i *= nscale; nmax = std::max(nmax, *i); nmin = std::min(nmin, *i); }
+	FOREACH(ext_south) { *i *= sscale; smax = std::max(smax, *i); smin = std::min(smin, *i); }
 
 	MLOG(verb1) << "Extinction maps: " << northfn << " (north), " << southfn << " (south).";
-	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "]\n";
-	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "]\n";
-	MLOG(verb2) << "Ext. scale factor: " << scale << "\n";
-
+	MLOG(verb2) << "Ext. scale factors: " << nscale << " " << sscale << "\n";
+	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "] [min, max = " << nmin << ", " << nmax << "]\n";
+	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "] [min, max = " << smin << ", " << smax << "]\n";
 #endif // #else !HAVE_LIBCFITSIO
 }
 
@@ -733,10 +736,10 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	// load extinction volume maps
 	load_extinction_maps(cfg["extmaps"]);
 
-	// load PDF/sky pixelization config and prepare the table for output
-	skygenConfig sc;
+	// load sky pixelization and prepare the table for output
+	skygenParams sc;
 	float dx;
-	load_pdf(dx, sc, t, cfg.get("pdf"));
+	load_skyPixelizationConfig(dx, sc, t, cfg);
 
 	// load footprints and construct the clipper
 	const os_clipper &clipper = load_footprints(cfg.get("foot"), dx, pipe);
@@ -799,7 +802,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 	FOREACH(kernels)
 	{
 		float runtime;
-		starsGenerated += (*i)->run(in, nextlink, runtime);
+		starsGenerated += (*i)->drawSources(in, nextlink, runtime);
 		swatch.addTime(runtime);
 	}
 	return starsGenerated;

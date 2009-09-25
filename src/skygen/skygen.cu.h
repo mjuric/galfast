@@ -77,7 +77,7 @@ __global__ void resample_extinction_kernel(gptr<float4, 1> out,
 		if(deproject)
 		{
 			float xim, yim;
-			texProj.convert(direction(x, y), xim, yim);
+			texProj.project(xim, yim, direction(x, y));
 			if(!(-2.f < xim && xim < 2.f) || !(-2.f < yim && yim < 2.f))
 			{
 				// back away from the pole
@@ -145,7 +145,7 @@ __device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
 	This includes the distance D, extinction, and 3D coordinates XYZ.
 */
 template<typename T>
-__device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, const int im, const skypixel &pix) const
+__device__ float3 skygenGPU<T>::compute_pos(float &D, float &Am, float M, const int im, const pencilBeam &pix) const
 {
 	float m = m0 + im*dm;
 	float DM = m - M;
@@ -153,7 +153,7 @@ __device__ float3 skyConfigGPU<T>::compute_pos(float &D, float &Am, float M, con
 	D = powf(10.f, 0.2f*DM + 1.f);
 	Am = sampleExtinction(pix.projIdx, pix.X, pix.Y, DM);
 
-	return position(pix, D);
+	return pix.xyz(D);
 }
 
 __device__ int ijToDiagIndex(int i, int j, const int x, const int y)
@@ -233,7 +233,7 @@ __device__ bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, con
 	distance bin, allowing the (usually expensive) computation of den() to be cached.
 */
 template<typename T>
-__device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir, const int x, const int y) const
+__device__ bool skygenGPU<T>::advance(int &ilb, int &i, int &j, pencilBeam &dir, const int x, const int y) const
 {
 	i++; j--;
 
@@ -292,7 +292,7 @@ __device__ bool skyConfigGPU<T>::advance(int &ilb, int &i, int &j, skypixel &dir
 	stars. If there isn't, ndraw will be != 0 upon return.
 */
 template<typename T>
-__device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const skypixel &pix) const
+__device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix) const
 {
 	if(!ndraw) { return; }
 
@@ -321,7 +321,7 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 
 		// Transform projected coordinates to (l,b), in degrees
 		double l, b;
-		proj[pix.projIdx].inverse(x, y, l, b);
+		proj[pix.projIdx].deproject(l, b, x, y);
 		direction dir2(l, b);		// Note: we do this _before_ converting l,b to degrees
 		l *= dbl_r2d;
 		if(l < 0.) l += 360.;
@@ -331,7 +331,7 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 		stars.lb(idx, 1) = b;
 
 		// Compute and store the 3D position (XYZ)
-		float3 pos = position(dir2, D);
+		float3 pos = dir2.xyz(D);
 		stars.XYZ(idx, 0) = pos.x;
 		stars.XYZ(idx, 1) = pos.y;
 		stars.XYZ(idx, 2) = pos.z;
@@ -347,19 +347,19 @@ __device__ void skyConfigGPU<T>::draw_stars(int &ndraw, const float &M, const in
 	The main skygen kernel (effectively, the entry point).
 
 	Depending on the flag 'draw', it either draws the stars, or computes the number
-	of stars in the given footprint. Launched from skyConfig<T>::run() and
-	skyConfig<T>::integrateCounts().
+	of stars in the given footprint. Launched from skygenHost<T>::run() and
+	skygenHost<T>::integrateCounts().
 */
 static const float POGSON = 0.4605170185988091f;
 static const int block = 10;
 
 template<typename T>
 template<int draw>
-__device__ void skyConfigGPU<T>::kernel() const
+__device__ void skygenGPU<T>::kernel() const
 {
 	int ilb, im, iM, k, ndraw = 0;
 	float3 pos;
-	skypixel pix;
+	pencilBeam pix;
 	float Am;
 
 	double count = 0.f, countCovered = 0.f;
@@ -489,24 +489,24 @@ __device__ void skyConfigGPU<T>::kernel() const
 // NOTE: CUDA compatibility -- in principle, we could only _declare_, but 
 // not define these functions to ensure they can never be instantiated without
 // specialization. However, nvcc then fails to compile this code.
-template<typename T> __global__ void compute_sky() {  }
-template<typename T> __global__ void draw_sky() {  }
+template<typename T> __global__ void integrate_counts_kernel() {  }
+template<typename T> __global__ void draw_sources_kernel() {  }
 
 // Launch the apropriate kernel. The launched kernels are specialized
 // by the particular models.
 template<typename T>
-void skyConfig<T>::compute(bool draw)
+void skygenHost<T>::compute(bool draw)
 {
 	cuxErrCheck( cudaThreadSynchronize() );
 
 	kernelRunSwatch.start();
 	if(draw)
 	{
-		draw_sky<T><<<gridDim, blockDim, shb>>>();
+		draw_sources_kernel<T><<<gridDim, blockDim, shb>>>();
 	}
 	else
 	{
-		compute_sky<T><<<gridDim, blockDim, shb>>>();
+		integrate_counts_kernel<T><<<gridDim, blockDim, shb>>>();
 	}
 	cuxErrCheck( cudaThreadSynchronize() );
 	kernelRunSwatch.stop();

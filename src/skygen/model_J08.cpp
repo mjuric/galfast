@@ -71,13 +71,13 @@ void J08::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	cfg.get(comp_halo,  "comp_halo",  2);
 }
 
-extern "C" skyConfigInterface *create_model_j08()
+extern "C" skygenInterface *create_model_j08()
 {
-	return new skyConfig<J08>();
+	return new skygenHost<J08>();
 }
 
 // Backwards compatibility
-extern "C" skyConfigInterface *create_model_bahcallsoneira()
+extern "C" skygenInterface *create_model_bahcallsoneira()
 {
-	return new skyConfig<J08>();
+	return new skygenHost<J08>();
 }

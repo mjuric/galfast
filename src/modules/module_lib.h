@@ -28,6 +28,32 @@
 	#include "gpu.h"
 	#include <astro/constants.h>
 
+	#ifdef __CUDACC__
+		// distance to the Galactic center
+		__device__ __constant__ float Rg_gpu;
+		__device__ inline float Rg() { return Rg_gpu; }
+	#else
+		// galactic center distance, CPU version
+		extern double Rg_impl;
+		inline double Rg() { return Rg_impl; }
+	#endif
+
+	// useful math constants
+	static const double dbl_pi  = 3.14159265358979323846264338;
+	static const double dbl_d2r = 0.01745329251994329576923691; // (pi/180.0)
+	static const double dbl_r2d = 57.2957795130823208767981548; // (180.0/pi)
+	static const float flt_pi  = 3.14159265358979323846264338f;
+	static const float flt_d2r = 0.01745329251994329576923691f; // (pi/180.0)
+	static const float flt_r2d = 57.2957795130823208767981548f; // (180.0/pi)
+
+	namespace cudacc
+	{
+		inline __device__ float deg(float rd) { return flt_r2d * rd; }
+		inline __device__ float rad(float dg) { return flt_d2r * dg; }
+		template<typename T>
+			__host__ __device__ inline __device__ T sqr(const T x) { return x*x; }
+	}
+
 	static const float ABSMAG_NOT_PRESENT = 99.999f;
 
 	static const int GAL = 0;
@@ -53,6 +79,31 @@
 		static const float l0   = (float)galequ_constants::l0;
 
 		static const float halfpi = (float)galequ_constants::halfpi;
+	};
+
+	//
+	// Store a unit vector in terms of its sines/cosines
+	//
+	struct direction
+	{
+		float cl, cb, sl, sb;
+
+		// Compute xyz position given direction and distance
+		__device__ inline float3 xyz(const float d) const
+		{
+			float3 ret;
+
+			ret.x = Rg() - d*cl*cb;
+			ret.y =      - d*sl*cb;
+			ret.z =        d*sb;
+
+			return ret;
+		};
+
+		direction() {}
+		direction(double l_, double b_)				// l,b are in radians
+		: cl(cos(l_)), cb(cos(b_)), sl(sin(l_)), sb(sin(b_))
+		{ }
 	};
 
 #endif

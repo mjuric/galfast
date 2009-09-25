@@ -30,96 +30,73 @@
 typedef prngs::gpu::mwc gpuRng;
 using peyton::Radians;
 
-#ifdef __CUDACC__
-	// distance to the Galactic center
-	__device__ __constant__ float Rg_gpu;
-	__device__ inline float Rg() { return Rg_gpu; }
-#else
-	// galactic center distance, CPU version
-	extern double Rg_impl;
-	inline double Rg() { return Rg_impl; }
-#endif
-
-#if 1
+// some forward declarations
 namespace peyton { namespace system { class Config; }};
 class otable;
 class osink;
-class opipeline;
+struct skygenParams;
+struct pencilBeam;
 
-struct skygenConfig;
-struct skypixel;
-struct skyConfigInterface
+//
+// Abstract interface to mock catalog generator for a model. For each density model,
+// an instance of skygenHost<> (that derives from this class) is constructed
+// and returned to os_skygen. os_skygen calls its methods (notably, integrateCounts()
+// and run()) to draw the catalog.
+//
+struct skygenInterface
 {
-	virtual bool init(
+	virtual double integrateCounts(float &runtime) = 0;				// computes the expected source count
+	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime) = 0;	// draws the sources, stores the output in the table, and invokes the rest of the pipeline
+
+	virtual bool init(								// initialize the catalog generator for this model
 		otable &t,
-		const peyton::system::Config &cfg,	// model cfg file
-		const skygenConfig &sc,
-		const skypixel *pixels) = 0;
-	virtual void initRNG(rng_t &rng) = 0;			// initialize the random number generator from CPU RNG
-	virtual double integrateCounts(float &runtime) = 0;	// return the expected starcounts contributed by this model
-	virtual void setDensityNorm(float norm) = 0;
-	virtual size_t run(otable &in, osink *nextlink, float &runtime) = 0;
-	virtual ~skyConfigInterface() {};
+		const peyton::system::Config &model_cfg,
+		const skygenParams &sc,
+		const pencilBeam *pixels) = 0;
+	virtual void initRNG(rng_t &rng) = 0;		// initialize the random number generator from CPU RNG
+	virtual void setDensityNorm(float norm) = 0;	// explicitly set the overall density normalization of the model.
+	virtual ~skygenInterface() {};
 };
 
-#endif
-
-// these must be overloaded by models
+//
+// These must be overloaded by individual the density model classes.
+//
 struct modelConcept
 {
-	struct host_state_t {};
-	struct state {};
+	struct host_state_t {};		// the state of the model that needs to be kept on the host
+	struct state {};		// the state of the model that needs to be kept on the GPU
 
-	void load(host_state_t &hstate, const peyton::system::Config &cfg);
-	void prerun(host_state_t &hstate, bool draw);
-	void postrun(host_state_t &hstate, bool draw);
+	void load(host_state_t &hstate, const peyton::system::Config &cfg);	// loads the density model configuration
+	void prerun(host_state_t &hstate, bool draw);				// called before executing the model generation kernel
+	void postrun(host_state_t &hstate, bool draw);				// called after executing the model generation kernel
 
-	__device__ void setpos(state &s, float x, float y, float z) const;
-	__device__ float rho(state &s, float M) const;
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const;
+	__device__ void setpos(state &s, float x, float y, float z) const;	// set the 3D position which will be implied in subsequent calls to rho()
+	__device__ float rho(state &s, float M) const;				// return the number density at the position set by setpos, and absolute magnitude M
+
+	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const;	// return the component ID of a source at position xyzM
 };
 
-static const double dbl_pi  = 3.14159265358979323846264338;
-static const double dbl_d2r = 0.01745329251994329576923691; // (pi/180.0)
-static const double dbl_r2d = 57.2957795130823208767981548; // (180.0/pi)
-static const float flt_pi  = 3.14159265358979323846264338f;
-static const float flt_d2r = 0.01745329251994329576923691f; // (pi/180.0)
-static const float flt_r2d = 57.2957795130823208767981548f; // (180.0/pi)
-
-namespace cudacc
+//
+// A rectangular (in projected coordinates) pencil beam
+// on the sky, pointing in direction <direction>
+//
+struct ALIGN(16) pencilBeam : public direction
 {
-	inline __device__ float deg(float rd) { return flt_r2d * rd; }
-	inline __device__ float rad(float dg) { return flt_d2r * dg; }
-	template<typename T>
-		__host__ __device__ inline __device__ T sqr(const T x) { return x*x; }
-}
+	float coveredFraction;	// the fraction of the pixel that is covered by the footprint being observed
+	float dx, dA;		// linear size (in radians), and area (radians^2) of the pencil beam
 
-// inline double rad(double dgr) { return dgr * dbl_d2r; }
-// inline double deg(double rd)  { return rd  / dbl_d2r; }
+	int projIdx;		// index of the lambert projection in which this pixel was constructed
+	float X, Y;		// lambert coordinates of this pencil beam (in projIdx projection)
 
-struct direction
-{
-	float cl, cb, sl, sb;
-
-	direction() {}
-	direction(Radians l_, Radians b_)
-	: cl(cos(l_)), cb(cos(b_)), sl(sin(l_)), sb(sin(b_))
-	{ }
-};
-
-struct ALIGN(16) skypixel : public direction
-{
-	int projIdx;
-	float coveredFraction;
-	float dx, dA;
-	float X, Y;		// lambert coordinates of this direction (in projIdx projection)
-
-	skypixel() {}
-	skypixel(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_)
+	pencilBeam() {}
+	pencilBeam(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_)
 	: direction(l_, b_), X(X_), Y(Y_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_)
 	{ }
 };
 
+//
+// Lambert projection/deprojection class
+//
 class ALIGN(16) lambert
 {
 public:
@@ -134,7 +111,7 @@ public:
 		p.sl = sin(l0); p.sb = sin(b0);
 	}
 
-	__device__ void convert(const direction &d, float &x, float &y) const
+	__device__ void project(float &x, float &y, const direction &d) const
 	{
 		double cll0 = d.cl*p.cl + d.sl*p.sl; // cos(l - l0);
 		double sll0 = p.cl*d.sl - d.cl*p.sl; // sin(l - l0);
@@ -143,7 +120,7 @@ public:
 		y = kp*(p.cb*d.sb-p.sb*d.cb*cll0);
 	}
 	
-	__device__ void inverse(const float x, const float y, double &l, double &b) const
+	__device__ void deproject(double &l, double &b, const float x, const float y) const
 	{
 		double r2 = x*x + y*y;
 		if(r2 == 0.)
@@ -161,25 +138,11 @@ public:
 	}
 };
 
-__device__ inline float3 position(const direction &p, const float d)
-{
-	float3 ret;
-
-	ret.x = Rg() - d*p.cl*p.cb;
-	ret.y =      - d*p.sl*p.cb;
-	ret.z =        d*p.sb;
-
-	return ret;
-};
-
-struct ALIGN(16) ocolumns
-{
-	cdouble_t::gpu_t	lb;
-	cint_t::gpu_t		projIdx;
-	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am;
-	cint_t::gpu_t		comp;
-};
-
+//
+// Runtime state of a skygen kernel. Think of this as a "stack dump"
+// for the kernel, if the kernel needs to exit early (e.g., because
+// the output table is filled), but expects to resume later.
+//
 template<typename Model>
 struct ALIGN(16) runtime_state
 {
@@ -188,7 +151,7 @@ struct ALIGN(16) runtime_state
 	cuxDevicePtr<int> cont, ilb, im, iM, k, bc, ndraw;
 	cuxDevicePtr<float3> pos;
 	cuxDevicePtr<float> D, Am;
-	cuxDevicePtr<skypixel> pix;
+	cuxDevicePtr<pencilBeam> pix;
 	cuxDevicePtr<ms_t> ms;
 
 	void alloc(int nthreads)
@@ -220,7 +183,7 @@ struct ALIGN(16) runtime_state
 		free();
 	}
 
-	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, skypixel &pix, float &Am, typename Model::state &ms, int &ndraw) const
+	__device__ void load(int &tid, int &ilb, int &im, int &iM, int &k, int &bc, float3 &pos, float &D, pencilBeam &pix, float &Am, typename Model::state &ms, int &ndraw) const
 	{
 		ilb = this->ilb(tid);
 		im  = this->im(tid);
@@ -235,7 +198,7 @@ struct ALIGN(16) runtime_state
 		ndraw  = this->ndraw(tid);
 	}
 
-	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, skypixel pix, float Am, typename Model::state ms, int ndraw) const
+	__device__ void store(int tid, int ilb, int im, int iM, int k, int bc, float3 pos, float D, pencilBeam pix, float Am, typename Model::state ms, int ndraw) const
 	{
 		this->ilb(tid)   = ilb;
 		this->im(tid)    = im;
@@ -255,11 +218,15 @@ struct ALIGN(16) runtime_state
 	bool continuing(int tid) const { return this->cont(tid); }
 };
 
-struct ALIGN(16) skygenConfig
+//
+// Configuration parameters of catalog generator.
+//
+struct ALIGN(16) skygenParams
 {
 	float m0, m1, dm;		// apparent magnitude range
 	float M0, M1, dM;		// absolute magnitude range
-	int npixels, nm, nM;
+	int npixels, nm, nM;		// number of sky pixels (pencil beams), number of magnitude bins, number of absmag bins
+
 	int nthreads;			// total number of threads processing the sky
 	int stopstars;			// stop after this many stars have been generated
 
@@ -267,19 +234,32 @@ struct ALIGN(16) skygenConfig
 };
 
 //
+// Columns used by the catalog generator
+//
+struct ALIGN(16) ocolumns
+{
+	cdouble_t::gpu_t	lb;
+	cint_t::gpu_t		projIdx;
+	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am;
+	cint_t::gpu_t		comp;
+};
+
+//
 // Device functions and data for skygen (instantiated/defined in skygen.cu.h)
-// This piece gets uploaded as a __constant__ to the GPU
+// This piece gets uploaded as a __constant__ to the GPU. It differs from
+// skygenParams in that it contains pointers to output as well as model
+// configuration, but no configuration parameters beyond those provided in
+// skygenParams.
 //
 template<typename Model>
-struct ALIGN(16) skyConfigGPU : public skygenConfig
+struct ALIGN(16) skygenGPU : public skygenParams
 {
 	typedef Model Model_t;
 
 	Model_t model;
 
-	cuxDevicePtr<skypixel> pixels;	// pixels on the sky to process
+	cuxDevicePtr<pencilBeam> pixels;	// pixels on the sky to process
 
-//	cuxDevicePtr<int> lock;
 	cuxDevicePtr<int> nstars;
 	cuxDevicePtr<float> counts, countsCovered;
 	ocolumns stars;
@@ -294,15 +274,21 @@ struct ALIGN(16) skyConfigGPU : public skygenConfig
 	float norm;			// normalization of overall density (usually 1.f)
 
 	template<int draw> __device__ void kernel() const;
-	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const skypixel &dir) const;
-	__device__ bool advance(int &ilb, int &i, int &j, skypixel &pix, const int x, const int y) const;
-	__device__ void draw_stars(int &ndraw, const float &M, const int &im, const skypixel &pix) const;
+	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const pencilBeam &dir) const;
+	__device__ bool advance(int &ilb, int &i, int &j, pencilBeam &pix, const int x, const int y) const;
+	__device__ void draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix) const;
 };
 
+//
+// Host interface to the mock catalog generator. Derived from skygenGPU part (which
+// is uploaded to the device), and the abstract skygenInterface that allows instantiations
+// of this template to be manipulated by os_skygen in a uniform manner.
+//
 class opipeline;
 template<typename Model>
-struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterface
+class ALIGN(16) skygenHost : public skygenGPU<Model>, public skygenInterface
 {
+protected:
 	// Any state the model needs to maintain on the host (e.g., loaded textures)
 	typename Model::host_state_t	model_host_state;
 
@@ -311,7 +297,7 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	gpuRng *rng;
 	rng_t *cpurng;
 	unsigned seed;
-	skypixel *cpu_pixels;
+	pencilBeam *cpu_pixels;
 
 	// return
 	float nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
@@ -333,19 +319,21 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 	void upload(bool draw = false);
 	void download(bool draw = false);
 
-	skyConfig();
-	~skyConfig();
+public:
+	skygenHost();
+	~skygenHost();
 
-	// external interface
-	virtual void initRNG(rng_t &rng);	// initialize the random number generator from CPU RNG
+	// external interface (skygenInterface)
 	virtual double integrateCounts(float &runtime);	// return the expected starcounts contributed by this model
-	virtual void setDensityNorm(float norm);// set the density normalization of the model
+	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime);
+
+	virtual void initRNG(rng_t &rng);		// initialize the random number generator from CPU RNG
+	virtual void setDensityNorm(float norm);	// explicitly set the overall density normalization of the model.
 	virtual bool init(
 		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
-		const skygenConfig &sc,
-		const skypixel *pixels);
-	virtual size_t run(otable &in, osink *nextlink, float &runtime);
+		const skygenParams &sc,
+		const pencilBeam *pixels);
 };
 
 //
@@ -356,18 +344,18 @@ struct ALIGN(16) skyConfig : public skyConfigGPU<Model>, public skyConfigInterfa
 //
 #ifdef __CUDACC__
 	#define MODEL_IMPLEMENTATION(name) \
-		__device__ __constant__ skyConfigGPU<name> name##Sky; \
+		__device__ __constant__ skygenGPU<name> name##Sky; \
 		\
-		template<> __global__ void compute_sky<name>() { name##Sky.kernel<0>(); } \
-		template<> __global__ void    draw_sky<name>() { name##Sky.kernel<1>(); } \
+		template<> __global__ void integrate_counts_kernel<name>() { name##Sky.kernel<0>(); } \
+		template<> __global__ void     draw_sources_kernel<name>() { name##Sky.kernel<1>(); } \
 		\
 		template<> \
-		void skyConfig<name>::upload_self(bool draw) \
+		void skygenHost<name>::upload_self(bool draw) \
 		{ \
-			cuxUploadConst(name##Sky, (skyConfigGPU<name>&)*this); \
+			cuxUploadConst(name##Sky, (skygenGPU<name>&)*this); \
 		} \
 		\
-		template class skyConfig<name>
+		template class skygenHost<name>
 #else
 	#define MODEL_IMPLEMENTATION(name)
 #endif

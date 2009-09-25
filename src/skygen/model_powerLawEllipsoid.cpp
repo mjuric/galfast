@@ -133,7 +133,7 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	}
 }
 
-extern "C" skyConfigInterface *create_model_powerlawellipsoid()
+extern "C" skygenInterface *create_model_powerlawellipsoid()
 {
-	return new skyConfig<powerLawEllipsoid>();
+	return new skygenHost<powerLawEllipsoid>();
 }

@@ -62,7 +62,7 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	r_cut2 *= r_cut2;
 }
 
-extern "C" skyConfigInterface *create_model_exponentialdisk()
+extern "C" skygenInterface *create_model_exponentialdisk()
 {
-	return new skyConfig<expDisk>();
+	return new skygenHost<expDisk>();
 }

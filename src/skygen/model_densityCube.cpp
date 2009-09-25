@@ -295,7 +295,7 @@ void densityCube::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	}
 }
 
-extern "C" skyConfigInterface *create_model_densitycube()
+extern "C" skygenInterface *create_model_densitycube()
 {
-	return new skyConfig<densityCube>();
+	return new skygenHost<densityCube>();
 }

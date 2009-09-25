@@ -59,7 +59,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog --nstars=2e5 111 skygen.conf model.powerLawEllipsoid.conf foot.048152.conf FeH.66f506.conf photometry.a69e1d.conf</globaldebugarguments>
+      <globaldebugarguments>catalog --nstars=2e5 111 extinction.conf skygen.conf model.powerLawEllipsoid.conf foot.048152.conf FeH.66f506.conf photometry.a69e1d.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>

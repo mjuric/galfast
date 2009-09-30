@@ -457,16 +457,24 @@ std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_p
 	//
 	// Clip north/south along the equator
 	//
-	Radians margin = 1./cos(0.5*dx) - 1.;	// Ensure the polygon makeHemisphereMaps will create
-						// will be superscribed, not inscribed, in the unit circle
-	gpc_polygon boundary = make_circle(0, 0, sqrt(2.) + margin, dx);
+	if(dx != 0)
+	{
+		Radians margin = 1./cos(0.5*dx) - 1.;	// Ensure the polygon makeHemisphereMaps will create
+							// will be superscribed, not inscribed, in the unit circle
+		gpc_polygon boundary = make_circle(0, 0, sqrt(2.) + margin, dx);
 
-	gpc_polygon_clip(GPC_INT, &sky.first, &boundary, &sky.first);
-	gpc_polygon_clip(GPC_INT, &sky.second, &boundary, &sky.second);
+		gpc_polygon_clip(GPC_INT, &sky.first, &boundary, &sky.first);
+		gpc_polygon_clip(GPC_INT, &sky.second, &boundary, &sky.second);
 
-	gpc_free_polygon(&boundary);
+		gpc_free_polygon(&boundary);
 
-	DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
+		DLOG(verb2) << "Hemisphere map margin: " << margin << " (== " << deg(margin) << " deg)";
+	}
+	else
+	{
+		DLOG(verb2) << "Not clipping hemisphere maps.";
+	}
+
 	DLOG(verb2) << "Hemisphere areas (north, south) = (" << polygon_area_deg(sky.first) << ", " << polygon_area_deg(sky.second) << ")\n";
 
 	return sky;
@@ -692,3 +700,88 @@ int load_footprint_beam(std::list<sph_polygon> &foot, const peyton::system::Conf
 	return makeBeamMap(foot, l, b, rad(r), rad(rhole), dx);
 }
 
+////////////////////////////////
+
+Radians clip_zone_of_avoidance(std::list<sph_polygon> &poly, int npoly, const Config &cfg)
+{
+	Radians bmin;
+	cfg.get(bmin,	"bmin", 0.);
+	bmin = rad(bmin);
+
+	if(bmin)
+	{
+		MLOG(verb1) << "Zone of avoidance: clipping |b| < " << deg(bmin) << " deg";
+
+		// add a "clip" contour to last npoly polygons
+		REVEACH(poly)
+		{
+			if(!npoly--) { break; }
+
+			const double dl = rad(.1);	// TODO: Make this user settable?
+			add_lonlat_rect(*i, 0, -bmin, 0, bmin, dl, GPC_DIFF);
+		}
+	}
+
+	return bmin;
+}
+
+int load_footprint(std::list<sph_polygon> &foot, const Config &cfg)
+{
+	if(!cfg.count("type")) { THROW(EAny, "The footprint configuration file must contain the 'type' keyword."); }
+
+	int k = -1;
+	     if(cfg["type"] == "beam") { k = load_footprint_beam(foot, cfg); }
+	else if(cfg["type"] == "rect") { k = load_footprint_rect(foot, cfg); }
+
+	if(k >= 0)
+	{
+		clip_zone_of_avoidance(foot, k, cfg);
+		return k;
+	}
+
+	THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
+}
+
+std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<std::string> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale)
+{
+	// Load footprints. The result is the list of spherical polygons on the sky;
+	std::list<sph_polygon> foot;
+
+	FOREACH(footstr)
+	{
+		Config cfg(*i);									// load footprint config
+		load_footprint(foot, cfg);
+	}
+
+	// Project the footprint onto north/south hemispheres
+	return project_to_hemispheres(foot, proj, equatorSamplingScale);
+}
+
+void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<std::string> &foots)
+{
+	peyton::math::lambert proj(l0, b0);
+	std::pair<gpc_polygon, gpc_polygon> sky = load_footprints(foots, proj, 0.);
+	double Ans = polygon_area_deg(sky.first);
+	//DLOG(verb1) << "Sky area (north, south) = " << Ans << " " << polygon_area_deg(sky.second);
+	gpc_free_polygon(&sky.second);
+	gpc_polygon ns = sky.first;
+
+	// construct pencil beam
+	lambert pproj(rad(90.), rad(90.));
+	Radians dummy;
+	pproj.project(r,     dummy, ctn::pi, ctn::pi/2. - r);
+	gpc_polygon pbeam = make_circle(0., 0., r, 0.001*r);
+	double Apbeam = polygon_area_deg(pbeam);
+
+	// intersect with pencil beam
+	gpc_polygon_clip(GPC_INT, &ns, &pbeam, &ns);
+	gpc_free_polygon(&pbeam);
+
+	// compute the area of the intersection
+	double A = polygon_area_deg(ns);
+	std::cout << "Area: " << A << "\n";
+	std::cout << "Fraction: " << A/Apbeam << "\n";
+	std::cout << "Fraction of footprint: " << A/Ans << "\n";
+
+	gpc_free_polygon(&ns);
+}

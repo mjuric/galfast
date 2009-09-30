@@ -89,7 +89,8 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// load component IDs to which this module will apply
 	cfg.get(comp0,   "comp0",   0U);
-	cfg.get(comp1,   "comp1",   0xffffffff);
+	cfg.get(comp1,   "comp1",   0U);
+	if(comp0 == comp1) { comp0 = 0U; comp1 = 0xffffffff; }
 
 	// load bandset name
 	std::string tmp, bname;

@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
-      <programargs>util resample3d -d Ar_north.fits northAr.txt</programargs>
+      <programargs>catalog --nstars=2e5 111 extinction.conf skygen.conf model.powerLawEllipsoid.conf foot.048152.conf FeH.66f506.conf photometry.a69e1d.conf</programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="5" name="all_log_level" />
@@ -59,7 +59,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog --nstars=2e5 111 extinction.conf skygen.conf model.powerLawEllipsoid.conf foot.048152.conf FeH.66f506.conf photometry.a69e1d.conf</globaldebugarguments>
+      <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
@@ -117,7 +117,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>8</numberofjobs>
       <dontact>false</dontact>
-      <makebin/>
+      <makebin></makebin>
       <prio>0</prio>
       <runmultiplejobs>true</runmultiplejobs>
     </make>

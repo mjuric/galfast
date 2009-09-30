@@ -50,7 +50,7 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	cfg.get(c[1], "y", 0.f);
 	cfg.get(c[2], "z", 0.f);
 
-	cfg.get(n, "n", 0.f);		// power law index
+	cfg.get(n, "n", -3.f);		// power law index
 	cfg.get(ca, "c_a", 1.f);	// ratio of c / a (z and x axes of the ellipsoid)
 	cfg.get(ba, "b_a", 1.f);	// ratio of b / a (z and x axes of the ellipsoid)
 
@@ -121,7 +121,7 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	// that normalizing to the values of the profile in the regions
 	// excluded by this cut would still be possible.
 	cfg.get(rminSq, "rmin", 0.f);	rminSq *= rminSq;
-	cfg.get(rmaxSq, "rmax", 1e6f);	rmaxSq *= rmaxSq;
+	cfg.get(rmaxSq, "rmax", 1e5f);	rmaxSq *= rmaxSq;
 
 	if(cfg.count("lumfunc"))
 	{

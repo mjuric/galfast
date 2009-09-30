@@ -121,50 +121,6 @@ extern "C" opipeline_stage *create_module_skygen() { return new os_skygen(); }	/
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-int add_lonlat_rect(sph_polygon &poly, Radians l0, Radians b0, Radians l1, Radians b1, Radians dl, gpc_op op = GPC_UNION);
-Radians clip_zone_of_avoidance(std::list<sph_polygon> &poly, int npoly, const Config &cfg)
-{
-	Radians bmin;
-	cfg.get(bmin,	"bmin", 0.);
-	bmin = rad(bmin);
-
-	if(bmin)
-	{
-		MLOG(verb1) << "Zone of avoidance: clipping |b| < " << deg(bmin) << " deg";
-
-		// add a "clip" contour to last npoly polygons
-		REVEACH(poly)
-		{
-			if(!npoly--) { break; }
-
-			const double dl = rad(.1);	// TODO: Make this user settable?
-			add_lonlat_rect(*i, 0, -bmin, 0, bmin, dl, GPC_DIFF);
-		}
-	}
-
-	return bmin;
-}
-
-int load_footprint_rect(std::list<sph_polygon> &foot, const peyton::system::Config &cfg);
-int load_footprint_beam(std::list<sph_polygon> &foot, const peyton::system::Config &cfg);
-
-int load_footprint(std::list<sph_polygon> &foot, const Config &cfg)
-{
-	if(!cfg.count("type")) { THROW(EAny, "The footprint configuration file must contain the 'type' keyword."); }
-
-	int k = -1;
-	     if(cfg["type"] == "beam") { k = load_footprint_beam(foot, cfg); }
-	else if(cfg["type"] == "rect") { k = load_footprint_rect(foot, cfg); }
-
-	if(k >= 0)
-	{
-		clip_zone_of_avoidance(foot, k, cfg);
-		return k;
-	}
-
-	THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
-}
-
 // Calculate the 'skymap', for fast point-in-polygon lookups of the observed
 // sky footprint.
 partitioned_skymap *make_skymap_slow(Radians dx, gpc_polygon sky)
@@ -273,28 +229,20 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 
 ////////////////////////////////////////////////////////////////////////////
 
-std::pair<gpc_polygon, gpc_polygon> project_to_hemispheres(const std::list<sph_polygon> &foot, const peyton::math::lambert &proj, Radians dx);
+// defined in footprint.cpp
+std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<std::string> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale);
 
 const os_clipper &os_skygen::load_footprints(const std::string &footprints, float dx, opipeline &pipe)
 {
-	// Load footprints. The result is the list of spherical polygons on the sky;
-	std::list<sph_polygon> foot;
-
 	std::vector<std::string> footstr;
 	split(footstr, footprints);
 	if(footstr.empty())
 	{
 		THROW(EAny, "No observational footprint specifications given. Aborting");
 	}
-	FOREACH(footstr)
-	{
-		Config cfg(*i);									// load footprint config
-		load_footprint(foot, cfg);
-	}
 
-	// Project the footprint onto north/south hemispheres
 	peyton::math::lambert proj(rad(90), rad(90));
-	std::pair<gpc_polygon, gpc_polygon> sky = project_to_hemispheres(foot, proj, dx);
+	std::pair<gpc_polygon, gpc_polygon> sky = ::load_footprints(footstr, proj, dx);
 
 	// setup clipper for the footprint
 	boost::shared_ptr<opipeline_stage> clipper_s(opipeline_stage::create("clipper"));	// clipper for this footprint
@@ -383,10 +331,11 @@ void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &
 	// Density binning parameters
 	sc.M0 = cfg.get_any_of("M0", "ri0");
 	sc.M1 = cfg.get_any_of("M1", "ri1");
-	sc.dM = cfg.get_any_of("dM", "dri");
+//	sc.dM = cfg.get_any_of("dM", "dri");
 	sc.m0 = cfg.get_any_of("m0", "r0");
 	sc.m1 = cfg.get_any_of("m1", "r1");
 	sc.dm = cfg.get("dm");
+	sc.dM = sc.dm;
 	assert(sc.dM == sc.dm);
 
 	sc.nM = (int)round((sc.M1 - sc.M0) / sc.dM);
@@ -672,11 +621,12 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 #else
 	// load the extinction configuration
 	Config cfg(econf);
-	std::string northfn = cfg.get("north");
-	std::string southfn = cfg.get("south");
+	std::string northfn, southfn;
 	float nscale, sscale;
-	cfg.get(nscale, "nscale", 1.f);
-	cfg.get(sscale, "sscale", 1.f);
+	cfg.get(northfn, "north", "");
+	cfg.get(southfn, "south", "");
+	cfg.get(nscale,  "nscale", 1.f);
+	cfg.get(sscale,  "sscale", 1.f);
 
 	// load the extinction maps
 	Radians l0, b0;
@@ -728,10 +678,8 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	// maximum number of stars skygen is allowed to generate (0 for unlimited)
-	cfg.get(maxstars, "maxstars", (size_t)100*1000*1000);
-	// mean number of stars skygen should generate (0 to leave it to the model to determine this)
-	cfg.get(nstars, "nstars", 0.f);
+	cfg.get(maxstars, "maxstars", (size_t)100*1000*1000);	// maximum number of stars skygen is allowed to generate (0 for unlimited)
+	cfg.get(nstars, "nstars", 0.f);				// mean number of stars skygen should generate (0 to leave it to the model to determine this)
 
 	// load extinction volume maps
 	load_extinction_maps(cfg["extmaps"]);
@@ -777,6 +725,10 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 		double norm = nstars / nstarsExpected;
 		FOREACH(kernels) { (*i)->setDensityNorm(norm); }
 		nstarsExpected = nstars;
+
+		// store the normalization for SM to read for QA plots
+		std::ofstream f("normnstars.out");
+		f << norm << "\n";
 
 		MLOG(verb1) << "Stars expected: " << nstarsExpected << " (forced)\n";
 	}

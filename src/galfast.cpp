@@ -34,7 +34,8 @@ using namespace std;
 ///////////////////////////////////
 
 extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
-void generate_catalog(int seed, size_t maxstars, size_t nstars, std::set<std::string> modules, const std::string &input, const std::string &output);
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output);
+void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<std::string> &modules);
 
 int main(int argc, char **argv)
 {
@@ -64,9 +65,9 @@ try
 	std::vector<std::string> modules;
 	std::string infile, outfile;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Generate and postprocess a mock catalog.", version, Authorship::majuric));
-	sopts["catalog"]->argument("seed").bind(seed).desc("Seed for the random number generator");
 	sopts["catalog"]->argument("module").bind(input).desc("Module configuration file.");
 	sopts["catalog"]->argument("other_modules").bind(modules).optional().gobble().desc("More module configuration files.");
+	sopts["catalog"]->option("s").addname("seed").bind(seed).param_required().desc("Seed for the random number generator");
 	sopts["catalog"]->option("i").addname("input").bind(infile).param_required().desc("Input catalog file");
 	sopts["catalog"]->option("o").addname("output").bind(outfile).param_required().desc("Output catalog file");
 	sopts["catalog"]->option("n").addname("nstars").bind(nstars).param_required().desc("Renormalize the density so that on average <nstars> stars are generated within the observed volume.");
@@ -110,6 +111,14 @@ try
 	uopts["resample3d"]->option("d").bind(deproject).value("true").desc("Deproject to (l,b). If this option is active, the x coordinate is l, and y is b. Projection pole can be changed using --l0 and --b0 options.");
 	uopts["resample3d"]->option("l0").bind(l0).param_required().desc("Longitude of projection pole, degrees");
 	uopts["resample3d"]->option("b0").bind(b0).param_required().desc("Latitude of projection pole, degrees");
+
+	double radius;
+	uopts["footbeam"].reset(new Options(argv0 + " util footbeam", progdesc + " Compute the intersection of the footprint and a pencil beam in the given direction.", version, Authorship::majuric));
+	uopts["footbeam"]->argument("l0").bind(l0).desc("Pencil beam center Galactic longitude (degrees).");
+	uopts["footbeam"]->argument("b0").bind(b0).desc("Pencil beam center Galactic latitude (degrees).");
+	uopts["footbeam"]->argument("radius").bind(radius).desc("Pencil beam radius (degrees).");
+	uopts["footbeam"]->argument("footprints").bind(modules).gobble().desc("Footprint configuration file(s), or a module=config file.");
+	uopts["footbeam"]->option("o").addname("output").bind(output).param_required().desc("Output polygon file");
 
 #if 0 // TODO: Implement this
 	std::vector<std::string> footprint_confs;
@@ -156,7 +165,28 @@ try
 	}
 	if(cmd == "util resample3d")
 	{
-		(output, input, crange, npix, deproject, rad(l0), rad(b0));
+		resample_texture(output, input, crange, npix, deproject, rad(l0), rad(b0));
+		return 0;
+	}
+	if(cmd == "util footbeam")
+	{
+		// check if a config module was given
+		if(modules.size() == 1)
+		{
+			Config cfg(modules.front());
+			std::string tmp;
+			if(cfg.get("module") == "config")
+			{
+				modules.clear();
+				std::istringstream ss(cfg.get("footprints"));
+				while(ss >> tmp)
+				{
+					modules.push_back(tmp);
+				}
+			}
+		}
+
+		intersectFootprintWithPencilBeam(rad(l0), rad(b0), rad(radius), modules);
 		return 0;
 	}
 
@@ -165,9 +195,36 @@ try
 
 	if(cmd == "catalog")
 	{
-		// ./galfast.x catalog catalog.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
+		if(modules.empty())
+		{
+			// slurp up command line parameters from the config file (cmd.conf)
+			Config cfg(input);
+			if(cfg.get("module") == "config")
+			{
+				input.clear();
+
+				cfg.get(seed, "seed", seed);
+				cfg.get(nstars, "nstars", nstars);
+				cfg.get(maxstars, "maxstars", maxstars);
+
+				std::string tmp, allmodules;
+				cfg.get(tmp, "modules", "");    allmodules += " " + tmp;
+				cfg.get(tmp, "input", "");      allmodules += " " + tmp;
+				cfg.get(tmp, "output", "");     allmodules += " " + tmp;
+				cfg.get(tmp, "models", "");     allmodules += " " + tmp;
+				cfg.get(tmp, "footprints", ""); allmodules += " " + tmp;
+
+				std::istringstream ss(allmodules);
+				while(ss >> tmp)
+				{
+					modules.push_back(tmp);
+				}
+			}
+		}
+
+		// ./galfast.x catalog 43 catalog.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
 		std::set<std::string> mset;
-		mset.insert(input);
+		if(!input.empty()) { mset.insert(input); }
 		mset.insert(modules.begin(), modules.end());
 		generate_catalog(seed, maxstars, nstars, mset, infile, outfile);
 	}

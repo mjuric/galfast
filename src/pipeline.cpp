@@ -631,7 +631,7 @@ bool opipeline::create_and_add(
 	add(stage);
 }
 
-void generate_catalog(int seed, size_t maxstars, size_t nstars, std::set<std::string> modules, const std::string &input, const std::string &output)
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output)
 {
 	rng_gsl_t rng(seed);
 

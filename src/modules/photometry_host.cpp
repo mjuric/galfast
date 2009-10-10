@@ -74,8 +74,8 @@ public:
 
 	os_photometry() : osink()
 	{
-		comp0 = 0;
-		comp1 = 0xffffffff;
+		compFirst = 0;
+		compLast = 0xffffffff;
 		FOR(0, N_REDDENING) { reddening[i] = 1.f; }
 
 		req.insert("FeH");
@@ -88,9 +88,9 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// load component IDs to which this module will apply
-	cfg.get(comp0,   "comp0",   0U);
-	cfg.get(comp1,   "comp1",   0U);
-	if(comp0 == comp1) { comp0 = 0U; comp1 = 0xffffffff; }
+	cfg.get(compFirst,   "compFirst",   0U);
+	cfg.get(compLast,   "compLast",   0U);
+	if(compFirst == compLast) { compFirst = 0U; compLast = 0xffffffff; }
 
 	// load bandset name
 	std::string tmp, bname;

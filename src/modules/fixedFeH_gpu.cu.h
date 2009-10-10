@@ -27,21 +27,21 @@
 
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH));
+	DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t compFirst, uint32_t compLast, cint_t::gpu_t comp, cfloat_t::gpu_t FeH));
 
 #else
 
 	KERNEL(
 		ks, 0,
-		os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t comp0, uint32_t comp1, cint_t::gpu_t comp, cfloat_t::gpu_t FeH),
+		os_fixedFeH_kernel(otable_ks ks, float fixedFeH, uint32_t compFirst, uint32_t compLast, cint_t::gpu_t comp, cfloat_t::gpu_t FeH),
 		os_fixedFeH_kernel,
-		(ks, fixedFeH, comp0, comp1, comp, FeH)
+		(ks, fixedFeH, compFirst, compLast, comp, FeH)
 	)
 	{
 		for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 		{
 			int cmp = comp(row);
-			if(comp0 > cmp || cmp >= comp1) { continue; }
+			if(compFirst > cmp || cmp > compLast) { continue; }
 
 			FeH(row) = fixedFeH;
 		}

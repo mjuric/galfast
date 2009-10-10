@@ -34,7 +34,7 @@
 class os_unresolvedMultiples : public osink
 {
 	protected:
-		uint32_t comp0, comp1;				// range of model components [comp0, comp1) on which this module will operate
+		uint32_t compFirst, compLast;			// range of model components [comp0, comp1) on which this module will operate
 		std::string absmagSys;
 		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
@@ -46,7 +46,7 @@ class os_unresolvedMultiples : public osink
 		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
 		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
 
-		os_unresolvedMultiples() : osink(), comp0(0), comp1(0xffffffff)
+		os_unresolvedMultiples() : osink(), compFirst(0), compLast(0xffffffff)
 		{
 			req.insert("absmag");
 			req.insert("comp");
@@ -99,7 +99,7 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 			t2(::cumLF,	cumLF),
 			t3(::invCumLF,	invCumLF);
 
-		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, comp0, comp1, algo);
+		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, compFirst, compLast, algo);
 	}
 	
 	return nextlink->process(in, begin, end, rng);
@@ -108,8 +108,9 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// range of model components onto which this model should apply
-	cfg.get(comp0, "comp0", 0U);
-	cfg.get(comp1, "comp1", 0xffffffff);
+	cfg.get(compFirst, "compFirst", 0U);
+	cfg.get(compLast, "compLast", 0xffffffff);
+	if(compFirst == compLast) { compFirst = 0U; compLast = 0xffffffff; }
 
 	std::string LFfile, binaryFractionFile, strAlgo;
 	cfg.get(LFfile, "lumfunc", "");

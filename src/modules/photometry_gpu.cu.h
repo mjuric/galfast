@@ -98,7 +98,7 @@ KERNEL(
 	{
 		// should we process this star (based on the galactic model component it belongs to)?
 		int cmp = comp(row);
-		if(lt.comp0 > cmp || cmp >= lt.comp1) { continue; }
+		if(lt.compFirst > cmp || cmp > lt.compLast) { continue; }
 
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH(row);

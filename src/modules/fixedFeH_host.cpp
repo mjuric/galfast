@@ -31,14 +31,14 @@ class os_fixedFeH : public osink
 {
 	protected:
 		float fixedFeH;
-		uint32_t comp0, comp1;
+		uint32_t compFirst, compLast;
 
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("fixedFeH"); return s; }
 
-		os_fixedFeH() : osink(), fixedFeH(0), comp0(0), comp1(0xffffffff)
+		os_fixedFeH() : osink(), fixedFeH(0), compFirst(0), compLast(0xffffffff)
 		{
 			prov.insert("FeH");
 		}
@@ -54,7 +54,7 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &FeH   = in.col<float>("FeH");
 	cint_t  &comp   = in.col<int>("comp");
 
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, comp0, comp1, comp, FeH);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), fixedFeH, compFirst, compLast, comp, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 
@@ -62,8 +62,8 @@ bool os_fixedFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	cfg.get(fixedFeH, "FeH", 0.f);
-	cfg.get(comp0, "comp0", 0U);
-	cfg.get(comp1, "comp1", 0xffffffff);
+	cfg.get(compFirst, "compFirst", 0U);
+	cfg.get(compLast, "compLast", 0xffffffff);
 
 	return true;
 }

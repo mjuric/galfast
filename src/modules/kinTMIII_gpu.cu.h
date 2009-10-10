@@ -51,6 +51,7 @@ struct i8array5
 struct os_kinTMIII_data
 {
 	int comp_thin, comp_thick, comp_halo;
+	float Rg;
 	float fk, DeltavPhi;
 	farray5 	vPhi1, vPhi2, vR, vZ,
 		sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
@@ -207,8 +208,8 @@ struct os_kinTMIII_data
 		{
 			// fetch prerequisites
 			const int component = comp(row);
-			float X = XYZ(row, 0);
-			float Y = XYZ(row, 1);
+			float X = par.Rg - XYZ(row, 0);
+			float Y = -XYZ(row, 1);
 			float Zpc = XYZ(row, 2);
 			const float Rsquared = 1e-6 * (X*X + Y*Y);
 			const float Z = 1e-3 * Zpc;

@@ -18,6 +18,7 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#if 0
 #include "config.h"
 
 #include "model_J08.h"
@@ -81,3 +82,4 @@ extern "C" skygenInterface *create_model_bahcallsoneira()
 {
 	return new skygenHost<J08>();
 }
+#endif

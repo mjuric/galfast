@@ -35,8 +35,9 @@ public:
 		cuxTexture<float> lf;
 	};
 
-protected:
-	float f, l, h, z0;
+public:
+	float f, l, h;
+	float z0, Rg;
 	float r_cut2;
 
 	int comp;
@@ -50,14 +51,15 @@ public:
 	void prerun(host_state_t &hstate, bool draw);
 	void postrun(host_state_t &hstate, bool draw);
 
-protected:
-	__device__ float rho(float x, float y, float z, float M) const
+public:
+	__device__ float rho(float x, float y, float z) const
 	{
-		float r2 = x*x + y*y;
-		if(r2 + z*z > r_cut2) { return 0.f; }
+		float xgal = Rg-x;
+		float r2 = xgal*xgal + y*y;
+		if(r_cut2 && r2 + z*z > r_cut2) { return 0.f; }
 
 		float r = sqrtf(r2);
-		float rho = f * expf((Rg()-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
+		float rho = f * expf((Rg-r)/l  + (fabsf(z0) - fabsf(z + z0))/h);
 
 		return rho;
 	}
@@ -65,7 +67,7 @@ protected:
 public:
 	__device__ void setpos(state &s, float x, float y, float z) const
 	{
-		s.rho = rho(x, y, z, 0.f);
+		s.rho = rho(x, y, z);
 	}
 
 	__device__ float rho(state &s, float M) const
@@ -74,7 +76,7 @@ public:
 		return phi * s.rho;
 	}
 
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
+	__device__ int component() const
 	{
 		return comp;
 	}

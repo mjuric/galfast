@@ -30,6 +30,8 @@ struct os_vel2pm_data
 
 	float vLSR,		// Local standard of rest velocity
  	      u0, v0, w0;	// Solar peculiar motion
+
+ 	float Rg;		// Distance to the Galactic center
 };
 
 //
@@ -266,8 +268,8 @@ struct os_vel2pm_data
 			// NOTE: Single precision should be sufficient here for (l,b)
 			float l = radf(lb0(row, 0));
 			float b = radf(lb0(row, 1));
-			float X = XYZ(row, 0);
-			float Y = XYZ(row, 1);
+			float X = par.Rg - XYZ(row, 0);
+			float Y = -XYZ(row, 1);
 			float Z = XYZ(row, 2);
 			float vx = vcyl(row, 0);
 			float vy = vcyl(row, 1);

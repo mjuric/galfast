@@ -46,6 +46,8 @@ protected:
 	float f;	// scale factor by which to multiply sampled densities
 	int comp;	// component ID for this model
 
+	float Rg;	// distance to the Galactic center
+
 public:
 	struct state
 	{
@@ -58,6 +60,9 @@ public:
 public:
 	__device__ void setpos(state &s, float x, float y, float z) const
 	{
+		x = Rg - x;	// convert to galactocentric
+		y *= -1;	// ...
+
 		s.rho = f * TEX3D(densityCubeTex, x, y, z);
 	}
 
@@ -67,7 +72,11 @@ public:
 		return phi * s.rho;
 	}
 
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
+/*	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
+	{
+		return comp;
+	}*/
+	__device__ int component() const
 	{
 		return comp;
 	}

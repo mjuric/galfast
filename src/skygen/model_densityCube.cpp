@@ -252,6 +252,10 @@ void densityCube::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	cfg.get(f,  	"f",		1.f);
 	cfg.get(comp,	"comp",		0);
 
+	// distance to the Galactic center. The observer is assumed to be
+	// on y=z=0, and Rg away on the x axis from the G.c.
+	Rg = cfg.get("Rg");
+
 	// 3D density cube
 	float offs[3], scale[3];
 	cfg.get(offs[0], "xoffs", 0.f);

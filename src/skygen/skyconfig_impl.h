@@ -200,7 +200,7 @@ void skygenHost<T>::upload(bool draw)
 		assert(this->stopstars > 0);
 	}
 
-	cuxUploadConst("Rg_gpu", this->Rg);
+//	cuxUploadConst("Rg_gpu", this->Rg);
 	cuxUploadConst("rng", *this->rng);
 	cuxUploadConst("proj", this->proj);
 
@@ -217,7 +217,7 @@ bool skygenHost<T>::init(
 )
 {
 	// Galactic center distance (in pc)
-	Rg = 8000.;
+//	Rg = 8000.;
 
 	// load the model
 	this->model.load(model_host_state, cfg);
@@ -309,7 +309,7 @@ double skygenHost<T>::integrateCounts(float &runtime)
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb2) << ss.str();
 
-	MLOG(verb1) << "Model starcount: " << std::setprecision(9) << this->nstarsExpected
+	MLOG(verb1) << "Comp. " << this->model.component() << " starcount : " << std::setprecision(9) << this->nstarsExpected
 		<< " (" << this->nstarsExpectedToGenerate << " in pixelized area)";
 
 	swatch.stop();
@@ -399,13 +399,13 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		
 		double pctdone = 100. * total / this->nstarsExpected;
 		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
-		MLOG(verb1) << "Skygen progress: " << pcts << "% done.";
+		MLOG(verb1) << "Comp. "<< this->model.component() << " progress: " << pcts << "% done.";
 
 	} while(this->stars_generated >= this->stopstars);
 
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
-	MLOG(verb1) << "Skygen completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
+	MLOG(verb1) << "Comp. "<< this->model.component() << " completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
 
 	swatch.stop();
 	runtime = swatch.getTime();

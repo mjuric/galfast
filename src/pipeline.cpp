@@ -710,5 +710,4 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 
 	// execute the pipeline
 	int nstarsGenerated = pipe.run(t, rng);
-	MLOG(verb2) << "Observing pipeline generated " << nstarsGenerated << " point sources.";
 }

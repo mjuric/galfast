@@ -28,15 +28,15 @@
 	#include "gpu.h"
 	#include <astro/constants.h>
 
-	#ifdef __CUDACC__
-		// distance to the Galactic center
-		__device__ __constant__ float Rg_gpu;
-		__device__ inline float Rg() { return Rg_gpu; }
-	#else
-		// galactic center distance, CPU version
-		extern double Rg_impl;
-		inline double Rg() { return Rg_impl; }
-	#endif
+// 	#ifdef __CUDACC__
+// 		// distance to the Galactic center
+// 		__device__ __constant__ float Rg_gpu;
+// 		__device__ inline float Rg() { return Rg_gpu; }
+// 	#else
+// 		// galactic center distance, CPU version
+// 		extern double Rg_impl;
+// 		inline double Rg() { return Rg_impl; }
+// 	#endif
 
 	// useful math constants
 	static const double dbl_pi  = 3.14159265358979323846264338;
@@ -88,14 +88,18 @@
 	{
 		float cl, cb, sl, sb;
 
-		// Compute xyz position given direction and distance
+		// Compute cartesian xyz position given direction and distance
+		// Note: x=y=z=0 is the position of the Sun. The galactic center
+		//       lies on the positive x axis. This *OPPOSITE* from the
+		//       Juric et al. (2008) heliocentric convention, but more
+		//       consistent with tradition (and math).
 		__device__ inline float3 xyz(const float d) const
 		{
 			float3 ret;
 
-			ret.x = Rg() - d*cl*cb;
-			ret.y =      - d*sl*cb;
-			ret.z =        d*sb;
+			ret.x = d*cl*cb;
+			ret.y = d*sl*cb;
+			ret.z =    d*sb;
 
 			return ret;
 		};

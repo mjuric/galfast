@@ -757,6 +757,11 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 		starsGenerated += (*i)->drawSources(in, nextlink, runtime);
 		swatch.addTime(runtime);
 	}
+
+	double sigma = (starsGenerated - nstarsExpected) / sqrt(nstarsExpected);
+	char sigmas[50]; sprintf(sigmas, "%4.1f", sigma);
+	MLOG(verb1) << "Total sources: " << starsGenerated << " (" << sigmas << " sigma from expectation value).";
+
 	return starsGenerated;
 }
 

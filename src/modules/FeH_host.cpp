@@ -49,7 +49,7 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
 	//	- Bahcall-Soneira component tags exist in input
-	//	- galactocentric XYZ coordinates exist in input
+	//	- galactic XYZ coordinates exist in input
 	//	- all stars are main sequence
 
 	// fetch prerequisites
@@ -83,9 +83,9 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(offs[2],  "offsH",  -1.46f);
 
 	// Component IDs
-	cfg.get(comp_thin,  "comp_thin",  0);
-	cfg.get(comp_thick, "comp_thick", 1);
-	cfg.get(comp_halo,  "comp_halo",  2);
+	comp_thin  = cfg.get("comp_thin");
+	comp_thick = cfg.get("comp_thick");
+	comp_halo  = cfg.get("comp_halo");
 
 	// Output model parameters
 	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< comp_thin << " " << comp_thick << " " << comp_halo;

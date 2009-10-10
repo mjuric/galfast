@@ -292,7 +292,7 @@ protected:
 	// Any state the model needs to maintain on the host (e.g., loaded textures)
 	typename Model::host_state_t	model_host_state;
 
-	float Rg;		// distance to the galactic center
+//	float Rg;		// distance to the galactic center
 
 	gpuRng *rng;
 	rng_t *cpurng;

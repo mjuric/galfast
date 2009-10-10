@@ -73,13 +73,15 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 bool os_vel2pm::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
 	std::string cs;
 	cfg.get(cs, "coordsys", "gal");
 	     if(cs == "gal") { coordsys = GAL; output_col_name = "pmlb"; }
 	else if(cs == "equ") { coordsys = EQU; output_col_name = "pmradec"; }
 	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
 	prov.insert(output_col_name);
+
+	// distance to the Galactic center
+	Rg = cfg.get("Rg");
 
 	// LSR and peculiar Solar motion
 	cfg.get(vLSR, "vLSR", -220.0f);

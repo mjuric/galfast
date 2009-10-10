@@ -22,8 +22,8 @@
 
 #include "model_powerLawEllipsoid.h"
 #include "skyconfig_impl.h"
+#include "model_lib.h"
 
-#include <astro/system/config.h>
 #include <astro/math.h>
 
 #include <astro/useall.h>
@@ -42,13 +42,14 @@ void powerLawEllipsoid::postrun(host_state_t &hstate, bool draw)
 
 void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config &cfg)
 {
-	rminSq = 0.f;
-	rmaxSq = std::numeric_limits<float>::max();
+	// turn off density truncation
+	rminSq = rmaxSq = 0.f;
 
 	// center of the ellipsoid
-	cfg.get(c[0], "x", 0.f);
-	cfg.get(c[1], "y", 0.f);
-	cfg.get(c[2], "z", 0.f);
+	cfg.get(c.x, "center_l", 0.f);	// Galactic longitude
+	cfg.get(c.y, "center_b", 0.f);	// Galactic latitude
+	cfg.get(c.z, "center_D", 0.f);	// Distance (in parsecs)
+	c = direction(peyton::math::rad(c.x), peyton::math::rad(c.y)).xyz(c.z);
 
 	cfg.get(n, "n", -3.f);		// power law index
 	cfg.get(ca, "c_a", 1.f);	// ratio of c / a (z and x axes of the ellipsoid)
@@ -96,41 +97,17 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 #endif
 
 	// component ID
-	cfg.get(comp, "comp", 0);
+	comp = cfg.get("comp");
 
-	// luminosity function
-	// location where the given luminosity function was sampled
-	// (this is usually the solar neighborhood, but since the
-	// coordinates galactocentric, and the the position of the
-	// Sun is user-settable, the default is set to the center of
-	// the Galaxy)
-	// NOTE: This default becomes invalid if the profile diverges
-	// at the center.
-	float lfc[3];
-	cfg.get(lfc[0], "lfx", 0.f);
-	cfg.get(lfc[1], "lfy", 0.f);
-	cfg.get(lfc[2], "lfz", 0.f);
-
-	cfg.get(f, "f", 1.f);				// normalization wrt the LF
-	float norm = rho(lfc[0], lfc[1], lfc[2]);	// Adjust f, so that future rho(x,y,z) give f at {lfc}
-	assert(norm != 0.f && std::isnormal(norm));
-	f /= norm;
+	// Load luminosity function
+	hstate.lf = load_lf(*this, cfg);
 
 	// limits (\rho = 0 for d < rminSq || d > rmaxSq)
 	// NOTE: This is intentionally after LF normalization computation, so
 	// that normalizing to the values of the profile in the regions
 	// excluded by this cut would still be possible.
 	cfg.get(rminSq, "rmin", 0.f);	rminSq *= rminSq;
-	cfg.get(rmaxSq, "rmax", 1e5f);	rmaxSq *= rmaxSq;
-
-	if(cfg.count("lumfunc"))
-	{
-		hstate.lf = load_and_resample_texture_1D(cfg["lumfunc"].c_str());
-	}
-	else
-	{
-		hstate.lf = load_constant_texture_1D(1.f, -100., 100.);
-	}
+	cfg.get(rmaxSq, "rmax", 0.f);	rmaxSq *= rmaxSq;
 }
 
 extern "C" skygenInterface *create_model_powerlawellipsoid()

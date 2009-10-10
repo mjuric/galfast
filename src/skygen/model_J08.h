@@ -18,6 +18,7 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
+#if 0
 #ifndef J08_h__
 #define J08_h__
 
@@ -115,3 +116,4 @@ public:
 MODEL_IMPLEMENTATION(J08);
 
 #endif // #ifndef expDisk_h__
+#endif

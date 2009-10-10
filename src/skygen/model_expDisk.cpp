@@ -23,7 +23,7 @@
 #include "model_expDisk.h"
 #include "skyconfig_impl.h"
 
-#include <astro/system/config.h>
+#include "model_lib.h"
 
 void expDisk::prerun(host_state_t &hstate, bool draw)
 {
@@ -43,22 +43,19 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	l     = cfg.get("l");
 	h     = cfg.get("h");
 	z0    = cfg.get("z0");
-	f     = cfg.get("f");
+	Rg    = cfg.get("Rg");
 
-	cfg.get(comp, "comp", 0);
+	comp  = cfg.get("comp");
 
-	// luminosity function
-	if(cfg.count("lumfunc"))
-	{
-		hstate.lf = load_and_resample_texture_1D(cfg["lumfunc"].c_str());
-	}
-	else
-	{
-		hstate.lf = load_constant_texture_1D(1.f, -100., 100.);
-	}
+	// set this to 0. for now, to allow LF normalization
+	// even beyond the user-specified model cutoff
+	r_cut2 = 0.f;
 
-	// cutoff radius (default: 1Mpc)
-	cfg.get(r_cut2,  "rcut",   1e6f);
+	// Load luminosity function
+	hstate.lf = load_lf(*this, cfg);
+
+	// cutoff radius (default: no cutoff)
+	cfg.get(r_cut2,  "rcut",   0.f);
 	r_cut2 *= r_cut2;
 }
 

@@ -337,7 +337,8 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 		stars.XYZ(idx, 2) = pos.z;
 
 		// Store the component ID
-		stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
+		//stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
+		stars.comp(idx) = model.component();
 
 		ndraw--;
 	}

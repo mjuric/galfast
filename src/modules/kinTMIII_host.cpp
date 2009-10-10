@@ -114,6 +114,9 @@ bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(comp_thick, "comp_thick", 1);
 	cfg.get(comp_halo,  "comp_halo",  2);
 
+	// Distance to the Galactic center
+	Rg = cfg.get("Rg");
+
 	cfg.get(fk           , "fk"           , 3.0f);
 	cfg.get(DeltavPhi    , "DeltavPhi"    , 34.0f);
 	fk = fk / (1. + fk);	// renormalize to probability of drawing from the first gaussian

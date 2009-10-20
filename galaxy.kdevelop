@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
@@ -60,7 +60,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/tests/os_photometry/</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/tests/patchn2n2p2z/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -189,7 +189,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -215,11 +215,11 @@
   <kdevdebugger>
     <general>
       <programargs>postprocess postprocess.conf skygen.conf</programargs>
-      <gdbpath/>
+      <gdbpath></gdbpath>
       <dbgshell>libtool --mode=execute</dbgshell>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

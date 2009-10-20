@@ -36,6 +36,8 @@
 #include "analysis.h"
 #include "spline.h"
 
+#include <cuda.h>
+
 size_t arrayMemSize_impl(size_t nx, size_t ny, size_t nz, size_t align, size_t elementSize)
 {
 	size_t size;	// size of the area to allocate, in bytes

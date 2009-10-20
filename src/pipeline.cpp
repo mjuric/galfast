@@ -160,6 +160,8 @@ class os_fitsout : public osink
 		std::string header_def;
 		ticker tick;
 
+		void createOutputTable(otable &t);
+
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
@@ -263,81 +265,97 @@ int write_fits_rows(long totaln, long offset, long firstn, long nvalues, int nar
 	return 0;
 }
 
-size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
+void os_fitsout::createOutputTable(otable &t)
 {
-	ticker tick("Writing output", (int)ceil((to-from)/50.));
+	if(headerWritten) { return; }
 
 	// fetch columns we're going to write
 	std::vector<const otable::columndef *> cols;
 	t.getSortedColumnsForOutput(cols);
 	const int tfields = cols.size();
 
-	if(!headerWritten)
+	// collect header metadata -- we'll write this out into a separate table
+	// in the destructor
+	std::ostringstream hdr;
+	t.serialize_header(hdr);
+	header_def = hdr.str();
+
+	// create the output table
+	char *ttype[tfields], *tform[tfields];
+	data.resize(tfields);
+	FOR(0, tfields)
 	{
-		// collect header metadata
-		std::ostringstream hdr;
-		t.serialize_header(hdr);
-		header_def = hdr.str();
+		coldef c;
+		(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
 
-		// create the output table
-		char *ttype[tfields], *tform[tfields];
-		data.resize(tfields);
-		FOR(0, tfields)
+		ttype[i] = strdup(cols[i]->getPrimaryName().c_str());
+		asprintf(&tform[i], "%d%c", c.width, cols[i]->type()->fits_tform());
+
+		//std::cerr << ttype[i] << " " << tform[i] << "\n";
+	}
+
+	int status = 0;
+	fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, "CATALOG", &status);
+	ASSERT(status == 0) { fits_report_error(stderr, status); }
+
+	FOR(0, tfields)
+	{
+		free(ttype[i]);
+		free(tform[i]);
+	}
+
+	// construct array for cfitsio/Iterator routines
+	columns.resize(tfields);
+	FOR(0, tfields)
+	{
+		int dtype;
+		switch(cols[i]->type()->fits_tform())
 		{
-			coldef c;
-			(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
-
-			ttype[i] = strdup(cols[i]->getPrimaryName().c_str());
-	 		asprintf(&tform[i], "%d%c", c.width, cols[i]->type()->fits_tform());
-
-			//std::cerr << ttype[i] << " " << tform[i] << "\n";
+			case 'A': dtype = TSTRING; break;
+			case 'J': dtype = TINT; break;
+			case 'E': dtype = TFLOAT; break;
+			case 'D': dtype = TDOUBLE; break;
+			default: ASSERT(0);
 		}
 
-		int status = 0;
-		fits_create_tbl(fptr, BINARY_TBL, 0, tfields, ttype, tform, NULL, "CATALOG", &status);
-		ASSERT(status == 0) { fits_report_error(stderr, status); }
+		fits_iter_set_by_num(&data[i], fptr, i+1, dtype,  OutputCol);
+	}
 
-		// construct array for cfitsio/Iterator routines
-		columns.resize(tfields);
-		FOR(0, tfields)
-		{
-			int dtype;
-			switch(cols[i]->type()->fits_tform())
-			{
-				case 'A': dtype = TSTRING; break;
-				case 'J': dtype = TINT; break;
-				case 'E': dtype = TFLOAT; break;
-				case 'D': dtype = TDOUBLE; break;
-				default: ASSERT(0);
-			}
+	headerWritten = true;
+}
 
-			fits_iter_set_by_num(&data[i], fptr, i+1, dtype,  OutputCol);
+size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
+{
+	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
-			coldef &c = columns[i];
-			c.data = (char*)(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
+	createOutputTable(t);
 
-			free(ttype[i]);
-			free(tform[i]);
-		}
-
-		headerWritten = true;
+	// Get data pointers from output the table
+	std::vector<const otable::columndef *> cols;
+	t.getSortedColumnsForOutput(cols);
+	FOR(0, columns.size())
+	{
+		coldef &c = columns[i];
+		c.data = (char*)(const_cast<otable::columndef *>(cols[i]))->rawdataptr(c.elementSize, c.width, c.pitch);
 	}
 
 	swatch.start();
 
-//	if(t.using_column("hidden"))
-	// call cfitsio Iterator
+	// append the (maximum) number of rows we're going to write
 	int status = 0;
 	long nrows;
 	fits_get_num_rows(fptr, &nrows, &status);		ASSERT(status == 0) { fits_report_error(stderr, status); }
 	fits_insert_rows(fptr, nrows, to-from, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
 
+	// call cfitsio Iterator
 	write_fits_rows_state st(&columns[0], from, to);
 	if(t.using_column("hidden"))
 	{
 		st.hidden = t.col<int>("hidden");
 	}
-	fits_iterate_data(tfields, &data[0], nrows, 0, write_fits_rows, &st, &status);		ASSERT(status == 0) { fits_report_error(stderr, status); }
+	fits_iterate_data(columns.size(), &data[0], nrows, 0, write_fits_rows, &st, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
+
+	// truncate any extra rows
 	fits_delete_rows(fptr, nrows + st.rowswritten + 1, to-from-st.rowswritten, &status);	ASSERT(status == 0) { fits_report_error(stderr, status); }
 
 	swatch.stop();

@@ -34,7 +34,7 @@ using namespace std;
 ///////////////////////////////////
 
 extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
-void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output);
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun);
 void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<std::string> &modules);
 
 int main(int argc, char **argv)
@@ -62,6 +62,7 @@ try
 	int seed = 19821129;
 	size_t nstars = 0;
 	size_t maxstars = 100*1000*1000;
+	bool dryrun = false;
 	std::vector<std::string> modules;
 	std::string infile, outfile;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Generate and postprocess a mock catalog.", version, Authorship::majuric));
@@ -71,6 +72,7 @@ try
 	sopts["catalog"]->option("i").addname("input").bind(infile).param_required().desc("Input catalog file");
 	sopts["catalog"]->option("o").addname("output").bind(outfile).param_required().desc("Output catalog file");
 	sopts["catalog"]->option("n").addname("nstars").bind(nstars).param_required().desc("Renormalize the density so that on average <nstars> stars are generated within the observed volume.");
+	sopts["catalog"]->option("dryrun").bind(dryrun).value("true").desc("Skip the actual generation/output of the catalog.");
 	sopts["catalog"]->option("maxstars").bind(maxstars).param_required().desc("Maximum number of stars the code is allowed to generate.");
 	sopts["catalog"]->add_standard_options();
 
@@ -226,7 +228,7 @@ try
 		std::set<std::string> mset;
 		if(!input.empty()) { mset.insert(input); }
 		mset.insert(modules.begin(), modules.end());
-		generate_catalog(seed, maxstars, nstars, mset, infile, outfile);
+		generate_catalog(seed, maxstars, nstars, mset, infile, outfile, dryrun);
 	}
 	else
 	{

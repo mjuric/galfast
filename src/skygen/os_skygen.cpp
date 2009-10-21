@@ -101,8 +101,11 @@ class os_skygen : public osource
 protected:
 	std::vector<boost::shared_ptr<skygenInterface> > kernels;
 	size_t maxstars;	// maximum number of stars to generate
+	bool dryrun;		// whether to stop after computing the expected number of stars
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
 	cuxTexture<float, 3>	ext_north, ext_south;	// north/south extinction maps
+
+	std::string denMapPrefix;	// HACK: dump the starcount density of each component into a file named denMapPrefix.$comp.txt
 
 public:
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
@@ -680,6 +683,10 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	cfg.get(maxstars, "maxstars", (size_t)100*1000*1000);	// maximum number of stars skygen is allowed to generate (0 for unlimited)
 	cfg.get(nstars, "nstars", 0.f);				// mean number of stars skygen should generate (0 to leave it to the model to determine this)
+	cfg.get(dryrun, "dryrun", false);			// mean number of stars skygen should generate (0 to leave it to the model to determine this)
+
+	// output file for sky densities
+	cfg.get(denMapPrefix, "skyDensityMapOutputPrefix", "");
 
 	// load extinction volume maps
 	load_extinction_maps(cfg["extmaps"]);
@@ -714,7 +721,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 	{
 		float runtime;
 		(*i)->initRNG(rng);
-		nstarsExpected += (*i)->integrateCounts(runtime);
+		nstarsExpected += (*i)->integrateCounts(runtime, denMapPrefix.c_str());
 	}
 
 	//
@@ -735,6 +742,11 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 	else
 	{
 		MLOG(verb1) << "Stars expected: " << nstarsExpected << "\n";
+	}
+
+	if(dryrun)
+	{
+		return 0;
 	}
 
 	//

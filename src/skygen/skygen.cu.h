@@ -401,6 +401,8 @@ __device__ void skygenGPU<T>::kernel() const
 	// not moving between distance bins often), we crawl in blocks of size 'block'
 	// and then jump block*nthreads ahead.
 	//
+	double rhoBeam = 0.f;
+	int ilbPrev = 0;
 	while(ndraw == 0)
 	{
 		// advance the index in (X,Y,M,m) space (indexed by (ilb,iM,im), or linear index k)
@@ -408,7 +410,7 @@ __device__ void skygenGPU<T>::kernel() const
 		if(bc == 0)	// jump over block*nthreads, or advance by 1?
 		{
 			// jump block*nthreads
-		 	bc = block;
+			bc = block;
 			k += block*nthreads;
 			diagIndexToIJ(ilb, im, iM, k, nm, nM);
 			if(ilb >= npixels) { break; }
@@ -455,9 +457,19 @@ __device__ void skygenGPU<T>::kernel() const
 		}
 		else
 		{
+			if(ilbPrev != ilb)
+			{
+				// store the accumulated density within the current beam
+				assert(countsCoveredPerBeam(tid, ilbPrev) == 0.f);
+				countsCoveredPerBeam(tid, ilbPrev) = rhoBeam;
+				rhoBeam = 0.f;
+				ilbPrev = ilb;
+			}
+
 			// sum up the stars in the volume
 			count += rho;
 			countCovered += rho * pix.coveredFraction;
+			rhoBeam      += rho * pix.coveredFraction;
 			if(maxCount1 < rho) { maxCount1 = rho; }
 #if 1
 			// add this sample to the correct histogram bin
@@ -470,6 +482,8 @@ __device__ void skygenGPU<T>::kernel() const
 #endif
 		}
 	};
+
+	countsCoveredPerBeam(tid, ilbPrev) = rhoBeam;
 
 	tid = threadID();
 	if(!draw)

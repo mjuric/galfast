@@ -59,7 +59,7 @@
         <locus_demo.x/>
         <selector.x/>
       </runarguments>
-      <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
+      <globaldebugarguments>catalog --dryrun cmd.conf</globaldebugarguments>
       <globalcwd>/home/mjuric/projects/galaxy/tests/patchn2n2p2z/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>

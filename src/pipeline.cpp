@@ -578,18 +578,6 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	}
 	MLOG(verb1) << "Pipeline: " << ss.str();
 
-#if 0
-	//
-	bool dryRun = true;
-	if(dryRun)
-	{
-		std::cout << "###GENERATED_COLUMNS: ";
-		t.serialize_header(std::cout);
-		std::cout << "\n";
-		return 0;
-	}
-#endif
-
 	int ret = source->run(t, rng);
 
 	MLOG(verb2) << "Module runtimes:";
@@ -636,6 +624,7 @@ bool opipeline::create_and_add(
 		modcfg.insert(make_pair("maxstars", str(maxstars)));
 		modcfg.insert(make_pair("nstars", str(nstars)));
 		modcfg.insert(make_pair("extmaps", extmaps));
+		modcfg.insert(make_pair("dryrun", str(this->dryrun)));
 	}
 	if(stage->type() == "output" && !output.empty())
 	{
@@ -649,7 +638,7 @@ bool opipeline::create_and_add(
 	add(stage);
 }
 
-void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output)
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun)
 {
 	rng_gsl_t rng(seed);
 
@@ -706,7 +695,7 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 	MLOG(verb1) << "Extinction maps: " << (extmaps.empty() ? "<none>" : extmaps);
 
 	// Create the modules and construct the pipeline
-	opipeline pipe;
+	opipeline pipe(dryrun);
 	FOREACH(module_configs)
 	{
 		pipe.create_and_add(*i, t, maxstars, nstars, models, foots, extmaps, input, output);

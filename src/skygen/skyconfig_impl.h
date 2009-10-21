@@ -180,6 +180,10 @@ void skygenHost<T>::upload(bool draw)
 
 	if(!draw)
 	{
+		cpu_countsCoveredPerBeam = cuxSmartPtr<float>(this->nthreads, this->npixels);
+		FOREACH(cpu_countsCoveredPerBeam) { *i = 0.; }
+		this->countsCoveredPerBeam = cpu_countsCoveredPerBeam;
+
 		this->rhoHistograms.alloc(this->nthreads*this->nhistbins);
 		cudaMemset(this->rhoHistograms.ptr, 0, this->nthreads*this->nhistbins*4);
 
@@ -281,7 +285,7 @@ void skygenHost<T>::setDensityNorm(float norm_)	// set the density normalization
 }
 
 template<typename T>
-double skygenHost<T>::integrateCounts(float &runtime)
+double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 {
 	//
 	// First pass: compute total expected starcounts
@@ -292,6 +296,45 @@ double skygenHost<T>::integrateCounts(float &runtime)
 	upload(false);
 	compute(false);
 	download(false);
+
+	// sum up and print out the on-sky densities, if requested
+	//this->skyDensityMapFile = "denmap.txt";
+	if(denmapPrefix && denmapPrefix[0] != 0)
+	{
+		std::string skyDensityMapFile(denmapPrefix);
+		skyDensityMapFile += "." + str(this->model.component()) + ".txt";
+
+		FILE *fp = fopen(skyDensityMapFile.c_str(), "w");
+		ASSERT(fp != NULL);
+
+		std::vector<double> den(this->npixels);
+		for(int px = 0; px != this->npixels; px++)
+		{
+			double rho = 0;
+			for(int th = 0; th != this->nthreads; th++)
+			{
+				rho += cpu_countsCoveredPerBeam(th, px);
+			}
+			den[px] = rho;
+			
+			Radians l, b;
+			pencilBeam pb = cpu_pixels[px];
+			this->proj[pb.projIdx].deproject(l, b, pb.X, pb.Y);
+			l *= 180./dbl_pi; b *= 180./dbl_pi;
+			//std::cerr << pb.X << " " << pb.Y << " " << rho << "\n";
+			//std::cerr << l << " " << b << " " << rho << "\n";
+			fprintf(fp, "% 9.4f % 8.4f %12.2f   % 8.4f % 8.4f %d\n", l, b, rho, pb.X, pb.Y, pb.projIdx);
+		}
+
+		fclose(fp);
+		double total = accumulate(den.begin(), den.end(), 0.);
+		ASSERT(fabs(total / this->nstarsExpected - 1.) < 1e-5)
+		{
+			std::cerr << "The expected number of stars, computed in two different ways is inconsistent.\n";
+			std::cerr << "   nstarsExpected=" << this->nstarsExpectedToGenerate << "\n";
+			std::cerr << "   total=" << total << "\n";
+		}
+	}
 
 	std::ostringstream ss;
 	ss << "Histogram:     log(rho) |";

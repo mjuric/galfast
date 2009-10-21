@@ -26,6 +26,7 @@
 #include "column.h"
 #include "module_lib.h"
 #include <astro/types.h>
+#include <string>
 
 typedef prngs::gpu::mwc gpuRng;
 using peyton::Radians;
@@ -43,9 +44,9 @@ struct pencilBeam;
 // and returned to os_skygen. os_skygen calls its methods (notably, integrateCounts()
 // and run()) to draw the catalog.
 //
-struct skygenInterface
+struct ALIGN(16) skygenInterface
 {
-	virtual double integrateCounts(float &runtime) = 0;				// computes the expected source count
+	virtual double integrateCounts(float &runtime, const char *denmappfix) = 0;	// computes the expected source count
 	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime) = 0;	// draws the sources, stores the output in the table, and invokes the rest of the pipeline
 
 	virtual bool init(								// initialize the catalog generator for this model
@@ -262,6 +263,7 @@ struct ALIGN(16) skygenGPU : public skygenParams
 
 	cuxDevicePtr<int> nstars;
 	cuxDevicePtr<float> counts, countsCovered;
+	gptr<float, 2> countsCoveredPerBeam;
 	ocolumns stars;
 
 	static const int nhistbins = 10;
@@ -298,6 +300,9 @@ protected:
 	rng_t *cpurng;
 	unsigned seed;
 	pencilBeam *cpu_pixels;
+	cuxSmartPtr<float> cpu_countsCoveredPerBeam;
+
+	std::string skyDensityMapFile;
 
 	// return
 	float nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
@@ -324,7 +329,7 @@ public:
 	~skygenHost();
 
 	// external interface (skygenInterface)
-	virtual double integrateCounts(float &runtime);	// return the expected starcounts contributed by this model
+	virtual double integrateCounts(float &runtime, const char *denmapPrefix);	// return the expected starcounts contributed by this model
 	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime);
 
 	virtual void initRNG(rng_t &rng);		// initialize the random number generator from CPU RNG

@@ -83,14 +83,20 @@ cuxSmartPtr_impl_t::cuxSmartPtr_impl_t(size_t es, size_t pitch, size_t width, si
 
 cuxSmartPtr_impl_t::~cuxSmartPtr_impl_t()
 {
-	ASSERT(boundTextures.empty()); // make sure to unbind the textures before deleting the underlying data
+	ASSERT(boundTextures.empty()); // Assert the textures were unbound, before gc() runs
 
-	onDevice = false;
-	cleanCudaArray = false;
-
+	// delete all slave copies
 	gc();
 
-	delete [] m_data.ptr;
+	// delete the master
+	if(!onDevice)
+	{
+		delete [] m_data.ptr;
+	}
+	else
+	{
+		cuxErrCheck( cudaFree(m_data.ptr) );
+	}
 
 	all_cuxSmartPtrs.erase(this);
 }
@@ -122,7 +128,7 @@ void cuxSmartPtr_impl_t::global_gc()
 
 void cuxSmartPtr_impl_t::gc()
 {
-	// delete the host copy if master copy resides on one of the devices
+	// delete slave (global memory) copy
 	if(onDevice)
 	{
 		delete [] slave;

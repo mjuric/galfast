@@ -88,6 +88,9 @@ class osink : public opipeline_stage
 class opipeline
 {
 	public:
+		bool dryrun;	// whether to gerate (draw) the catalog, or stop after computing the expected number of stars
+
+	public:
 		std::list<boost::shared_ptr<opipeline_stage> > stages;	// the pipeline (an ordered list of stages)
 
 	public:
@@ -101,6 +104,8 @@ class opipeline
 		virtual size_t run(otable &t, rng_t &rng);
 
 		bool has_module_of_type(const std::string &type) const;
+	public:
+		opipeline(bool dryrun_) : dryrun(dryrun_) {}
 };
 
 //

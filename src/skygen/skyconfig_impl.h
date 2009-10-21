@@ -104,7 +104,7 @@ skygenHost<T>::~skygenHost()
 // by launch of a kernel to draw stars, or to compute the overal normalization.
 //
 template<typename T>
-void skygenHost<T>::download(bool draw)
+void skygenHost<T>::download(bool draw, int pixfrom, int pixto)
 {
 	if(draw)
 	{
@@ -132,10 +132,12 @@ void skygenHost<T>::download(bool draw)
 		float *cpu_countsCovered = new float[this->nthreads];
 		this->counts.download(cpu_counts, this->nthreads);
 		this->countsCovered.download(cpu_countsCovered, this->nthreads);
-
 		// sum up the total expected number of stars
-		nstarsExpectedToGenerate = 0;
-		nstarsExpected = 0;
+		if(pixfrom == 0)
+		{
+			nstarsExpectedToGenerate = 0;
+			nstarsExpected = 0;
+		}
 		for(int i=0; i != this->nthreads; i++)
 		{
 			nstarsExpectedToGenerate += cpu_counts[i];
@@ -148,8 +150,12 @@ void skygenHost<T>::download(bool draw)
 		this->rhoHistograms.download(cpu_rhoHistograms, this->nthreads*this->nhistbins);
 
 		// sum up the total
-		cpu_hist = new int[this->nhistbins];
-		memset(cpu_hist, 0, sizeof(float)*this->nhistbins);
+		if(pixfrom == 0)
+		{
+			delete [] cpu_hist;
+			cpu_hist = new int[this->nhistbins];
+			memset(cpu_hist, 0, sizeof(float)*this->nhistbins);
+		}
 		for(int i=0; i != this->nthreads; i++)
 		{
 			for(int j=0; j != this->nhistbins; j++)
@@ -173,26 +179,29 @@ void skygenHost<T>::download(bool draw)
 // by a launch of a kernel to draw stars, or to compute the overal normalization.
 //
 template<typename T>
-void skygenHost<T>::upload(bool draw)
+void skygenHost<T>::upload(bool draw, int pixfrom, int pixto)
 {
 	// Upload pixels to be processed
-	this->pixels.upload(cpu_pixels, this->npixels);
+	this->npixels = pixto - pixfrom;
+	this->pixels.free();
+	this->pixels.upload(cpu_pixels + pixfrom, this->npixels);
 
 	if(!draw)
 	{
 		cpu_countsCoveredPerBeam = cuxSmartPtr<float>(this->nthreads, this->npixels);
+		//std::cerr << cpu_countsCoveredPerBeam.size() << " " << this->nthreads << " " << this->npixels << "\n";
 		FOREACH(cpu_countsCoveredPerBeam) { *i = 0.; }
 		this->countsCoveredPerBeam = cpu_countsCoveredPerBeam;
 
-		this->rhoHistograms.alloc(this->nthreads*this->nhistbins);
+		this->rhoHistograms.realloc(this->nthreads*this->nhistbins);
 		cudaMemset(this->rhoHistograms.ptr, 0, this->nthreads*this->nhistbins*4);
 
-		this->maxCount.alloc(this->nthreads);
+		this->maxCount.realloc(this->nthreads);
 		cudaMemset(this->maxCount.ptr, 0, this->nthreads*4);
 
-		this->counts.alloc(this->nthreads);
+		this->counts.realloc(this->nthreads);
 		cudaMemset(this->counts.ptr, 0, this->nthreads*4);
-		this->countsCovered.alloc(this->nthreads);
+		this->countsCovered.realloc(this->nthreads);
 		cudaMemset(this->countsCovered.ptr, 0, this->nthreads*4);
 	}
 	else
@@ -204,7 +213,6 @@ void skygenHost<T>::upload(bool draw)
 		assert(this->stopstars > 0);
 	}
 
-//	cuxUploadConst("Rg_gpu", this->Rg);
 	cuxUploadConst("rng", *this->rng);
 	cuxUploadConst("proj", this->proj);
 
@@ -293,47 +301,68 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 	swatch.reset();
 	swatch.start();
 
-	upload(false);
-	compute(false);
-	download(false);
-
-	// sum up and print out the on-sky densities, if requested
-	//this->skyDensityMapFile = "denmap.txt";
+	FILE *fp = NULL;
 	if(denmapPrefix && denmapPrefix[0] != 0)
 	{
 		std::string skyDensityMapFile(denmapPrefix);
 		skyDensityMapFile += "." + str(this->model.component()) + ".txt";
 
-		FILE *fp = fopen(skyDensityMapFile.c_str(), "w");
+		fp = fopen(skyDensityMapFile.c_str(), "w");
 		ASSERT(fp != NULL);
+	}
 
-		std::vector<double> den(this->npixels);
-		for(int px = 0; px != this->npixels; px++)
+	int lastpix = this->npixels;
+	std::vector<double> den(lastpix);
+
+	// Process in blocks of PIXBLOCK pixels, where PIXBLOCK is computed
+	// so that countsCoveredPerBeam array has about ~10M entries max
+	const int PIXBLOCK = 1024*1024*10 / this->nthreads;
+	ASSERT(PIXBLOCK >= 1);
+
+	int startpix = 0;
+	while(startpix < lastpix)
+	{
+		int endpix = std::min(startpix + PIXBLOCK, lastpix);
+
+		upload(false, startpix, endpix);
+		compute(false);
+		download(false, startpix, endpix);
+
+		// sum up and print out the on-sky densities, if requested
+		if(fp != NULL)
 		{
-			double rho = 0;
-			for(int th = 0; th != this->nthreads; th++)
+			int npix = endpix - startpix;
+			for(int px = startpix; px != endpix; px++)
 			{
-				rho += cpu_countsCoveredPerBeam(th, px);
+				double rho = 0;
+				for(int th = 0; th != this->nthreads; th++)
+				{
+					rho += cpu_countsCoveredPerBeam(th, px-startpix);
+				}
+				den[px] = rho;
+				
+				Radians l, b;
+				pencilBeam pb = cpu_pixels[px];
+				this->proj[pb.projIdx].deproject(l, b, pb.X, pb.Y);
+				l *= 180./dbl_pi; b *= 180./dbl_pi;
+				fprintf(fp, "% 9.4f % 8.4f %12.2f   % 8.4f % 8.4f %d\n", l, b, rho, pb.X, pb.Y, pb.projIdx);
 			}
-			den[px] = rho;
-			
-			Radians l, b;
-			pencilBeam pb = cpu_pixels[px];
-			this->proj[pb.projIdx].deproject(l, b, pb.X, pb.Y);
-			l *= 180./dbl_pi; b *= 180./dbl_pi;
-			//std::cerr << pb.X << " " << pb.Y << " " << rho << "\n";
-			//std::cerr << l << " " << b << " " << rho << "\n";
-			fprintf(fp, "% 9.4f % 8.4f %12.2f   % 8.4f % 8.4f %d\n", l, b, rho, pb.X, pb.Y, pb.projIdx);
 		}
 
+		startpix = endpix;
+	}
+	this->npixels = lastpix;
+	if(fp)
+	{
 		fclose(fp);
-		double total = accumulate(den.begin(), den.end(), 0.);
-		ASSERT(fabs(total / this->nstarsExpected - 1.) < 1e-5)
-		{
-			std::cerr << "The expected number of stars, computed in two different ways is inconsistent.\n";
-			std::cerr << "   nstarsExpected=" << this->nstarsExpectedToGenerate << "\n";
-			std::cerr << "   total=" << total << "\n";
-		}
+	}
+
+	double total = accumulate(den.begin(), den.end(), 0.);
+	ASSERT(fabs(total / this->nstarsExpected - 1.) < 1e-5)
+	{
+		std::cerr << "The expected number of stars, computed in two different ways is inconsistent.\n";
+		std::cerr << "   nstarsExpected=" << this->nstarsExpectedToGenerate << "\n";
+		std::cerr << "   total=" << total << "\n";
 	}
 
 	std::ostringstream ss;
@@ -388,9 +417,9 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		this->stars.DM      = in.col<float>("DM");
 
 		// call the generation kernel
-		upload(true);
+		upload(true, 0, this->npixels);
 		compute(true);
-		download(true);
+		download(true, 0, this->npixels);
 
 		in.set_size(this->stars_generated);	// truncate the table to the number of rows that were actually generated
 

@@ -321,8 +321,8 @@ protected:
 	void upload_self(bool draw = false);
 
 	void compute(bool draw = false);
-	void upload(bool draw = false);
-	void download(bool draw = false);
+	void upload(bool draw, int pixfrom, int pixto);
+	void download(bool draw, int pixfrom, int pixto);
 
 public:
 	skygenHost();

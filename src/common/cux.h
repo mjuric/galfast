@@ -262,6 +262,11 @@ template<typename T, int dim = 1, int align = 128>
 			cuxErrCheck( cudaMemcpy(dest, this->ptr, size, cudaMemcpyDeviceToHost) );
 		}
 
+		void realloc(size_t nx, size_t ny = 1, size_t nz = 1)
+		{
+			free();
+			alloc(nx, ny, nz);
+		}
 		void alloc(size_t nx, size_t ny = 1, size_t nz = 1)
 		{
 			assert(dim <= 4); // not implemented for dim > 4
@@ -275,6 +280,7 @@ template<typename T, int dim = 1, int align = 128>
 		void free()
 		{
 			cuxFree(this->ptr);
+			this->ptr = NULL;
 		}
 
 		cuxDevicePtr<T> operator =(T *p) { this->ptr = p; return *this; }

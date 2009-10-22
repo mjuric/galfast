@@ -18,19 +18,37 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef __CONFIG_H
-#define __CONFIG_H
-#include "config.h"
-#endif
+#ifndef GaussianFeH_gpu_cu_h__
+#define GaussianFeH_gpu_cu_h__
 
-#include "column.h"
-#include "modules/module_lib.h"
+//
+// Device kernel implementation
+//
+#if (__CUDACC__ || BUILD_FOR_CPU)
 
-#include "modules/FeH_gpu.cu.h"
-#include "modules/GaussianFeH_gpu.cu.h"
-#include "modules/fixedFeH_gpu.cu.h"
-#include "modules/unresolvedMultiples_gpu.cu.h"
-#include "modules/photometry_gpu.cu.h"
-#include "modules/kinTMIII_gpu.cu.h"
-#include "modules/vel2pm_gpu.cu.h"
-#include "modules/gal2other_gpu.cu.h"
+KERNEL(
+	ks, 3*4,
+	os_GaussianFeH_kernel(
+		otable_ks ks, float mean, float sigma, int compFirst, int compLast, gpu_rng_t rng,
+		cint_t::gpu_t comp,
+		cfloat_t::gpu_t XYZ,
+		cfloat_t::gpu_t FeH),
+	os_GaussianFeH_kernel,
+	(ks, mean, sigma, compFirst, compLast, rng, comp, XYZ, FeH)
+)
+{
+	uint32_t tid = threadID();
+	rng.load(tid);
+	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
+	{
+		int cmp = comp(row);
+		if(compFirst > cmp || cmp > compLast) { continue; }
+
+		FeH(row) = mean + rng.gaussian(sigma);
+	}
+	rng.store(tid);
+}
+
+#endif // (__CUDACC__ || BUILD_FOR_CPU)
+
+#endif // GaussianFeH_gpu_cu_h__

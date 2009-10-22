@@ -262,7 +262,7 @@ struct ALIGN(16) skygenGPU : public skygenParams
 	cuxDevicePtr<pencilBeam> pixels;	// pixels on the sky to process
 
 	cuxDevicePtr<int> nstars;
-	cuxDevicePtr<float> counts, countsCovered;
+	cuxDevicePtr<double> counts, countsCovered;
 	gptr<float, 2> countsCoveredPerBeam;
 	ocolumns stars;
 
@@ -305,8 +305,8 @@ protected:
 	std::string skyDensityMapFile;
 
 	// return
-	float nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
-	float nstarsExpected;		// expected number of stars in the actual footprint
+	double nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
+	double nstarsExpected;		// expected number of stars in the actual footprint
 	int stars_generated;
 	int *cpu_hist;
 	float *cpu_maxCount;

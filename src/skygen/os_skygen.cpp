@@ -686,7 +686,7 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(dryrun, "dryrun", false);			// mean number of stars skygen should generate (0 to leave it to the model to determine this)
 
 	// output file for sky densities
-	cfg.get(denMapPrefix, "skyDensityMapOutputPrefix", "");
+	cfg.get(denMapPrefix, "skyCountsMapPrefix", "");
 
 	// load extinction volume maps
 	load_extinction_maps(cfg["extmaps"]);

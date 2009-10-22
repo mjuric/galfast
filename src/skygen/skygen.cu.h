@@ -460,7 +460,7 @@ __device__ void skygenGPU<T>::kernel() const
 			if(ilbPrev != ilb)
 			{
 				// store the accumulated density within the current beam
-				assert(countsCoveredPerBeam(tid, ilbPrev) == 0.f);
+//				assert(countsCoveredPerBeam(tid, ilbPrev) == 0.f);
 				countsCoveredPerBeam(tid, ilbPrev) = rhoBeam;
 				rhoBeam = 0.f;
 				ilbPrev = ilb;
@@ -483,11 +483,10 @@ __device__ void skygenGPU<T>::kernel() const
 		}
 	};
 
-	countsCoveredPerBeam(tid, ilbPrev) = rhoBeam;
-
 	tid = threadID();
 	if(!draw)
 	{
+		countsCoveredPerBeam(tid, ilbPrev) = rhoBeam;
 		counts(tid) = count;
 		countsCovered(tid) = countCovered;
 		maxCount(tid) = maxCount1;

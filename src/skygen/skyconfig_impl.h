@@ -21,6 +21,7 @@
 #include "skygen.h"
 #include "otable.h"
 #include "../pipeline.h"
+#include "analysis.h"
 
 #include <iomanip>
 #include <ext/numeric>	// for iota
@@ -128,8 +129,8 @@ void skygenHost<T>::download(bool draw, int pixfrom, int pixto)
 	}
 	else
 	{
-		float *cpu_counts = new float[this->nthreads];
-		float *cpu_countsCovered = new float[this->nthreads];
+		double *cpu_counts = new double[this->nthreads];
+		double *cpu_countsCovered = new double[this->nthreads];
 		this->counts.download(cpu_counts, this->nthreads);
 		this->countsCovered.download(cpu_countsCovered, this->nthreads);
 		// sum up the total expected number of stars
@@ -138,11 +139,14 @@ void skygenHost<T>::download(bool draw, int pixfrom, int pixto)
 			nstarsExpectedToGenerate = 0;
 			nstarsExpected = 0;
 		}
+		double counts = 0, countsCovered = 0;
 		for(int i=0; i != this->nthreads; i++)
 		{
 			nstarsExpectedToGenerate += cpu_counts[i];
 			nstarsExpected += cpu_countsCovered[i];
 		}
+		nstarsExpectedToGenerate += counts;
+		nstarsExpected += countsCovered;
 		delete [] cpu_counts;
 		delete [] cpu_countsCovered;
 
@@ -316,12 +320,18 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 
 	// Process in blocks of PIXBLOCK pixels, where PIXBLOCK is computed
 	// so that countsCoveredPerBeam array has about ~10M entries max
-	const int PIXBLOCK = 1024*1024*10 / this->nthreads;
+	const int PIXBLOCK = 1024*1024*2 / this->nthreads;
+	//const int PIXBLOCK = this->nthreads;
 	ASSERT(PIXBLOCK >= 1);
+	//std::cerr << "npix, PIXELBLOCK = " << lastpix << " " << PIXBLOCK << "\n";
+
+	int step = (int)ceil(((float)lastpix/PIXBLOCK)/50);
+	ticker tick("Integrating", step);
 
 	int startpix = 0;
 	while(startpix < lastpix)
 	{
+		tick.tick();
 		int endpix = std::min(startpix + PIXBLOCK, lastpix);
 
 		upload(false, startpix, endpix);
@@ -340,6 +350,7 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 					rho += cpu_countsCoveredPerBeam(th, px-startpix);
 				}
 				den[px] = rho;
+				//std::cout << cpu_countsCoveredPerBeam(100, px-startpix) << " " << rho << "\n";
 				
 				Radians l, b;
 				pencilBeam pb = cpu_pixels[px];
@@ -352,17 +363,19 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 		startpix = endpix;
 	}
 	this->npixels = lastpix;
+	tick.close();
+
 	if(fp)
 	{
 		fclose(fp);
-	}
 
-	double total = accumulate(den.begin(), den.end(), 0.);
-	ASSERT(fabs(total / this->nstarsExpected - 1.) < 1e-5)
-	{
-		std::cerr << "The expected number of stars, computed in two different ways is inconsistent.\n";
-		std::cerr << "   nstarsExpected=" << this->nstarsExpectedToGenerate << "\n";
-		std::cerr << "   total=" << total << "\n";
+		double total = accumulate(den.begin(), den.end(), 0.);
+		ASSERT(fabs(total / this->nstarsExpected - 1.) < 1e-5)
+		{
+			std::cerr << "The expected number of stars, computed in two different ways is inconsistent.\n";
+			std::cerr << "   nstarsExpected=" << this->nstarsExpected << "\n";
+			std::cerr << "   total=" << total << "\n";
+		}
 	}
 
 	std::ostringstream ss;

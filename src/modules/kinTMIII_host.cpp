@@ -53,6 +53,8 @@ extern "C" opipeline_stage *create_module_kintmiii() { return new os_kinTMIII();
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 
+extern os_kinTMIII_data os_kinTMIII_par;
+
 size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// ASSUMPTIONS:
@@ -64,7 +66,9 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &vcyl   = in.col<float>("vcyl");
 
-	cuxUploadConst("os_kinTMIII_par", static_cast<os_kinTMIII_data&>(*this));
+	cuxUploadConst("os_kinTMIII_par", static_cast<os_kinTMIII_data&>(*this));	// for GPU execution
+	os_kinTMIII_par = static_cast<os_kinTMIII_data&>(*this);			// for CPU execution
+
 	CALL_KERNEL(os_kinTMIII_kernel, otable_ks(begin, end), rng, comp, XYZ, vcyl);
 	return nextlink->process(in, begin, end, rng);
 }

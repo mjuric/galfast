@@ -303,6 +303,8 @@ inline void os_photometry::bind_isochrone(std::list<tbptr> &binders, cuxTextureR
 	binders.push_back(tbptr(new cuxTextureBinder(texf, eflags[idx])));
 }
 
+extern os_photometry_data os_photometry_params;
+
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	cint_t &comp     = in.col<int>("comp");
@@ -327,7 +329,8 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		bind_isochrone(binders, color2, cflags2, 2);
 		bind_isochrone(binders, color3, cflags3, 3);
 
-		cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));
+		cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));	// for GPU execution
+		os_photometry_params = static_cast<os_photometry_data&>(*this);				// for CPU execution
 
 		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
 	}

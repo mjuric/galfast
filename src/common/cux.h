@@ -841,7 +841,7 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 */
 // Sampler routines
 template<typename T, typename Texref>
-	inline __device__ T sample_impl(Texref r, float x, float2 tc)
+	inline __device__ T sample_impl(Texref &r, float x, float2 tc)
 	{
 		float xi = (x - tc.x) * tc.y + 0.5f;
 		T v = tex1D(r, xi);
@@ -849,7 +849,7 @@ template<typename T, typename Texref>
 	}
 
 template<typename T, typename Texref>
-	inline __device__ T sample_impl(Texref r, float x, float y, float2 tcx, float2 tcy)
+	inline __device__ T sample_impl(Texref &r, float x, float y, float2 tcx, float2 tcy)
 	{
 		float xi = (x - tcx.x) * tcx.y + 0.5f;
 		float yi = (y - tcy.x) * tcy.y + 0.5f;
@@ -858,7 +858,7 @@ template<typename T, typename Texref>
 	}
 
 template<typename T, typename Texref>
-	inline __device__ T sample_impl(Texref r, float x, float y, float z, float2 tcx, float2 tcy, float2 tcz)
+	inline __device__ T sample_impl(Texref &r, float x, float y, float z, float2 tcx, float2 tcy, float2 tcz)
 	{
 		float xi = (x - tcx.x) * tcx.y + 0.5f;
 		float yi = (y - tcy.x) * tcy.y + 0.5f;
@@ -917,19 +917,19 @@ template<typename T, typename Texref>
 	#define TEX3D(name, x, y, z) sample(name, x, y, z)
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTextureReference<T, 1, mode> r, float x)
+		inline __device__ T sample(cuxTextureReference<T, 1, mode> &r, float x)
 		{
 			return sample_impl<T, cuxTextureReference<T, 1, mode> >(r, x, r.tex.coords[0]);
 		}
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTextureReference<T, 2, mode> r, float x, float y)
+		inline __device__ T sample(cuxTextureReference<T, 2, mode> &r, float x, float y)
 		{
 			return sample_impl<T, cuxTextureReference<T, 2, mode> >(r, x, y, r.tex.coords[0], r.tex.coords[1]);
 		}
 
 	template<typename T, enum cudaTextureReadMode mode>
-		inline __device__ T sample(cuxTextureReference<T, 3, mode> r, float x, float y, float z)
+		inline __device__ T sample(cuxTextureReference<T, 3, mode> &r, float x, float y, float z)
 		{
 			return sample_impl<T, cuxTextureReference<T, 3, mode> >(r, x, y, z, r.tex.coords[0], r.tex.coords[1], r.tex.coords[2]);
 		}

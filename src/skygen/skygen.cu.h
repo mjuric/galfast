@@ -98,7 +98,55 @@ __global__ void resample_extinction_kernel(gptr<float4, 1> out,
 	}
 }
 
-cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], lambert *proj)
+#if !__CUDACC__
+#include <boost/bind.hpp>
+
+class cpuEngine
+{
+protected:
+	dim3 gridDimK, blockDimK, shmemK;
+
+public:
+	cpuEngine(dim3 gridDim, dim3 blockDim, int shmem = 0)
+		: gridDimK(gridDim), blockDimK(blockDim), shmemK(0)
+	{}
+
+	template<typename K>
+	void launch(K kernel)
+	{
+		threadIdx.x = threadIdx.y = threadIdx.z = 0;
+		blockIdx.x = blockIdx.y = blockIdx.z = 0;
+
+		::blockDim = blockDimK;
+		::gridDim = gridDimK;
+
+		uint32_t nthreads = blockDim.x*blockDim.y*blockDim.z * gridDim.x*gridDim.y*gridDim.z;
+
+		// Single-thread implementation
+		for(uint32_t i=0; i != nthreads; i++)
+		{
+			kernel();
+
+			threadIdx.x++;
+			if(threadIdx.x == blockDim.x) { threadIdx.x = 0; blockIdx.x++; }
+			if(blockIdx.x  == gridDim.x) { blockIdx.x = 0;  blockIdx.y++; }
+			if(blockIdx.y  == gridDim.y) { blockIdx.y = 0;  blockIdx.z++; }
+		}
+	}
+};
+
+inline int atomicAdd(int *ptrx, int y) { int tmp = *ptrx; *ptrx += y; return tmp; }
+
+#define CPUGPU(name) cpu_##name
+
+#else
+
+#define CPUGPU(name) name
+
+#endif
+// };
+
+cuxSmartPtr<float4> CPUGPU(resample_extinction_texture)(cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], lambert *proj)
 {
 	cuxTextureBinder tb(ext_northManager, tex);
 
@@ -112,10 +160,17 @@ cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float
 	int nblocks = 30;
 	int nthreads = 128;
 	
+#if BUILD_FOR_CPU
+	if(proj != NULL)
+		cpuEngine(nblocks, nthreads).launch(boost::bind(resample_extinction_kernel<true>, out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]));
+	else
+		cpuEngine(nblocks, nthreads).launch(boost::bind(resample_extinction_kernel<false>, out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]));
+#else
 	if(proj != NULL)
 		resample_extinction_kernel<true><<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
 	else
 		resample_extinction_kernel<false><<<nblocks, nthreads>>>(out, crange[0], crange[1], crange[2], npix[0], npix[1], npix[2]);
+#endif
 
 	return out;
 }
@@ -520,6 +575,16 @@ void skygenHost<T>::compute(bool draw)
 	cuxErrCheck( cudaThreadSynchronize() );
 
 	kernelRunSwatch.start();
+#if !__CUDACC__
+	if(draw)
+	{
+		cpuEngine(gridDim, blockDim, shb).launch(boost::bind(draw_sources_kernel<T>));
+	}
+	else
+	{
+		cpuEngine(gridDim, blockDim, shb).launch(boost::bind(integrate_counts_kernel<T>));
+	}
+#else
 	if(draw)
 	{
 		draw_sources_kernel<T><<<gridDim, blockDim, shb>>>();
@@ -528,6 +593,7 @@ void skygenHost<T>::compute(bool draw)
 	{
 		integrate_counts_kernel<T><<<gridDim, blockDim, shb>>>();
 	}
+#endif
 	cuxErrCheck( cudaThreadSynchronize() );
 	kernelRunSwatch.stop();
 }

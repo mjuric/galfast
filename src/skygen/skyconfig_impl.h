@@ -178,6 +178,11 @@ void skygenHost<T>::download(bool draw, int pixfrom, int pixto)
 	this->model.postrun(model_host_state, draw);
 }
 
+#if !SKYGEN_ON_GPU
+extern gpuRng::constant rng;	// GPU RNG
+extern lambert proj[2];		// Projection definitions for the two hemispheres
+#endif
+
 //
 // Upload skygen data to GPU. Flag 'draw' denotes if this call will be followed
 // by a launch of a kernel to draw stars, or to compute the overal normalization.
@@ -217,8 +222,14 @@ void skygenHost<T>::upload(bool draw, int pixfrom, int pixto)
 		assert(this->stopstars > 0);
 	}
 
+#if SKYGEN_ON_GPU
 	cuxUploadConst("rng", *this->rng);
 	cuxUploadConst("proj", this->proj);
+#else
+	::rng = *this->rng;
+	::proj[0] = this->proj[0];
+	::proj[1] = this->proj[1];
+#endif
 
 	this->model.prerun(model_host_state, draw);
 	this->upload_self(draw);

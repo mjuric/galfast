@@ -74,7 +74,7 @@ struct modelConcept
 	__device__ void setpos(state &s, float x, float y, float z) const;	// set the 3D position which will be implied in subsequent calls to rho()
 	__device__ float rho(state &s, float M) const;				// return the number density at the position set by setpos, and absolute magnitude M
 
-	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const;	// return the component ID of a source at position xyzM
+	__device__ int component() const;					// return the component ID of this model
 };
 
 //
@@ -137,6 +137,33 @@ public:
 		b = asin(cc*p.sb + y*sc*p.cb*ir);
 		l = l0 + atan2(x*sc, p.cb*cc/ir - y*p.sb*sc);
 	}
+};
+
+//
+// Configuration parameters of catalog generator.
+//
+struct ALIGN(16) skygenParams
+{
+	float m0, m1, dm;		// apparent magnitude range
+	float M0, M1, dM;		// absolute magnitude range
+	float dmin, dmax;		// distance limits (in pc) -- NOTE: these are applied _after_ the flux limits
+	int npixels, nm, nM;		// number of sky pixels (pencil beams), number of magnitude bins, number of absmag bins
+
+	int nthreads;			// total number of threads processing the sky
+	int stopstars;			// stop after this many stars have been generated
+
+	lambert proj[2];		// north/south sky lambert projections
+};
+
+//
+// Columns used by the catalog generator
+//
+struct ALIGN(16) ocolumns
+{
+	cdouble_t::gpu_t	lb;
+	cint_t::gpu_t		projIdx;
+	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am;
+	cint_t::gpu_t		comp;
 };
 
 //
@@ -220,33 +247,6 @@ struct ALIGN(16) runtime_state
 };
 
 //
-// Configuration parameters of catalog generator.
-//
-struct ALIGN(16) skygenParams
-{
-	float m0, m1, dm;		// apparent magnitude range
-	float M0, M1, dM;		// absolute magnitude range
-	float dmin, dmax;		// distance limits (in pc) -- NOTE: these are applied _after_ the flux limits
-	int npixels, nm, nM;		// number of sky pixels (pencil beams), number of magnitude bins, number of absmag bins
-
-	int nthreads;			// total number of threads processing the sky
-	int stopstars;			// stop after this many stars have been generated
-
-	lambert proj[2];		// north/south sky lambert projections
-};
-
-//
-// Columns used by the catalog generator
-//
-struct ALIGN(16) ocolumns
-{
-	cdouble_t::gpu_t	lb;
-	cint_t::gpu_t		projIdx;
-	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am;
-	cint_t::gpu_t		comp;
-};
-
-//
 // Device functions and data for skygen (instantiated/defined in skygen.cu.h)
 // This piece gets uploaded as a __constant__ to the GPU. It differs from
 // skygenParams in that it contains pointers to output as well as model
@@ -307,7 +307,7 @@ protected:
 
 	// return
 	double nstarsExpectedToGenerate;	// expected number of stars in the pixelized footprint
-	double nstarsExpected;		// expected number of stars in the actual footprint
+	double nstarsExpected;			// expected number of stars in the actual footprint
 	int stars_generated;
 	int *cpu_hist;
 	float *cpu_maxCount;
@@ -348,22 +348,43 @@ public:
 //
 // Active only when compiled with nvcc
 //
+#define SKYGEN_ON_GPU	0
 #ifdef __CUDACC__
-	#define MODEL_IMPLEMENTATION(name) \
-		__device__ __constant__ skygenGPU<name> name##Sky; \
-		\
-		template<> __global__ void integrate_counts_kernel<name>() { name##Sky.kernel<0>(); } \
-		template<> __global__ void     draw_sources_kernel<name>() { name##Sky.kernel<1>(); } \
-		\
-		template<> \
-		void skygenHost<name>::upload_self(bool draw) \
-		{ \
-			cuxUploadConst(name##Sky, (skygenGPU<name>&)*this); \
-		} \
-		\
-		template class skygenHost<name>
+	#if SKYGEN_ON_GPU
+		#define MODEL_IMPLEMENTATION(name) \
+			__device__ __constant__ skygenGPU<name> name##Sky; \
+			\
+			template<> __global__ void integrate_counts_kernel<name>() { name##Sky.kernel<0>(); } \
+			template<> __global__ void     draw_sources_kernel<name>() { name##Sky.kernel<1>(); } \
+			\
+			template<> \
+			void skygenHost<name>::upload_self(bool draw) \
+			{ \
+				cuxUploadConst(name##Sky, (skygenGPU<name>&)*this); \
+			} \
+			\
+			template class skygenHost<name>
+	#else
+		#define MODEL_IMPLEMENTATION(name)
+	#endif
 #else
-	#define MODEL_IMPLEMENTATION(name)
+	#if BUILD_FOR_CPU && !SKYGEN_ON_GPU
+		#define MODEL_IMPLEMENTATION(name) \
+			__device__ __constant__ skygenGPU<name> name##Sky; \
+			\
+			template<> __global__ void integrate_counts_kernel<name>() { name##Sky.kernel<0>(); } \
+			template<> __global__ void     draw_sources_kernel<name>() { name##Sky.kernel<1>(); } \
+			\
+			template<> \
+			void skygenHost<name>::upload_self(bool draw) \
+			{ \
+				cuxUploadConst(name##Sky, (skygenGPU<name>&)*this); \
+			} \
+			\
+			template class skygenHost<name>
+	#else
+		#define MODEL_IMPLEMENTATION(name)
+	#endif
 #endif
 
 #endif

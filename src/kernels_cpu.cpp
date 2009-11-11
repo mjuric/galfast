@@ -24,4 +24,5 @@
 
 #define BUILD_FOR_CPU	1
 
+#include "skygen/skygen.cu.h"
 #include "simulate_gpu.cu.h"

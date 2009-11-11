@@ -226,6 +226,7 @@ struct ALIGN(16) skygenParams
 {
 	float m0, m1, dm;		// apparent magnitude range
 	float M0, M1, dM;		// absolute magnitude range
+	float dmin, dmax;		// distance limits (in pc) -- NOTE: these are applied _after_ the flux limits
 	int npixels, nm, nM;		// number of sky pixels (pencil beams), number of magnitude bins, number of absmag bins
 
 	int nthreads;			// total number of threads processing the sky

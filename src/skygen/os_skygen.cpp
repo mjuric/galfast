@@ -340,6 +340,8 @@ void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &
 	sc.dm = cfg.get("dm");
 	sc.dM = sc.dm;
 	assert(sc.dM == sc.dm);
+	cfg.get(sc.dmin, "dmin", 0.f);
+	cfg.get(sc.dmax, "dmax", 0.f);
 
 	sc.nM = (int)round((sc.M1 - sc.M0) / sc.dM);
 	sc.nm = (int)round((sc.m1 - sc.m0) / sc.dm);

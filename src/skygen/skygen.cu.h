@@ -352,7 +352,7 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 	skygenHost<T>::integrateCounts().
 */
 static const float POGSON = 0.4605170185988091f;
-static const int block = 10;
+static const int block = 1000;
 
 template<typename T>
 template<int draw>
@@ -434,6 +434,12 @@ __device__ void skygenGPU<T>::kernel() const
 			// We moved to a new distance bin. Recompute and reset.
 			pos = compute_pos(D, Am,     M, im, pix);
 			model.setpos(ms, pos.x, pos.y, pos.z);
+		}
+
+		// apply distance limits, if they're both nonzero
+		if((dmin || dmax) && (dmin > D || dmax <= D))
+		{
+			continue;
 		}
 
 		// Test if this location has been extincted away.

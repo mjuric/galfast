@@ -602,3 +602,4 @@ void skygenHost<T>::compute(bool draw)
 #include "model_expDisk.h"
 #include "model_densityCube.h"
 #include "model_powerLawEllipsoid.h"
+#include "model_brokenPowerLaw.h"

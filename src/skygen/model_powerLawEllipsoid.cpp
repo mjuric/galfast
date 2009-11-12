@@ -40,18 +40,14 @@ void powerLawEllipsoid::postrun(host_state_t &hstate, bool draw)
 	powerLawEllipsoidLF.unbind();
 }
 
-void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config &cfg)
+void powerLawEllipsoid::load_geometry(host_state_t &hstate, const peyton::system::Config &cfg)
 {
-	// turn off density truncation
-	rminSq = rmaxSq = 0.f;
-
 	// center of the ellipsoid
 	cfg.get(c.x, "center_l", 0.f);	// Galactic longitude
 	cfg.get(c.y, "center_b", 0.f);	// Galactic latitude
 	cfg.get(c.z, "center_D", 0.f);	// Distance (in parsecs)
 	c = direction(peyton::math::rad(c.x), peyton::math::rad(c.y)).xyz(c.z);
 
-	cfg.get(n, "n", -3.f);		// power law index
 	cfg.get(ca, "c_a", 1.f);	// ratio of c / a (z and x axes of the ellipsoid)
 	cfg.get(ba, "b_a", 1.f);	// ratio of b / a (z and x axes of the ellipsoid)
 
@@ -95,6 +91,17 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	std::cout << v.x << " " << v.y << " " << v.z << "\n";
 	exit(0);
 #endif
+}
+
+void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config &cfg)
+{
+	// turn off density truncation
+	rminSq = rmaxSq = 0.f;
+
+	load_geometry(hstate, cfg);
+
+	// radial functional dependence
+	cfg.get(n, "n", -3.f);		// power law index
 
 	// component ID
 	comp = cfg.get("comp");

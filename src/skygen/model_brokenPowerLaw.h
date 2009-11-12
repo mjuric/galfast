@@ -18,55 +18,35 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef powerLawEllipsoid_h__
-#define powerLawEllipsoid_h__
+#ifndef brokenPowerLaw_h__
+#define brokenPowerLaw_h__
 
 #include "skygen.h"
 
+#include "model_powerLawEllipsoid.h"
+
 // luminosity function texture reference
-DEFINE_TEXTURE(powerLawEllipsoidLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+//DEFINE_TEXTURE(powerLawEllipsoidLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
 // exponential disk model
-struct ALIGN(16) powerLawEllipsoid : public modelConcept
+struct ALIGN(16) brokenPowerLaw : public powerLawEllipsoid
 {
 public:
-	struct ALIGN(16) host_state_t
-	{
-		cuxTexture<float> lf;
-	};
+	struct state : public powerLawEllipsoid::state {};
 
 public:
-	float3 c;		// Center of the ellipsoid (heliocentric cartesian coordinates)
-	float f, n, ba, ca;	// Density normalization, power law index, b/a and c/a axes ratios
-	float rminSq, rmaxSq;	// Minimum/maximum radius from the center of the ellipsoid where the density is nonzero (the square of)
-	float rot[3][3];	// Rotation matrix of the ellipsoid, to rotate it to arbitrary orientation wrt. the Galactic plane
+	// Note: almost all parameters are inherited from powerLawEllipsoid
 
-	int comp;		// Component ID
-	int dummy[1];
-
-protected:
-	void load_geometry(host_state_t &hstate, const peyton::system::Config &cfg);
+	static const int MAXPOWERLAWS = 10;
+	int nbreaks;				// number of power law breaks
+	float   nArr[MAXPOWERLAWS];		// power law indices
+	float	fArr[MAXPOWERLAWS];		// piece-wise normalizations (computed in load())
+	float rbreakSq[MAXPOWERLAWS-1];		// ellipsoid radii below which they kick in
 
 public:
-	struct state
-	{
-		float rho;
-	};
 	void load(host_state_t &hstate, const peyton::system::Config &cfg);
-	void prerun(host_state_t &hstate, bool draw);
-	void postrun(host_state_t &hstate, bool draw);
 
 public:
-	__host__ __device__ float3 matmul3d(const float M[3][3], float3 v) const
-	{
-		// w = M*v
-		float3 w;
-		w.x = M[0][0]*v.x + M[0][1]*v.y + M[0][2]*v.z;
-		w.y = M[1][0]*v.x + M[1][1]*v.y + M[1][2]*v.z;
-		w.z = M[2][0]*v.x + M[2][1]*v.y + M[2][2]*v.z;
-		return w;
-	}
-
 	__host__ __device__ float rho(float x, float y, float z) const
 	{
 		using namespace cudacc;
@@ -79,7 +59,14 @@ public:
 		float rSq = sqr(v.x) + sqr(v.y/ba) + sqr(v.z/ca);
 		if(rmaxSq && (rSq < rminSq || rSq >= rmaxSq)) { return 0.f; }
 
-		float rho = f*powf(rSq, 0.5f*n);
+		// find the power law that applies in this region of space
+		int k = 0;
+		while(k != nbreaks && rSq > rbreakSq[k])
+		{
+			k++;
+		}
+
+		float rho = f * fArr[k] * powf(rSq, 0.5f*nArr[k]);
 		return rho;
 	}
 
@@ -91,16 +78,10 @@ public:
 
 	__device__ float rho(state &s, float M) const
 	{
-		float phi = TEX1D(powerLawEllipsoidLF, M);
-		return phi * s.rho;
-	}
-
-	__device__ int component() const
-	{
-		return comp;
+		return powerLawEllipsoid::rho(s, M);
 	}
 };
 
-MODEL_IMPLEMENTATION(powerLawEllipsoid);
+MODEL_IMPLEMENTATION(brokenPowerLaw);
 
-#endif // #ifndef powerLawEllipsoid_h__
+#endif // #ifndef brokenPowerLaw_h__

@@ -10,6 +10,7 @@
 /*
 
 Host interface:
+	typedef prngs::gpu::mwc cuda_rng;
 	cuda_rng rng = cuda_rng::create(seed, nstreams); // nstreams must be >= nthreads
 	kernel<<...>>(rng);
 	rng.free()

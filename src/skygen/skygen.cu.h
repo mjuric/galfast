@@ -407,7 +407,7 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 	skygenHost<T>::integrateCounts().
 */
 static const float POGSON = 0.4605170185988091f;
-static const int block = 1000;
+static const int block = 10;
 
 template<typename T>
 template<int draw>

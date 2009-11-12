@@ -348,7 +348,7 @@ public:
 //
 // Active only when compiled with nvcc
 //
-#define SKYGEN_ON_GPU	0
+#define SKYGEN_ON_GPU	1
 #ifdef __CUDACC__
 	#if SKYGEN_ON_GPU
 		#define MODEL_IMPLEMENTATION(name) \

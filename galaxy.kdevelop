@@ -60,7 +60,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/tests/patchn2n2p2z/</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/tests/cfht/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>

@@ -210,11 +210,12 @@ try
 				cfg.get(maxstars, "maxstars", maxstars);
 
 				std::string tmp, allmodules;
-				cfg.get(tmp, "modules", "");    allmodules += " " + tmp;
-				cfg.get(tmp, "input", "");      allmodules += " " + tmp;
-				cfg.get(tmp, "output", "");     allmodules += " " + tmp;
-				cfg.get(tmp, "models", "");     allmodules += " " + tmp;
-				cfg.get(tmp, "footprints", ""); allmodules += " " + tmp;
+				cfg.get(tmp, "modules", "");     allmodules += " " + tmp;
+				cfg.get(tmp, "input", "");       allmodules += " " + tmp;
+				cfg.get(tmp, "output", "");      allmodules += " " + tmp;
+				cfg.get(tmp, "models", "");      allmodules += " " + tmp;
+				cfg.get(tmp, "footprints", "");  allmodules += " " + tmp;
+				cfg.get(tmp, "definitions", ""); allmodules += " " + tmp;
 
 				std::istringstream ss(allmodules);
 				while(ss >> tmp)

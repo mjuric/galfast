@@ -638,9 +638,68 @@ bool opipeline::create_and_add(
 	add(stage);
 }
 
+void apply_definitions(const std::string &def_modules)
+{
+	if(def_modules.empty()) { return; }
+
+	// concatenate all files
+	std::string deffn, merged_config_text;
+	std::istringstream in(def_modules.c_str());
+	while(in >> deffn)
+	{
+		std::ifstream cfin(deffn.c_str());
+		std::string line;
+		while(std::getline(cfin, line))
+		{
+			merged_config_text += line + "\n";
+		}
+	}
+
+	// load them as config (and expand any variables)
+	std::istringstream cfgstrm(merged_config_text);
+	Config cfg;
+	cfg.load(cfgstrm);
+
+	// set environment variables corresponding to every entry
+	// in the config file
+	FOREACH(cfg)
+	{
+		const std::string var = i->first, value = i->second;
+		//std::cerr << "POTENTIAL ENVVAR [" << var << "] = [" << value << "]\n";
+		if(var == "module") { continue; }
+
+		EnvVar(var).set(value);
+	}
+}
+
 void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun)
 {
 	rng_gsl_t rng(seed);
+
+	// find and load (== set corresponding EnvVars) definitions from
+	// definition module(s) before doing anything else
+	std::string defs;
+	FOREACH(modules)
+	{
+		const std::string &cffn = *i;
+
+		if(!file_exists(cffn))
+		{
+			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
+		}
+
+		// load from file
+		Config cfg;
+		cfg.load(cffn, false);
+		std::string module = normalizeKeyword(cfg["module"]);
+
+		if(module == "definitions")
+		{
+			if(!defs.empty()) { defs += " "; }
+			defs += cffn;
+		}
+	}
+	apply_definitions(defs);
 
 	// output table setup
 	// HACK: Kbatch should be read from skygen.conf, or auto-computed to maximize memory use otherwise
@@ -669,7 +728,7 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 		if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
 		std::string module = normalizeKeyword(modcfg["module"]);
 
-		// set aside "special" modules -- models and footprints
+		// set aside "special" modules
 		if(module == "model")
 		{
 			if(!models.empty()) { models += " "; }
@@ -685,11 +744,16 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 			if(!extmaps.empty()) { extmaps += " "; }
 			extmaps += cffn;
 		}
+		else if(module == "definitions")
+		{
+			// do nothing
+		}
 		else
 		{
 			module_configs.push_back(modcfg);
 		}
 	}
+	MLOG(verb1) << "Definitions: " << (defs.empty() ? "<none>" : defs);
 	MLOG(verb1) << "Models: " << (models.empty() ? "<none>" : models);
 	MLOG(verb1) << "Footprints: " << (foots.empty() ? "<none>" : foots);
 	MLOG(verb1) << "Extinction maps: " << (extmaps.empty() ? "<none>" : extmaps);

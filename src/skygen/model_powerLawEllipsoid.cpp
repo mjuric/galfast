@@ -104,7 +104,7 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	cfg.get(n, "n", -3.f);		// power law index
 
 	// component ID
-	comp = cfg.get("comp");
+	comp = componentMap.seqIdx(cfg.get("comp"));
 
 	// Load luminosity function
 	hstate.lf = load_lf(*this, cfg);

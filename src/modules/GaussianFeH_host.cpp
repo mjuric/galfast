@@ -32,12 +32,12 @@ class os_GaussianFeH : public osink
 {
 protected:
 	float mean, sigma;
-	uint32_t compFirst, compLast;
 
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("GaussianFeH"); return s; }
+	virtual double ordering() const { return ord_feh; }
 
 	os_GaussianFeH() : osink()
 	{
@@ -48,7 +48,7 @@ public:
 };
 extern "C" opipeline_stage *create_module_gaussianfeh() { return new os_GaussianFeH(); }	// Factory; called by opipeline_stage::create()
 
-DECLARE_KERNEL(os_GaussianFeH_kernel(otable_ks ks, float mean, float sigma, int compFirst, int compLast, gpu_rng_t rng,
+DECLARE_KERNEL(os_GaussianFeH_kernel(otable_ks ks, bit_map applyToComponents, float mean, float sigma, gpu_rng_t rng,
 		cint_t::gpu_t comp,
 		cfloat_t::gpu_t XYZ,
 		cfloat_t::gpu_t FeH));
@@ -65,20 +65,19 @@ size_t os_GaussianFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_GaussianFeH_kernel, otable_ks(begin, end), mean, sigma, compFirst, compLast, rng, comp, XYZ, FeH);
+	CALL_KERNEL(os_GaussianFeH_kernel, otable_ks(begin, end), applyToComponents, mean, sigma, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 
 bool os_GaussianFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	read_component_map(applyToComponents, cfg);
+
 	mean  = cfg.get("mean");
 	sigma = cfg.get("sigma");
 
-	cfg.get(compFirst, "compFirst", 0U);
-	cfg.get(compLast,  "compLast",  0xffffffff);
-
 	// Output model parameters
-	MLOG(verb2) << "Component IDs       : " << compFirst << " " << compLast;
+	//MLOG(verb2) << "Component IDs       : " << compFirst << " " << compLast;
 	MLOG(verb2) << "Gaussian (mu, sigma): " << mean      << " " << sigma;
 
 	return true;

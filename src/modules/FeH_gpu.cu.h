@@ -28,7 +28,7 @@ struct os_FeH_data
 {
 	float A[2], sigma[3], offs[3];
 	float Hmu, muInf, DeltaMu;
-	int comp_thin, comp_thick, comp_halo;
+	bit_map comp_thin, comp_thick, comp_halo;
 };
 
 //
@@ -51,9 +51,8 @@ KERNEL(
 	rng.load(tid);
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
-		float feh;
-		int component = comp(row);
-		if(component == par.comp_thin || component == par.comp_thick)
+		int cmp = comp(row);
+		if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
 		{
 			// choose the gaussian to draw from
 			float p = rng.uniform()*(par.A[0]+par.A[1]);
@@ -64,20 +63,12 @@ KERNEL(
 			float aZ = muD - 0.067f;
 
 			// draw
-			feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
+			float feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
+			FeH(row) = feh;
 		}
-		else if(component == par.comp_halo)
+		else if(par.comp_halo.isset(cmp))
 		{
-			feh = par.offs[2] + rng.gaussian(par.sigma[2]);
-		}
-		else
-		{
-			// do nothing (assuming some other module will set Fe/H for this component)
-			feh = -100.f;
-		}
-
-		if(feh != -100.f)
-		{
+			float feh = par.offs[2] + rng.gaussian(par.sigma[2]);
 			FeH(row) = feh;
 		}
 	}

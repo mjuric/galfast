@@ -86,9 +86,9 @@ unsigned int __brev(unsigned int a)
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp),
+	os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp),
 	os_photometry_kernel,
-	(ks, Am, flags, DM, Mr, nabsmag, mags, FeH, comp)
+	(ks, applyToComponents, Am, flags, DM, Mr, nabsmag, mags, FeH, comp)
 )
 {
 	os_photometry_data &lt = os_photometry_params;
@@ -98,7 +98,7 @@ KERNEL(
 	{
 		// should we process this star (based on the galactic model component it belongs to)?
 		int cmp = comp(row);
-		if(lt.compFirst > cmp || cmp > lt.compLast) { continue; }
+		if(!applyToComponents.isset(cmp)) { continue; }
 
 		// construct colors given the absolute magnitude and metallicity
 		float fFeH = FeH(row);

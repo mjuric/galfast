@@ -237,7 +237,6 @@ void skygenHost<T>::upload(bool draw, int pixfrom, int pixto)
 
 template<typename T>
 bool skygenHost<T>::init(
-		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenParams &sc,
 		const pencilBeam *pixels
@@ -405,7 +404,7 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb2) << ss.str();
 
-	MLOG(verb1) << "Comp. " << this->model.component() << " starcount : " << std::setprecision(9) << this->nstarsExpected
+	MLOG(verb1) << "Comp. " << componentMap.compID(this->model.component()) << " starcount : " << std::setprecision(9) << this->nstarsExpected
 		<< " (" << this->nstarsExpectedToGenerate << " in pixelized area)";
 
 	swatch.stop();
@@ -495,13 +494,13 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		
 		double pctdone = 100. * total / this->nstarsExpected;
 		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
-		MLOG(verb1) << "Comp. "<< this->model.component() << " progress: " << pcts << "% done.";
+		MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " progress: " << pcts << "% done.";
 
 	} while(this->stars_generated >= this->stopstars);
 
 	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
 	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
-	MLOG(verb1) << "Comp. "<< this->model.component() << " completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
+	MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
 
 	swatch.stop();
 	runtime = swatch.getTime();

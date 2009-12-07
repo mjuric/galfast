@@ -48,9 +48,9 @@ struct ALIGN(16) skygenInterface
 {
 	virtual double integrateCounts(float &runtime, const char *denmappfix) = 0;	// computes the expected source count
 	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime) = 0;	// draws the sources, stores the output in the table, and invokes the rest of the pipeline
+	virtual uint32_t component() const = 0;						// returns the (sequential, internal) component ID of the model
 
 	virtual bool init(								// initialize the catalog generator for this model
-		otable &t,
 		const peyton::system::Config &model_cfg,
 		const skygenParams &sc,
 		const pencilBeam *pixels) = 0;
@@ -74,7 +74,11 @@ struct modelConcept
 	__device__ void setpos(state &s, float x, float y, float z) const;	// set the 3D position which will be implied in subsequent calls to rho()
 	__device__ float rho(state &s, float M) const;				// return the number density at the position set by setpos, and absolute magnitude M
 
-	__device__ int component() const;					// return the component ID of this model
+	int comp;
+	__device__ int component() const
+	{
+		return comp;
+	}
 };
 
 //
@@ -332,11 +336,11 @@ public:
 	// external interface (skygenInterface)
 	virtual double integrateCounts(float &runtime, const char *denmapPrefix);	// return the expected starcounts contributed by this model
 	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime);
+	virtual uint32_t component() const { return this->model.component(); }
 
 	virtual void initRNG(rng_t &rng);		// initialize the random number generator from CPU RNG
 	virtual void setDensityNorm(float norm);	// explicitly set the overall density normalization of the model.
 	virtual bool init(
-		otable &t,
 		const peyton::system::Config &cfg,	// model cfg file
 		const skygenParams &sc,
 		const pencilBeam *pixels);
@@ -384,6 +388,23 @@ public:
 			template class skygenHost<name>
 	#else
 		#define MODEL_IMPLEMENTATION(name)
+	#endif
+#endif
+
+//
+// Some globally used on-gpu static variables (constant memory)
+//
+
+// A bitmap with k-th bit set to 1 if the currently running kernel should apply
+//.to component k
+// NOTE: This has been converted to a kernel argument
+#if __CUDACC__
+	//__device__ __constant__ bit_map applyToComponents;
+#else
+	#if BUILD_FOR_CPU
+		//bit_map applyToComponents;
+	#else
+		//extern bit_map applyToComponents;
 	#endif
 #endif
 

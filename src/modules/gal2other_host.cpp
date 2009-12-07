@@ -42,6 +42,7 @@ public:
 	size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("gal2other"); return s; }
+	virtual double ordering() const { return ord_database; }
 
 	os_gal2other() : osink(), coordsys(GAL)
 	{

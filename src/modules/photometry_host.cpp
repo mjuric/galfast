@@ -71,11 +71,10 @@ public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("photometry"); return s; }
+	virtual double ordering() const { return ord_photometric_filters; }
 
 	os_photometry() : osink()
 	{
-		compFirst = 0;
-		compLast = 0xffffffff;
 		FOR(0, N_REDDENING) { reddening[i] = 1.f; }
 
 		req.insert("FeH");
@@ -88,9 +87,7 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// load component IDs to which this module will apply
-	cfg.get(compFirst,   "compFirst",   0U);
-	cfg.get(compLast,   "compLast",   0U);
-	if(compFirst == compLast) { compFirst = 0U; compLast = 0xffffffff; }
+	read_component_map(applyToComponents, cfg);
 
 	// load bandset name
 	std::string tmp, bname;
@@ -332,7 +329,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));	// for GPU execution
 		os_photometry_params = static_cast<os_photometry_data&>(*this);				// for CPU execution
 
-		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), applyToComponents, Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
 	}
 
 	return nextlink->process(in, begin, end, rng);

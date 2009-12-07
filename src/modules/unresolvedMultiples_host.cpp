@@ -34,7 +34,6 @@
 class os_unresolvedMultiples : public osink
 {
 	protected:
-		uint32_t compFirst, compLast;			// range of model components [comp0, comp1) on which this module will operate
 		std::string absmagSys;
 		multiplesAlgorithms::algo algo;			// algorithm for magnitude assignment to secondaries
 
@@ -44,9 +43,10 @@ class os_unresolvedMultiples : public osink
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("unresolvedMultiples"); return s; }
-		virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
+		//virtual int priority() { return PRIORITY_STAR; } // ensure this is placed near the beginning of the pipeline
+		virtual double ordering() const { return ord_multiples; }
 
-		os_unresolvedMultiples() : osink(), compFirst(0), compLast(0xffffffff)
+		os_unresolvedMultiples() : osink()
 		{
 			req.insert("absmag");
 			req.insert("comp");
@@ -99,7 +99,7 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 			t2(::cumLF,	cumLF),
 			t3(::invCumLF,	invCumLF);
 
-		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), rng, Msys.width(), M, Msys, ncomp, comp, compFirst, compLast, algo);
+		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), applyToComponents, rng, Msys.width(), M, Msys, ncomp, comp, algo);
 	}
 	
 	return nextlink->process(in, begin, end, rng);
@@ -107,10 +107,7 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 
 bool os_unresolvedMultiples::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	// range of model components onto which this model should apply
-	cfg.get(compFirst, "compFirst", 0U);
-	cfg.get(compLast, "compLast", 0xffffffff);
-	if(compFirst == compLast) { compFirst = 0U; compLast = 0xffffffff; }
+	read_component_map(applyToComponents, cfg);
 
 	std::string LFfile, binaryFractionFile, strAlgo;
 	cfg.get(LFfile, "lumfunc", "");

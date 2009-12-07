@@ -48,7 +48,7 @@ void brokenPowerLaw::load(host_state_t &hstate, const peyton::system::Config &cf
 	nbreaks = rbreak.size();
 
 	// component ID
-	comp = cfg.get("comp");
+	comp = componentMap.seqIdx(cfg.get("comp"));
 
 	// compute piece-wise normalizations so that the density
 	// profile remains continuous at power-law breaks

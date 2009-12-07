@@ -41,7 +41,7 @@ public:
 	float rminSq, rmaxSq;	// Minimum/maximum radius from the center of the ellipsoid where the density is nonzero (the square of)
 	float rot[3][3];	// Rotation matrix of the ellipsoid, to rotate it to arbitrary orientation wrt. the Galactic plane
 
-	int comp;		// Component ID
+//	int comp;		// Component ID
 	int dummy[1];
 
 protected:
@@ -93,11 +93,6 @@ public:
 	{
 		float phi = TEX1D(powerLawEllipsoidLF, M);
 		return phi * s.rho;
-	}
-
-	__device__ int component() const
-	{
-		return comp;
 	}
 };
 

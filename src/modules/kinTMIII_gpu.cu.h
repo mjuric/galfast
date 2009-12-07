@@ -50,7 +50,7 @@ struct i8array5
 
 struct os_kinTMIII_data
 {
-	int comp_thin, comp_thick, comp_halo;
+	bit_map comp_thin, comp_thick, comp_halo;
 	float Rg;
 	float fk, DeltavPhi;
 	farray5 	vPhi1, vPhi2, vR, vZ,
@@ -202,29 +202,33 @@ struct os_kinTMIII_data
 		haloEllip[4] = par.HsigmaZPhi;
 		haloEllip[5] = par.HsigmaZZ;
 
-		float tmp[3]; 
 		uint32_t tid = threadID();
 		for(int row=ks.row_begin(); row < ks.row_end(); row++)
 		{
 			// fetch prerequisites
-			const int component = comp(row);
+			const int cmp = comp(row);
 			float X = par.Rg - XYZ(row, 0);
 			float Y = -XYZ(row, 1);
 			float Zpc = XYZ(row, 2);
 			const float Rsquared = 1e-6 * (X*X + Y*Y);
 			const float Z = 1e-3 * Zpc;
 
-			if(component == par.comp_thin || component == par.comp_thick)
+			if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
 			{
+				float tmp[3]; 
 				get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
+				vcyl(row, 0) = tmp[0];
+				vcyl(row, 1) = tmp[1];
+				vcyl(row, 2) = tmp[2];
 			}
-			else if(component == par.comp_halo)
+			else if(par.comp_halo.isset(cmp))
 			{
+				float tmp[3]; 
 				get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans, haloEllip);
+				vcyl(row, 0) = tmp[0];
+				vcyl(row, 1) = tmp[1];
+				vcyl(row, 2) = tmp[2];
 			}
-			vcyl(row, 0) = tmp[0];
-			vcyl(row, 1) = tmp[1];
-			vcyl(row, 2) = tmp[2];
 		}
 		rng.store(threadID());
 	#undef par

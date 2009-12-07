@@ -47,7 +47,7 @@ cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		lf = load_and_resample_texture_1D(cfg["lumfunc"].c_str());
+		lf = load_resample_and_clip_texture_1D(cfg["lumfunc"].c_str());
 	}
 	else
 	{

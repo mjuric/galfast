@@ -31,8 +31,59 @@
 #include <astro/system/config.h>
 #include <astro/useall.h>
 
+///////////////////////////////////////////////////////////////////////
+// Component map implementation
+
+componentMap_t componentMap;
+
+// return an index corresponding to compID, creating one if it doesn't exist
+uint32_t componentMap_t::seqIdx(uint32_t compID)
+{
+	// check if we already know of this component
+	if(!comp2seq.count(compID))
+	{
+		comp2seq[compID] = seq2comp.size();
+		seq2comp.push_back(compID);
+
+		DLOG(verb1) << "Mapped compID=" << compID << " to seqIdx=" << comp2seq[compID] << "\n";
+	}
+
+	return comp2seq[compID];
+}
+
+uint32_t componentMap_t::compID(uint32_t seqIdx)
+{
+	if(seqIdx >= seq2comp.size()) { return 0xffffffff; }
+	return seq2comp[seqIdx];
+}
+
+// convert a list of (closed!) ranges to a bitmap, and upload it to the GPU
+bit_map::bit_map(const interval_list &cl)
+{
+	// set all bits in the bit_map that are in any of the intervals
+	// in the interval list. We assume the intervals are closed
+	// (that is, [from,to]).
+	set_all(0);
+	FOREACH(cl)
+	{
+		std::pair<uint32_t, uint32_t> iv = *i;
+		FOREACHj(comp, componentMap.comp2seq)
+		{
+			if(iv.first > comp->first || comp->first > iv.second) { continue; }
+			set(comp->second);
+		}
+	}
+
+	//FOR(0, bit_map::maxbits()) { std::cerr << (isset(i) ? "1" : "0"); if((i+1)%10 == 0) std::cerr << " "; } std::cerr << "\n";
+}
+
+///////////////////////////////////////////////////////////////////////
+
 bool opipeline_stage::runtime_init(otable &t)
 {
+//	// components we care about
+//	bit_map comps = componentMap.get(applyToComponents);
+
 	// test if otable has all the necessary prerequisites
 	FOREACH(req)
 	{
@@ -53,6 +104,64 @@ bool opipeline_stage::runtime_init(otable &t)
 	return true;
 }
 
+void opipeline_stage::read_component_map(interval_list &applyToComponents, const peyton::system::Config &cfg, const std::string &compCfgKey, uint32_t compFirst, uint32_t compLast)
+{
+	applyToComponents.clear();
+
+	// new, flexible, syntax
+	if(!compCfgKey.empty() && cfg.count(compCfgKey))
+	{
+		// parse the line of the form
+		// comp = 1,2, 4-8, 9-12
+		std::string line = cfg.get(compCfgKey);
+		int at = 0;
+		do {
+			int range_sep = 0;
+			int at0 = at;
+			while(at != line.size() && line[at] != ',')
+			{
+				if(line[at] != '-') { at++; continue; }
+				if(range_sep || at0 == at) { THROW(EAny, "Syntax error in the value of 'applyToComponents' key: " + line); }
+				range_sep = at;
+				at++;
+			}
+
+			if(range_sep)
+			{
+				compFirst = (uint32_t)atof(line.substr(at0, at - range_sep).c_str());
+				range_sep++;
+				compLast =   (uint32_t)atof(line.substr(range_sep, at - range_sep).c_str());
+			}
+			else
+			{
+				compFirst = compLast = (uint32_t)atof(line.substr(at0, at - at0).c_str());
+			}
+
+			applyToComponents.push_back(std::make_pair(compFirst, compLast));
+
+			at++;
+		} while(at < line.size());
+	}
+	else
+	{
+		// backwards compatibility
+		if(compCfgKey.empty())
+		{
+			// backwards-compatible syntax, where keys are allowed to be missing
+			if(cfg.count("compFirst"))
+			{
+				cfg.get(compFirst, "compFirst", 0U);
+				cfg.get(compLast, "compLast", 0xffffffff);
+			}
+			applyToComponents.push_back(std::make_pair(compFirst, compLast));
+		}
+		else
+		{
+			// explode otherwise -- the key _must_ exist
+			if(!cfg.count(compCfgKey)) { THROW(EAny, "Value for " + compCfgKey + " missing in configuration file."); }
+		}
+	}
+}
 
 // in/out ends of the chain
 class os_textout : public osink
@@ -66,7 +175,8 @@ class os_textout : public osink
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
-		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		//virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		virtual double ordering() const { return ord_output; }
 		virtual const std::string &name() const { static std::string s("textout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
 
@@ -89,11 +199,24 @@ struct mask_output : otable::mask_functor
 	}
 };
 
+void osink::transformComponentIds(otable &t, size_t begin, size_t end)
+{
+	// transform 'comp' column from seqIdx to compID
+	cint_t::host_t comp = t.col<int>("comp");
+	FORj(row, begin, end)
+	{
+		int cmp = comp(row);
+		comp(row) = componentMap.compID(cmp);
+	}
+}
+
 size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
 	swatch.start();
 
 	ticker tick("Writing output", (int)ceil((to-from)/50.));
+
+	transformComponentIds(t, from, to);
 
 	if(!headerWritten)
 	{
@@ -102,7 +225,6 @@ size_t os_textout::process(otable &t, size_t from, size_t to, rng_t &rng)
 		out.out() << "\n";
 		headerWritten = true;
 	}
-
 
 	size_t nserialized = 0;
 
@@ -165,7 +287,8 @@ class os_fitsout : public osink
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
-		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		//virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		virtual double ordering() const { return ord_output; }
 		virtual const std::string &name() const { static std::string s("fitsout"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
 
@@ -328,6 +451,7 @@ size_t os_fitsout::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
 	ticker tick("Writing output", (int)ceil((to-from)/50.));
 
+	transformComponentIds(t, from, to);
 	createOutputTable(t);
 
 	// Get data pointers from output the table
@@ -522,10 +646,10 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	// form a priority queue of requested stages. The priorities ensure that _output stage
 	// will end up last (as well as allow some control of which stage executes first if
 	// multiple stages have all prerequisites satisfied)
-	std::set<std::pair<int, opipeline_stage *> > stages;
+	std::set<std::pair<double, opipeline_stage *> > stages;
 	FOREACH(this->stages)
 	{
-		stages.insert(std::make_pair((*i)->priority(), (*i).get()));
+		stages.insert(std::make_pair((*i)->ordering(), (*i).get()));
 	}
 
 	std::list<opipeline_stage *> pipeline;
@@ -537,10 +661,11 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		FOREACH(stages)
 		{
 			opipeline_stage &s = *i->second;
+			//std::cerr << s.name() << "\n";
 
 			// initialize this pipeline stage (this typically adds and uses the columns
 			// this stage will add)
-			if(!s.runtime_init(t)) { continue; }
+			if(!s.runtime_init(t)) { /*continue;*/ assert(0); } // TODO: I switched from dependency tracking, to explicit ordering
 
 			// append to pipeline
 			pipeline.push_back(&s);
@@ -566,17 +691,29 @@ size_t opipeline::run(otable &t, rng_t &rng)
 
 	// chain the constructed pipeline
 	opipeline_stage *last, *source = NULL;
-	std::stringstream ss;
+	std::vector<boost::shared_ptr<std::stringstream> > ss(componentMap.size());
+	FOREACH(ss) { i->reset(new std::stringstream); }
 	FOREACH(pipeline)
 	{
-		if(source == NULL) { last = source = *i; ss << last->name(); continue; }
+		if(source == NULL) { last = source = *i; FOREACH(ss) { **i << last->name(); }; continue; }
 		osink *next = dynamic_cast<osink*>(*i);
 		ASSERT(next);
 		last->chain(next);
 		last = next;
-		ss << " | " << last->name();
+
+		bit_map comps = last->getAffectedComponents();
+		std::string name = last->name();
+		std::string empty(name.size(), ' ');
+		FOR(0, ss.size())
+		{
+			std::string res = (comps.isset(i) ? name : empty);
+			*ss[i] << " | " << res;
+		}
 	}
-	MLOG(verb1) << "Pipeline: " << ss.str();
+	FOREACH(componentMap.comp2seq)
+	{
+		MLOG(verb1) << "Pipeline (comp=" << i->first << ") : " << ss[i->second]->str() << "\n";
+	}
 
 	int ret = source->run(t, rng);
 

@@ -40,7 +40,7 @@ public:
 	float z0, Rg;
 	float r_cut2;
 
-	int comp;
+//	int comp;
 
 public:
 	struct state
@@ -74,11 +74,6 @@ public:
 	{
 		float phi = TEX1D(expDiskLF, M);
 		return phi * s.rho;
-	}
-
-	__device__ int component() const
-	{
-		return comp;
 	}
 };
 

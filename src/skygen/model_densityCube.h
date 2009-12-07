@@ -44,7 +44,7 @@ protected:
 	// uploaded to a GPU __constant__
 	
 	float f;	// scale factor by which to multiply sampled densities
-	int comp;	// component ID for this model
+//	int comp;	// component ID for this model
 
 	float Rg;	// distance to the Galactic center
 
@@ -70,15 +70,6 @@ public:
 	{
 		float phi = TEX1D(densityCubeLF, M);
 		return phi * s.rho;
-	}
-
-/*	__device__ int component(float x, float y, float z, float M, gpuRng::constant &rng) const
-	{
-		return comp;
-	}*/
-	__device__ int component() const
-	{
-		return comp;
 	}
 };
 

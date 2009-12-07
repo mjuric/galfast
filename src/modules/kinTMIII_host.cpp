@@ -35,10 +35,19 @@
 class os_kinTMIII : public osink, os_kinTMIII_data
 {	
 	float DeltavPhi;
+	interval_list icomp_thin, icomp_thick, icomp_halo;
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 		virtual const std::string &name() const { static std::string s("kinTMIII"); return s; }
+		virtual double ordering() const { return ord_kinematics; }
+		virtual bit_map getAffectedComponents() const
+		{
+			bit_map ret = icomp_thin;
+			ret |= icomp_thick;
+			ret |= icomp_halo;
+			return ret;
+		}
 
 		os_kinTMIII() : osink()
 		{
@@ -66,6 +75,9 @@ size_t os_kinTMIII::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &vcyl   = in.col<float>("vcyl");
 
+	comp_thin = icomp_thin;
+	comp_thick = icomp_thick;
+	comp_halo = icomp_halo;
 	cuxUploadConst("os_kinTMIII_par", static_cast<os_kinTMIII_data&>(*this));	// for GPU execution
 	os_kinTMIII_par = static_cast<os_kinTMIII_data&>(*this);			// for CPU execution
 
@@ -114,9 +126,12 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	// Component IDs
-	cfg.get(comp_thin,  "comp_thin",  0);
-	cfg.get(comp_thick, "comp_thick", 1);
-	cfg.get(comp_halo,  "comp_halo",  2);
+	read_component_map(icomp_thin, cfg, "comp_thin");
+	read_component_map(icomp_thick, cfg, "comp_thick");
+	read_component_map(icomp_halo, cfg, "comp_halo");
+// 	cfg.get(comp_thin,  "comp_thin",  0);
+// 	cfg.get(comp_thick, "comp_thick", 1);
+// 	cfg.get(comp_halo,  "comp_halo",  2);
 
 	// Distance to the Galactic center
 	Rg = cfg.get("Rg");
@@ -177,8 +192,8 @@ bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
  	vPhi2[0] += DeltavPhi;
 
 	// Output model parameters
-	MLOG(verb2) << "Component IDs (thn, thk, hl): " << comp_thin << " " << comp_thick << " " << comp_halo;
-	
+	MLOG(verb2) << "Component IDs (thn, thk, hl): " << icomp_thin << " " << icomp_thick << " " << icomp_halo;
+
 	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
 	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;
 

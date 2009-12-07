@@ -315,10 +315,12 @@ cuxTexture<float, 1> construct_texture_by_resampling_1D(double *X, double *Y, in
 
 	// resample to texture
 	cuxTexture<float, 1> tex(nsamp);
-	float X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
+	double X0 = X[0], X1 = X[ndata-1], dX = (X1 - X0) / (nsamp-1);
+	float val;
 	for(int i=0; i != nsamp; i++)
 	{
-		tex(i) = tx(X0 + i*dX);
+		val = tx(X0 + i*dX);
+		tex(i) = val;
 	}
 
 	// construct 
@@ -334,6 +336,24 @@ cuxTexture<float, 1> load_and_resample_texture_1D(const char *fn, int nsamp)
 	text_input_or_die(txin, fn);
 	std::vector<double> X, Y;
 	::load(txin, X, 0, Y, 1);
+
+	return construct_texture_by_resampling_1D(&X[0], &Y[0], X.size(), nsamp);
+}
+
+cuxTexture<float, 1> load_resample_and_clip_texture_1D(const char *fn, float clipValue, int nsamp)
+{
+	// load the points from the file, and construct
+	// a spline to resample from
+	text_input_or_die(txin, fn);
+	std::vector<double> X, Y;
+	X.push_back(-123); Y.push_back(clipValue);
+	::load(txin, X, 0, Y, 1);
+
+	double xrange = X.back() - X[1];
+	X[0] = X[1] - 1e-5*xrange;
+	X.push_back(X.back() + 1e-5*xrange);
+
+	Y.push_back(clipValue);
 
 	return construct_texture_by_resampling_1D(&X[0], &Y[0], X.size(), nsamp);
 }

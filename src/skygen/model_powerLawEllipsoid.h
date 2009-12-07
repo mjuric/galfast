@@ -76,9 +76,11 @@ public:
 		v = matmul3d(rot, v);
 
 		// test for whether we're within the ellipsoid
-		float rSq = sqr(v.x) + sqr(v.y/ba) + sqr(v.z/ca);
-		if(rmaxSq && (rSq < rminSq || rSq >= rmaxSq)) { return 0.f; }
+		float DSq = sqr(v.x) + sqr(v.y) + sqr(v.z);
+		if(rmaxSq && (DSq < rminSq || DSq >= rmaxSq)) { return 0.f; }
 
+		// compute the density
+		float rSq = sqr(v.x) + sqr(v.y/ba) + sqr(v.z/ca);
 		float rho = f*powf(rSq, 0.5f*n);
 		return rho;
 	}

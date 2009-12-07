@@ -60,7 +60,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/tests/cfht/</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/tests/ngp</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -92,7 +92,7 @@
         <envvars/>
       </optimized>
       <debug>
-        <configargs>--enable-debug=full --with-cuda --enable-cuda-devemu --with-sm=/usr/local --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging</configargs>
+        <configargs>--with-cuda --enable-cuda-devemuX --with-sm=/usr/local --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging --with-cfitsio-include=/usr/include/cfitsio --with-boost=/opt/cudatools/2.3/</configargs>
         <builddir>debug</builddir>
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
@@ -101,9 +101,9 @@
         <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=1</cppflags>
         <ldflags>-rdynamic</ldflags>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
         <cflags>-O0 -g3 -Wno-deprecated</cflags>
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>
@@ -117,7 +117,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>8</numberofjobs>
       <dontact>false</dontact>
-      <makebin></makebin>
+      <makebin/>
       <prio>0</prio>
       <runmultiplejobs>true</runmultiplejobs>
     </make>

@@ -56,11 +56,12 @@ public:
 		v = matmul3d(rot, v);
 
 		// test for whether we're within the ellipsoid
-		float rSq = sqr(v.x) + sqr(v.y/ba) + sqr(v.z/ca);
-		if(rmaxSq && (rSq < rminSq || rSq >= rmaxSq)) { return 0.f; }
+		float DSq = sqr(v.x) + sqr(v.y) + sqr(v.z);
+		if(rmaxSq && (DSq < rminSq || DSq >= rmaxSq)) { return 0.f; }
 
 		// find the power law that applies in this region of space
 		int k = 0;
+		float rSq = sqr(v.x) + sqr(v.y/ba) + sqr(v.z/ca);
 		while(k != nbreaks && rSq > rbreakSq[k])
 		{
 			k++;

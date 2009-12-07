@@ -31,9 +31,20 @@
 class os_FeH : public osink, os_FeH_data
 {
 public:
+	interval_list icomp_thin, icomp_thick, icomp_halo;
+
+public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("FeH"); return s; }
+	virtual double ordering() const { return ord_feh; }
+	virtual bit_map getAffectedComponents() const
+	{
+		bit_map ret = icomp_thin;
+		ret |= icomp_thick;
+		ret |= icomp_halo;
+		return ret;
+	}
 
 	os_FeH() : osink()
 	{
@@ -57,6 +68,9 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &FeH   = in.col<float>("FeH");
 
+	comp_thin = icomp_thin;
+	comp_thick = icomp_thick;
+	comp_halo = icomp_halo;
 	CALL_KERNEL(os_FeH_kernel, otable_ks(begin, end), *this, rng, comp, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
@@ -83,12 +97,15 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(offs[2],  "offsH",  -1.46f);
 
 	// Component IDs
-	comp_thin  = cfg.get("comp_thin");
-	comp_thick = cfg.get("comp_thick");
-	comp_halo  = cfg.get("comp_halo");
+	read_component_map(icomp_thin, cfg, "comp_thin");
+	read_component_map(icomp_thick, cfg, "comp_thick");
+	read_component_map(icomp_halo, cfg, "comp_halo");
+// 	comp_thin  = componentMap.seqIdx(cfg.get("comp_thin"));
+// 	comp_thick = componentMap.seqIdx(cfg.get("comp_thick"));
+// 	comp_halo  = componentMap.seqIdx(cfg.get("comp_halo"));
 
 	// Output model parameters
-	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< comp_thin << " " << comp_thick << " " << comp_halo;
+	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< icomp_thin << " " << icomp_thick << " " << icomp_halo;
 	MLOG(verb2) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
 	MLOG(verb2) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];
 	MLOG(verb2) << "Disk offsets          (offs[0], offs[1]): "<< offs[0] << " " << offs[1];

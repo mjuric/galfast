@@ -250,7 +250,7 @@ void densityCube::load(host_state_t &hstate, const peyton::system::Config &cfg)
 {
 	// density distribution parameters
 	cfg.get(f,  	"f",		1.f);
-	cfg.get(comp,	"comp",		0);
+	comp = componentMap.seqIdx(cfg.get("comp"));
 
 	// distance to the Galactic center. The observer is assumed to be
 	// on y=z=0, and Rg away on the x axis from the G.c.

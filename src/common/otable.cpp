@@ -186,8 +186,8 @@ otable::columndef::columndef(otable &parent_)
 {
 	// defaults
 	columnClass = parent.cclasses["default"].get();
-	typeProxy = NULL;	// default to class type
-	m_hidden = false;		// default to outputing the column
+	typeProxy = NULL;			// default to class type
+	m_hidden = false;			// default to outputing the column
 }
 
 void otable::columndef::alloc(const size_t nrows)

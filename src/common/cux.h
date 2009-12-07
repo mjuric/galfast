@@ -990,6 +990,7 @@ cuxTexture<float, 3> load_constant_texture_3D(
 	float z0, float z1
 );
 cuxTexture<float, 1> load_and_resample_texture_1D		(const char *fn, int nsamp = 1024);
+cuxTexture<float, 1> load_resample_and_clip_texture_1D		(const char *fn, float clipValue = 0.f, int nsamp = 1024);
 
 float2		     texcoord_from_range			(float imgx, float imgy, float x, float y);
 

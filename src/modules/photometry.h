@@ -28,15 +28,13 @@ struct ALIGN(16) os_photometry_data
 {
 	uint32_t ncolors, bidx;	// number of colors, bootstrap band index
 
-	uint32_t compFirst, compLast;	// component ID range [compFirst, compLast] to which this photometry module will be asigning magnitudes
-
 	static const int N_REDDENING = 17; // This number is set by the number of textures out of which the colors are sampled (4x4=16, currently)
 	float reddening[N_REDDENING];	// reddening coefficients for the loaded bands (NOTE: hardcoded maximum of 17 bands (16 colors))
 };
 
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp));
+	DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp));
 
 	// Textures with "isochrones" (note that we're assuming a
 	// single-age population here; no actual dependence on age)

@@ -22,6 +22,7 @@
 #define pipeline_h__
 
 #include "otable.h"
+#include "compmgr.h"
 
 #include <list>
 
@@ -32,6 +33,7 @@ class opipeline;
 class opipeline_stage
 {
 	protected:
+		interval_list applyToComponents;	// components this module will apply to (unless overridden by the module)
 		std::set<std::string> prov, req;	// add here the fields required/provided by this modules, if using stock runtime_init() implementation
 //		std::string uniqueId;			// a string uniquely identifying this module instance
 		stopwatch swatch;			// times how long it takes to process() this stage
@@ -50,26 +52,48 @@ class opipeline_stage
 		virtual const std::string &type() const { static std::string s("stage"); return s; }
 
 	public:
+		void read_component_map(interval_list &applyToComponents, const peyton::system::Config &cfg, const std::string &compCfgKey = "", uint32_t compFirst = 0U, uint32_t compLast = 0xffffffffU);
+
+	public:
+		virtual bit_map getAffectedComponents() const { return applyToComponents; } // NOTE: Override if your class doesn't use applyToComponents to decide which components to apply to
 		virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe) = 0;
 		virtual bool runtime_init(otable &t);
 		virtual size_t run(otable &t, rng_t &rng) = 0;
 		virtual ~opipeline_stage() {};
 
-		static const int PRIORITY_INPUT      = -10000;
-		static const int PRIORITY_STAR       =      0;
-		static const int PRIORITY_SPACE      =    100;
-		static const int PRIORITY_INSTRUMENT =   1000;
-		static const int PRIORITY_OUTPUT     =  10000;
-		virtual int priority() { return PRIORITY_SPACE; }
+// 		static const int PRIORITY_INPUT      = -10000;
+// 		static const int PRIORITY_STAR       =      0;
+// 		static const int PRIORITY_SPACE      =    100;
+// 		static const int PRIORITY_INSTRUMENT =   1000;
+// 		static const int PRIORITY_OUTPUT     =  10000;
+// 		virtual int priority() { return PRIORITY_SPACE; }
+
+		enum
+		{
+			ord_input,
+			ord_feh,
+			ord_multiples,
+			ord_kinematics,
+			ord_ism_extinction,
+			ord_telescope_pupil,
+			ord_photometric_filters,
+			ord_detector,
+			ord_database,
+			ord_output
+		};
+		virtual double ordering() const = 0;
 
 	public:
 		opipeline_stage() : nextlink(NULL)
 		{
+			applyToComponents.push_back(std::make_pair(0U, 0xffffffffU));
 		}
 };
 
 class osink : public opipeline_stage
 {
+	protected:
+		void transformComponentIds(otable &t, size_t begin, size_t end);
 	public:
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng) = 0;
 
@@ -115,7 +139,8 @@ class opipeline
 class osource : public opipeline_stage
 {
 	public:
-		virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
+		//virtual int priority() { return PRIORITY_INPUT; } // ensure highest priority for this stage
+		virtual double ordering() const { return ord_input; } // ensure highest priority for this stage
 
 	public:
 		osource() : opipeline_stage() {}

@@ -73,9 +73,9 @@ public:
 public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe); // NOTE: overriden as it's abstract, but should NEVER be called directly. Use construct_from_hemispheres() instead.
-
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
-	virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this module is placed near the end of the pipeline
+	//virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this module is placed near the end of the pipeline
+	virtual double ordering() const { return ord_telescope_pupil; }
 
 	// constructs the clipper object from north/south hemispheres in projection proj
 	void construct_from_hemispheres(float dx, const peyton::math::lambert &nproj, const std::pair<gpc_polygon, gpc_polygon> &sky);
@@ -116,8 +116,8 @@ public:
 protected:
 	const os_clipper &load_footprints(const std::string &footprints, float dx, opipeline &pipe);
 	skygenInterface *create_kernel_for_model(const std::string &model);
-	int load_models(otable &t, skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper);
-	void load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &t, const Config &cfg);
+	int load_models(skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper);
+	void load_skyPixelizationConfig(float &dx, skygenParams &sc, const Config &cfg);
 	void load_extinction_maps(const std::string &econf);
 };
 extern "C" opipeline_stage *create_module_skygen() { return new os_skygen(); }	// Factory; called by opipeline_stage::create()
@@ -283,7 +283,15 @@ skygenInterface *os_skygen::create_kernel_for_model(const std::string &model)
 	return NULL;
 }
 
-int os_skygen::load_models(otable &t, skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper)
+struct aux_kernel_sorter
+{
+	bool operator()(const boost::shared_ptr<skygenInterface> &a, const boost::shared_ptr<skygenInterface> &b) const
+	{
+		return componentMap.compID(a->component()) < componentMap.compID(b->component());
+	}
+};
+
+int os_skygen::load_models(skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper)
 {
 	// projections the pixels are bound to
 	std::vector<std::pair<double, double> > lb0;	// projection poles
@@ -319,13 +327,16 @@ int os_skygen::load_models(otable &t, skygenParams &sc, const std::string &model
 		boost::shared_ptr<skygenInterface> kernel(create_kernel_for_model(cfg.get("model")));
 
 		// setup the sky pixels to be processed by this model
-		kernel->init(t, cfg, sc, &skypixels[0]);
+		kernel->init(cfg, sc, &skypixels[0]);
 
 		kernels.push_back(kernel);
 	}
+
+	// sort kernels in component ID order
+	sort(kernels.begin(), kernels.end(), aux_kernel_sorter());
 }
 
-void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &t, const Config &cfg)
+void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, const Config &cfg)
 {
 	// sky binning scale
 	cfg.get(dx,	"dx", 1.f);
@@ -347,24 +358,6 @@ void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, otable &
 	sc.nm = (int)round((sc.m1 - sc.m0) / sc.dm);
 	sc.m0 += 0.5*sc.dm;
 	sc.M1 -= 0.5*sc.dM;
-
-	// prepare the table for output
-	t.use_column("lb");
-	t.use_column("projIdx");
-	t.use_column("projXY");
-	t.use_column("Am");
-	t.use_column("XYZ");
-	t.use_column("comp");
-	t.use_column("DM");
-
-	// prepare the PDF-related table columns for output
-	std::string 	absmagName, bandName;
-	bandName = cfg.get("band");
-	absmagName = "abs" + bandName;
-
-	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
-				  t.alias_column(absmagName, "M1");
-				  t.set_column_property("absmag", "band", bandName);
 }
 
 #if HAVE_LIBCFITSIO
@@ -696,13 +689,30 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	// load sky pixelization and prepare the table for output
 	skygenParams sc;
 	float dx;
-	load_skyPixelizationConfig(dx, sc, t, cfg);
+	load_skyPixelizationConfig(dx, sc, cfg);
 
 	// load footprints and construct the clipper
 	const os_clipper &clipper = load_footprints(cfg.get("foot"), dx, pipe);
 
 	// load models
-	load_models(t, sc, cfg.get("model"), clipper);
+	load_models(sc, cfg.get("model"), clipper);
+
+	// prepare the table for output
+	t.use_column("lb");
+	t.use_column("projIdx");
+	t.use_column("projXY");
+	t.use_column("Am");
+	t.use_column("XYZ");
+	t.use_column("comp");
+	t.use_column("DM");
+
+	std::string
+		bandName = cfg.get("band"),
+		absmagName = "abs" + bandName;
+
+	t.use_column(absmagName); t.alias_column(absmagName, "absmag");
+				  t.alias_column(absmagName, "M1");
+				  t.set_column_property("absmag", "band", bandName);
 
 	return true;
 }

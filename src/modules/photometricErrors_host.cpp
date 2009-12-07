@@ -60,7 +60,8 @@ public:
 	virtual bool runtime_init(otable &t);
 
 	virtual const std::string &name() const { static std::string s("photometricErrors"); return s; }
-	virtual int priority() { return PRIORITY_INSTRUMENT; }	// ensure this stage has the least priority
+	//virtual int priority() { return PRIORITY_INSTRUMENT; }	// ensure this stage has the least priority
+	virtual double ordering() const { return ord_detector; }
 
 	os_photometricErrors() : osink()
 	{

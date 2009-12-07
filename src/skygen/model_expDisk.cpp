@@ -45,7 +45,7 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	z0    = cfg.get("z0");
 	Rg    = cfg.get("Rg");
 
-	comp  = cfg.get("comp");
+	comp = componentMap.seqIdx(cfg.get("comp"));
 
 	// set this to 0. for now, to allow LF normalization
 	// even beyond the user-specified model cutoff

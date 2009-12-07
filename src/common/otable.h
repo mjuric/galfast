@@ -404,7 +404,6 @@ public:
 	template<typename T> const column<T> &col(const std::string &name) const { return getColumn(name).dataptr<T>(); }
 	//bool have_column(const std::string &name) const { return columns.count(name); }
 	bool using_column(const std::string &name) const;
-
 	columndef &use_column(const std::string &coldef, bool setOutput = true);
 	columndef &use_column_by_cloning(const std::string &newColumnName, const std::string &existingColumnName, std::map<int, std::string> *newFieldNames = NULL, bool setOutput = true);
 	size_t get_used_columns(std::set<std::string> &cols) const;		// returns the list of columns in use

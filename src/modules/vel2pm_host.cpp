@@ -42,6 +42,7 @@ public:
 	virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe);
 	virtual const std::string &name() const { static std::string s("vel2pm"); return s; }
+	virtual double ordering() const { return ord_database; }
 
 	os_vel2pm() : osink()
 	{

@@ -274,7 +274,8 @@ class os_countsMap : public osink
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 		virtual bool runtime_init(otable &t);
 		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
-		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		//virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		virtual double ordering() const { return ord_output; }
 		virtual const std::string &name() const { static std::string s("countsMap"); return s; }
 		virtual const std::string &type() const { static std::string s("output"); return s; }
 

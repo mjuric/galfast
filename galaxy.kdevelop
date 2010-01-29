@@ -17,15 +17,15 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding/>
+    <defaultencoding></defaultencoding>
   </general>
   <kdevautoproject>
     <general>
-      <activetarget>src/models/skygen.la</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <activetarget>src/galfast.x</activetarget>
+      <useconfiguration>default</useconfiguration>
     </general>
     <run>
-      <mainprogram>/home/mjuric/projects/galaxy/debug/src/galfast.x</mainprogram>
+      <mainprogram></mainprogram>
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
@@ -109,6 +109,23 @@
         <f77flags>-O0 -g3 -Wno-deprecated</f77flags>
         <envvars/>
       </debug>
+      <default>
+        <envvars/>
+        <configargs>--with-cuda --enable-cuda-devemuX --with-sm=/usr/local --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging --with-cfitsio-include=/usr/include/cfitsio --with-boost=/opt/cudatools/2.3/</configargs>
+        <builddir></builddir>
+        <topsourcedir></topsourcedir>
+        <cppflags></cppflags>
+        <ldflags>-rdynamic</ldflags>
+        <ccompiler>kdevgccoptions</ccompiler>
+        <cxxcompiler>kdevgppoptions</cxxcompiler>
+        <f77compiler>kdevg77options</f77compiler>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
+        <cflags></cflags>
+        <cxxflags></cxxflags>
+        <f77flags></f77flags>
+      </default>
     </configurations>
     <make>
       <envvars>
@@ -118,7 +135,7 @@
       <abortonerror>false</abortonerror>
       <numberofjobs>8</numberofjobs>
       <dontact>false</dontact>
-      <makebin/>
+      <makebin></makebin>
       <prio>0</prio>
       <runmultiplejobs>true</runmultiplejobs>
     </make>
@@ -190,7 +207,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet/>
+      <prefixGet></prefixGet>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -216,11 +233,11 @@
   <kdevdebugger>
     <general>
       <programargs>postprocess postprocess.conf skygen.conf</programargs>
-      <gdbpath/>
+      <gdbpath></gdbpath>
       <dbgshell>libtool --mode=execute</dbgshell>
-      <configGdbScript/>
-      <runShellScript/>
-      <runGdbScript/>
+      <configGdbScript></configGdbScript>
+      <runShellScript></runShellScript>
+      <runGdbScript></runGdbScript>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

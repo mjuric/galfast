@@ -163,6 +163,8 @@ void opipeline_stage::read_component_map(interval_list &applyToComponents, const
 	}
 }
 
+/////////////////////////////
+
 // in/out ends of the chain
 class os_textout : public osink
 {
@@ -257,6 +259,159 @@ bool os_textout::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 
 /////////////////////////////
+
+class os_countsMap : public osink
+{
+	protected:
+		flex_output out;
+		std::string lonlat_column, d_column;		// column names for longitude/latitude/distance
+		float lon0, n_lon, dlon;
+		float lat0, n_lat, dlat;
+		float d0,   n_d,   dd, d_width;
+		std::map<std::pair<int, int>, std::vector<float> > counts;
+
+	public:
+		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
+		virtual bool runtime_init(otable &t);
+		virtual size_t process(otable &in, size_t begin, size_t end, rng_t &rng);
+		virtual int priority() { return PRIORITY_OUTPUT; }	// ensure this stage has the least priority
+		virtual const std::string &name() const { static std::string s("countsMap"); return s; }
+		virtual const std::string &type() const { static std::string s("output"); return s; }
+
+		~os_countsMap();
+		os_countsMap() : osink()
+		{
+		}
+};
+
+extern "C" opipeline_stage *create_module_countsmap() { return new os_countsMap; }
+
+size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
+{
+	swatch.start();
+
+	// get the needed columns
+	cdouble_t::host_t lonlat = t.col<double>(lonlat_column);
+	cfloat_t::host_t d   = t.col<float>(d_column);
+
+	// find out if we're using the 'hidden' flag column (TODO: this column should be made mandatory to avoid each output module having to check for its existence)
+	cint_t::host_t hidden;
+	if(t.using_column("hidden"))
+	{
+		hidden = t.col<int>("hidden");
+	}
+	else
+	{
+		hidden.reset();
+	}
+
+	// bin
+	size_t nserialized = 0;
+	for(size_t row = from; row != to; row++)
+	{
+		if(hidden && hidden(row)) { continue; }
+
+		// Bin the output into n bins of width dx, with the first bin centered on x0+dx/2
+		// Points that fall below/above the range are binned into bin 0 and n-1, respectively
+		//   (similar to how SM does it)
+		int X = (int)std::min(n_lon - 1.,  std::max( 0., (lonlat(row, 0) - lon0) / dlon));
+		int Y = (int)std::min(n_lat - 1.,  std::max( 0., (lonlat(row, 1) - lat0) / dlat));
+
+		// fetch the correct bin (note there are n_d*d_width elements of the pencil beam,
+		// where d_width is usually the number of bands)
+		std::vector<float> &c = counts[std::make_pair(X, Y)];
+		if(!c.size())
+		{
+			c.resize(n_d*d_width);
+		}
+
+		// bin
+		for(int i = 0; i != d_width; i++)
+		{
+			int D = (int)std::min(  n_d - 1.f, std::max(0.f, (d(row, i) - d0) / dd));
+			c[D*d_width + i]++;
+		}
+
+		nserialized++;
+	}
+
+	swatch.stop();
+
+	return nserialized;
+}
+
+bool os_countsMap::runtime_init(otable &t)
+{
+	if(!osink::runtime_init(t)) { return false; }
+
+	d_width = t.col<float>(d_column).width();
+	return true;
+}
+
+bool os_countsMap::construct(const Config &cfg, otable &t, opipeline &pipe)
+{
+	// output filename
+	std::string fn = cfg.get("filename");
+	out.open(fn);
+	MLOG(verb1) << "Output file: " << fn << " (text)\n";
+
+	float tmp;
+
+	lonlat_column = cfg.get("coordinates");
+	req.insert(lonlat_column);
+
+	// longitude range setup
+	lon0 = cfg.get("lon0");
+	dlon = cfg.get("dlon");
+	float lon1 = cfg.get("lon1");
+	tmp = (lon1 - lon0) / dlon;
+	n_lon = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+
+	// latitude range setup
+	lat0 = cfg.get("lat0");
+	dlat = cfg.get("dlat");
+	float lat1 = cfg.get("lat1");
+	tmp = (lat1 - lat0) / dlat;
+	n_lat = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+
+	// magnitude range setup
+	d_column = cfg.get("magnitude");
+	req.insert(d_column);
+	d0 = cfg.get("mag0");
+	dd = cfg.get("dmag");
+	float d1 = cfg.get("mag1");
+	tmp = (d1 - d0) / dd;
+	n_d = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+
+	return out.out();
+}
+
+os_countsMap::~os_countsMap()
+{
+	// write out the (sparse) binned array into the text output file
+	FOREACHj(XY, counts)
+	{
+		float lon = lon0 + dlon * XY->first.first;
+		float lat = lat0 + dlat * XY->first.second;
+		std::vector<float> &dbins = XY->second;
+		for(int i = 0; i != dbins.size(); i += d_width)
+		{
+			bool hasDatum = false;
+			for(int k = 0; k != d_width; k++)
+			{
+				hasDatum |= dbins[i+k] != 0;
+			}
+			if(!hasDatum) { continue; }
+
+			out.out() << lon << "\t" << lat;
+			for(int k = 0; k != d_width; k++)
+			{
+				out.out() << "\t" << dbins[i+k];
+			}
+			out.out() << "\n";
+		}
+	}
+}
 
 #if HAVE_LIBCFITSIO
 #include "fitsio2.h"

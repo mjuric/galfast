@@ -17,7 +17,7 @@
     <secondaryLanguages/>
     <versioncontrol/>
     <projectname>galaxy</projectname>
-    <defaultencoding></defaultencoding>
+    <defaultencoding/>
   </general>
   <kdevautoproject>
     <general>
@@ -36,6 +36,7 @@
         <envvar value="1" name="all_log_on" />
         <envvar value="/home/mjuric/.conf.sdss" name="CONF_SDSS" />
         <envvar value="0" name="CUDA_DEVICE" />
+        <envvar value="10000" name="KBATCH" />
       </envvars>
       <runarguments>
         <unique.x/>
@@ -60,7 +61,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/tests/cfht/</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/tests/ngp/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>
@@ -189,7 +190,7 @@
     </codecompletion>
     <references/>
     <creategettersetter>
-      <prefixGet></prefixGet>
+      <prefixGet/>
       <prefixSet>set</prefixSet>
       <prefixVariable>m_,_</prefixVariable>
       <parameterName>theValue</parameterName>
@@ -215,11 +216,11 @@
   <kdevdebugger>
     <general>
       <programargs>postprocess postprocess.conf skygen.conf</programargs>
-      <gdbpath></gdbpath>
+      <gdbpath/>
       <dbgshell>libtool --mode=execute</dbgshell>
-      <configGdbScript></configGdbScript>
-      <runShellScript></runShellScript>
-      <runGdbScript></runGdbScript>
+      <configGdbScript/>
+      <runShellScript/>
+      <runGdbScript/>
       <breakonloadinglibs>true</breakonloadinglibs>
       <separatetty>false</separatetty>
       <floatingtoolbar>false</floatingtoolbar>

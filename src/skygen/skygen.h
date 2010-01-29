@@ -336,7 +336,7 @@ public:
 	// external interface (skygenInterface)
 	virtual double integrateCounts(float &runtime, const char *denmapPrefix);	// return the expected starcounts contributed by this model
 	virtual size_t drawSources(otable &in, osink *nextlink, float &runtime);
-	virtual uint32_t component() const { return this->model.component(); }
+	virtual uint32_t component() const { return this->model.comp; }			// NOTE: this should actually point to model.component(), but it wouldn't compile on gcc 4.3.4 + CUDA 2.3
 
 	virtual void initRNG(rng_t &rng);		// initialize the random number generator from CPU RNG
 	virtual void setDensityNorm(float norm);	// explicitly set the overall density normalization of the model.

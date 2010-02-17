@@ -67,6 +67,13 @@ RS_BOOST_REGEX(
 	  AC_MSG_RESULT([    - Boost.Regex NOT found. Omitting Boost.Regex dependent code.])
 	])
 
+RS_BOOST_THREAD(
+	[
+	  AC_MSG_RESULT([    - Boost.Thread found.])
+          AC_DEFINE(HAVE_BOOST_THREAD, 1, Define if you have the package)
+	],[
+	  AC_MSG_RESULT([    - Boost.Thread NOT found. Omitting Boost.Thread dependent code.])
+	])
 
 ########################
 # Check for CUDA
@@ -130,7 +137,7 @@ AM_CONDITIONAL(CUDA_DEVEMU, test "x$CUDA_DEVEMU" = "xyes")
 
 #####################
 
-LIBS="$LIBS $BOOST_LIBS $CUDA_LIBS $SM_LIBS"
+LIBS="$LIBS $BOOST_LIBS_R $CUDA_LIBS $SM_LIBS"
 CPPFLAGS="-DDATADIR=\"\\\"\$(pkgdatadir)\\\"\" $CPPFLAGS"
 
 AC_OUTPUT(Makefile data/Makefile src/Makefile src/common/Makefile src/gpc/Makefile \

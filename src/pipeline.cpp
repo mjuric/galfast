@@ -23,6 +23,7 @@
 #include "analysis.h"
 #include "io.h"
 #include "pipeline.h"
+#include "projections.h"
 
 #include <fstream>
 
@@ -30,6 +31,8 @@
 #include <astro/system/log.h>
 #include <astro/system/config.h>
 #include <astro/useall.h>
+
+#include <boost/thread.hpp>
 
 ///////////////////////////////////////////////////////////////////////
 // Component map implementation
@@ -264,12 +267,37 @@ class os_countsMap : public osink
 {
 	protected:
 		flex_output out;
-		std::string lonlat_column, d_column;		// column names for longitude/latitude/distance
-		float lon0, n_lon, dlon;
-		float lat0, n_lat, dlat;
-		float d0,   n_d,   dd, d_width;
-		std::map<std::pair<int, int>, std::vector<float> > counts;
+		std::string xy_column, z_column;		// column names for xgitude/yitude/distance
+		float x0, n_x, dx;
+		float y0, n_y, dy;
+		float z0, n_z, dz, z_width;
 
+		struct beam
+		{
+			int X, Y, map;
+			beam(int X_ = 0, int Y_ = 0, int map_ = 0) : X(X_), Y(Y_), map(map_) {}
+			bool operator <(const beam &a) const
+			{
+				return X < a.X ||
+					X == a.X && Y < a.Y ||
+					X == a.X && Y == a.Y && map < a.map;
+			}
+		};
+		typedef std::map<beam, std::vector<int> > counts_map_t;
+		counts_map_t countsX;
+		std::vector<int> &get_z_array(counts_map_t &counts, const beam &b) const;
+
+		long long m_total;
+		bool m_equalarea;
+
+		typedef peyton::math::lambert lambert;
+		lambert proj[2];
+
+		void get_columns(otable &t, cdouble_t::host_t &xy, cfloat_t::host_t &z, cint_t::host_t &hidden) const;
+		size_t threaded_process(counts_map_t &counts, long long &total, 
+			cdouble_t::host_t xy, cfloat_t::host_t z, cint_t::host_t hidden,
+			size_t from, size_t to, rng_t &rng, int startoffs, int stride) const;
+		friend class mt_binner;
 	public:
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 		virtual bool runtime_init(otable &t);
@@ -282,21 +310,44 @@ class os_countsMap : public osink
 		~os_countsMap();
 		os_countsMap() : osink()
 		{
+			m_total = 0;
+			proj[0] = lambert(rad(90), rad(90));
+			proj[1] = lambert(rad(-90), rad(-90));
 		}
 };
 
 extern "C" opipeline_stage *create_module_countsmap() { return new os_countsMap; }
 
-size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
+// Bin n bins of width dx, with the first bin centered on x0+dx/2
+// Points that fall below/above the range are binned into bin 0 and n-1, respectively
+//   (similar to how SM does it)
+inline int find_bin(double x, double x0, double dx, int n)
 {
-	swatch.start();
+	int b = (int)((x - x0) / dx + 0.5);	// find the bin
+	b = std::max(0, b);
+	b = std::min(n - 1, b);
+	return b;
+}
 
+std::vector<int> &os_countsMap::get_z_array(counts_map_t &counts, const beam &b) const
+{
+	std::vector<int> &c = counts[b];
+	bool first = c.empty();
+	if(c.empty())
+	{
+		c.resize(n_z*z_width);
+		memset(&c[0], 0, sizeof(*&c[0])*c.size());
+	}
+	return c;
+}
+
+void os_countsMap::get_columns(otable &t, cdouble_t::host_t &xy, cfloat_t::host_t &z, cint_t::host_t &hidden) const
+{
 	// get the needed columns
-	cdouble_t::host_t lonlat = t.col<double>(lonlat_column);
-	cfloat_t::host_t d   = t.col<float>(d_column);
+	xy = t.col<double>(xy_column);
+	z   = t.col<float>(z_column);
 
 	// find out if we're using the 'hidden' flag column (TODO: this column should be made mandatory to avoid each output module having to check for its existence)
-	cint_t::host_t hidden;
 	if(t.using_column("hidden"))
 	{
 		hidden = t.col<int>("hidden");
@@ -305,37 +356,128 @@ size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
 	{
 		hidden.reset();
 	}
+};
 
+size_t os_countsMap::threaded_process(counts_map_t &counts, long long &total, 
+	cdouble_t::host_t xy,
+	cfloat_t::host_t z,
+	cint_t::host_t hidden,
+	size_t from, size_t to, rng_t &rng, int startoffs, int stride) const
+{
 	// bin
 	size_t nserialized = 0;
-	for(size_t row = from; row != to; row++)
+	for(size_t row = from + startoffs; row < to; row += stride)
 	{
 		if(hidden && hidden(row)) { continue; }
 
-		// Bin the output into n bins of width dx, with the first bin centered on x0+dx/2
-		// Points that fall below/above the range are binned into bin 0 and n-1, respectively
-		//   (similar to how SM does it)
-		int X = (int)std::min(n_lon - 1.,  std::max( 0., (lonlat(row, 0) - lon0) / dlon));
-		int Y = (int)std::min(n_lat - 1.,  std::max( 0., (lonlat(row, 1) - lat0) / dlat));
+		beam b;
+		double x = xy(row, 0);
+		double y = xy(row, 1);
+		if(m_equalarea)
+		{
+			// lambert-project the coordinates to north/south hemispheres
+			// and set the output map accordingly
+			b.map = y > 0 ? 0 : 1;
+			const lambert &proj = this->proj[b.map];
+			proj.project(x, y, rad(x), rad(y));
+			
+		}
+
+		b.X = find_bin(x, x0, dx, n_x);
+		b.Y = find_bin(y, y0, dy, n_y);
 
 		// fetch the correct bin (note there are n_d*d_width elements of the pencil beam,
 		// where d_width is usually the number of bands)
-		std::vector<float> &c = counts[std::make_pair(X, Y)];
-		if(!c.size())
-		{
-			c.resize(n_d*d_width);
-		}
+		std::vector<int> &c = get_z_array(counts, b);
 
 		// bin
-		for(int i = 0; i != d_width; i++)
+		for(int i = 0; i != z_width; i++)
 		{
-			int D = (int)std::min(  n_d - 1.f, std::max(0.f, (d(row, i) - d0) / dd));
-			c[D*d_width + i]++;
+			int Z = find_bin(z(row, i), z0, dz, n_z);
+			int idx = Z*z_width + i;
+			assert(idx >= 0 && idx < c.size());
+			c[idx]++;
+			total++;
 		}
 
 		nserialized++;
 	}
 
+	return nserialized;
+}
+
+struct mt_binner
+{
+	const os_countsMap &ctmap;
+	
+	// will fill out and returns
+	os_countsMap::counts_map_t counts;
+	long long m_total;
+	size_t nserialized;
+
+	// input parameters
+	size_t from, to;
+	rng_t &rng;
+	int start, stride;
+	cdouble_t::host_t xy;
+	cfloat_t::host_t z;
+	cint_t::host_t hidden;
+
+	mt_binner(const os_countsMap &ctmap_, otable &t_, size_t from_, size_t to_, rng_t &rng_, int start_, int stride_)
+		: ctmap(ctmap_), from(from_), to(to_), rng(rng_), start(start_), stride(stride_)
+	{
+		m_total = 0;
+		nserialized = 0;
+		ctmap.get_columns(t_, xy, z, hidden);
+	}
+
+	void operator()()
+	{
+		nserialized = ctmap.threaded_process(counts, m_total, xy, z, hidden, from, to, rng, start, stride);
+	}
+};
+
+size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
+{
+	swatch.start();
+
+#if HAVE_BOOST_THREAD
+	// launch NCORE threads to do the binning
+	typedef boost::shared_ptr<mt_binner> mtbp_t;
+	std::vector<mtbp_t> kernels(4);
+	boost::thread_group threads;
+
+	// bin in threads
+	FOR(0, kernels.size())
+	{
+		kernels[i] = mtbp_t(new mt_binner(*this, t, from, to, rng, i, kernels.size()));
+		threads.create_thread(boost::ref(*kernels[i]));
+	}
+	threads.join_all();
+	
+	// accumulate the results
+	int nserialized = 0;
+	FOREACHj(kp, kernels)
+	{
+		mt_binner &k = **kp;
+		FOREACH(k.counts)
+		{
+			std::vector<int> &c = get_z_array(countsX, i->first);
+			FORj(j, 0, c.size())
+			{
+				c[j] += i->second[j];
+			}
+		}
+		m_total += k.m_total;
+		nserialized += k.nserialized;
+	}
+#else
+	cdouble_t::host_t xy;
+	cfloat_t::host_t z;
+	cint_t::host_t hidden;
+	get_columns(t, xy, z, hidden);
+	int nserialized = threaded_process(countsX, m_total, xy, z, hidden, from, to, rng, 0, 1);
+#endif
 	swatch.stop();
 
 	return nserialized;
@@ -345,7 +487,7 @@ bool os_countsMap::runtime_init(otable &t)
 {
 	if(!osink::runtime_init(t)) { return false; }
 
-	d_width = t.col<float>(d_column).width();
+	z_width = t.col<float>(z_column).width();
 	return true;
 }
 
@@ -358,59 +500,129 @@ bool os_countsMap::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 	float tmp;
 
-	lonlat_column = cfg.get("coordinates");
-	req.insert(lonlat_column);
+	// see if equal-area output has been requested
+	cfg.get(m_equalarea, "equalarea", false);
+	double x1, y1, z1;
+	if(m_equalarea)
+	{
+		// reasonable defaults for lambert-projected x/y
+		x0 = -2; x1 = 2; dx = rad(1.);
+		y0 = -2; y1 = 2; dy = rad(1.);
+	}
+	else
+	{
+		// reasonable defaults for full-sky x/y
+		x0 =   0; x1 = 360; dx = 1;
+		y0 = -90; y1 =  90; dy = 1;
+	}
+	// reasonable defaults for z-coordinate (usually the magnitude)
+	z0 = 0; z1 = 40; dz = 1;
 
-	// longitude range setup
-	lon0 = cfg.get("lon0");
-	dlon = cfg.get("dlon");
-	float lon1 = cfg.get("lon1");
-	tmp = (lon1 - lon0) / dlon;
-	n_lon = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+	xy_column = cfg.get("xy");
+	req.insert(xy_column);
 
-	// latitude range setup
-	lat0 = cfg.get("lat0");
-	dlat = cfg.get("dlat");
-	float lat1 = cfg.get("lat1");
-	tmp = (lat1 - lat0) / dlat;
-	n_lat = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+	// x coordinate (usually longitude) range setup
+	cfg.get(x0, "x0", x0);
+	cfg.get(x1, "x1", x1);
+	cfg.get(dx, "dx", dx);
+	tmp = (x1 - x0) / dx;
+	n_x = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp)) + 1; // adding 1 to ensure x1 is fully covered (because bins are centered on x0)
 
-	// magnitude range setup
-	d_column = cfg.get("magnitude");
-	req.insert(d_column);
-	d0 = cfg.get("mag0");
-	dd = cfg.get("dmag");
-	float d1 = cfg.get("mag1");
-	tmp = (d1 - d0) / dd;
-	n_d = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp));
+	// y coordinate (usually latitude) range setup
+	cfg.get(y0, "y0", y0);
+	cfg.get(y1, "y1", y1);
+	cfg.get(dy, "dy", dy);
+	tmp = (y1 - y0) / dy;
+	n_y = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp)) + 1;
+
+	// z coordinate (usually magnitude) range setup
+	z_column = cfg.get("z");
+	req.insert(z_column);
+	cfg.get(z0, "z0", z0);
+	cfg.get(z1, "z1", z1);
+	cfg.get(dz, "dz", dz);
+	tmp = (z1 - z0) / dz;
+	n_z = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp)) + 1;
 
 	return out.out();
 }
 
 os_countsMap::~os_countsMap()
 {
-	// write out the (sparse) binned array into the text output file
-	FOREACHj(XY, counts)
+	// header
+	if(m_equalarea)
 	{
-		float lon = lon0 + dlon * XY->first.first;
-		float lat = lat0 + dlat * XY->first.second;
-		std::vector<float> &dbins = XY->second;
-		for(int i = 0; i != dbins.size(); i += d_width)
+		out.out() << "# Binned in lambert equal area projection, using the following poles:\n";
+		for(int i = 0; i != 2; i++)
+		{
+			out.out() << "#\tmap = " << i << "   :  l0 = " << deg(proj[i].l0) << ",  phi1 = " << deg(proj[i].phi1) << "\n";
+		}
+		out.out() << "#\n";
+		out.out() << "# map\tlam_X\tlam_Y\t" << z_column;
+	}
+	else
+	{
+		out.out() << "# map\t" << xy_column << "[0]\t" << xy_column << "[1]\t" << z_column;
+	}
+	for(int k = 0; k != z_width; k++) { out.out() << "\tN(" << z_column << "[" << k << "])"; }
+	if(m_equalarea)
+	{
+		out.out() << "\t" << xy_column << "[0]\t" << xy_column << "[1]";
+	}
+	else
+	{
+		out.out() << "\t" << "dA";
+	}
+	out.out() << "\n#\n";
+	
+	// write out the (sparse) binned array into the text output file
+	long long total = 0;
+	FOREACHj(XY, countsX)
+	{
+		double x = x0 + dx * XY->first.X;
+		double y = y0 + dy * XY->first.Y;
+		int map = XY->first.map;
+		std::vector<int> &zbins = XY->second;
+		double lon, lat;
+		if(m_equalarea)
+		{
+			proj[map].deproject(lon, lat, x, y);
+		}
+		for(int i = 0; i != zbins.size(); i += z_width)
 		{
 			bool hasDatum = false;
-			for(int k = 0; k != d_width; k++)
+			for(int k = 0; k != z_width; k++)
 			{
-				hasDatum |= dbins[i+k] != 0;
+				hasDatum |= zbins[i+k] != 0;
 			}
 			if(!hasDatum) { continue; }
 
-			out.out() << lon << "\t" << lat;
-			for(int k = 0; k != d_width; k++)
+			float z = z0 + dz * (i / z_width);
+			out.out() << map << "\t" << x << "\t" << y << "\t" << z;
+			for(int k = 0; k != z_width; k++)
 			{
-				out.out() << "\t" << dbins[i+k];
+				out.out() << "\t" << zbins[i+k];
+				total += zbins[i+k];
+			}
+			if(m_equalarea)
+			{
+				// print out deprojected coordinates
+				out.out() << "\t" << deg(lon) << "\t" << deg(lat);
+			}
+			else
+			{
+				// print out the area of the pixel, assuming xy are spherical longitude and latitutde, in degrees
+				// Exact formula: area = (lon2-lon1) * (sin(lat2) - sin(lat1))
+				double area = dx * deg( sin(rad(std::min(y + 0.5*dy, 90.))) - sin(rad(std::max(y - 0.5*dy, -90.))) );
+				out.out() << "\t" << area;
 			}
 			out.out() << "\n";
 		}
+	}
+	// simple sanity check
+	if(total != m_total)
+	{
+		THROW(EAny, "Bug: total != m_total (" + str(total) + " != " + str(m_total) + "). Notify the authors.");
 	}
 }
 
@@ -821,7 +1033,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 
 			// initialize this pipeline stage (this typically adds and uses the columns
 			// this stage will add)
-			if(!s.runtime_init(t)) { /*continue;*/ assert(0); } // TODO: I switched from dependency tracking, to explicit ordering
+			if(!s.runtime_init(t)) { /*continue;*/ std::cerr << s.name() << "\n"; assert(0); } // TODO: I switched from dependency tracking, to explicit ordering
 
 			// append to pipeline
 			pipeline.push_back(&s);

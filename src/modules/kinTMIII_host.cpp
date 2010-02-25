@@ -127,6 +127,21 @@ template<typename T> inline OSTREAM(const std::vector<T> &v) { FOREACH(v) { out 
 
 bool os_kinTMIII::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	bool force;
+	cfg.get(force, "force", false);
+	if(!force)
+	{
+		MLOG(verb1) << "****************************************************************\n";
+		MLOG(verb1) << "* kinTMIII module is deprecated in favor of Bond2010 module,   *\n";
+		MLOG(verb1) << "*          and will be completely removed in the near future.  *\n";
+		MLOG(verb1) << "*                                                              *\n";
+		MLOG(verb1) << "*          If you REALLY know what you're doing, and REALLY    *\n";
+		MLOG(verb1) << "*          need to continue using it (and you SHOULDN'T!), set *\n";
+		MLOG(verb1) << "*          'force=1' in the .conf file                         *\n";
+		MLOG(verb1) << "****************************************************************\n";
+		THROW(EAny, "Aborting preventively (see the above message)");
+	}
+
 	// Component IDs
 	read_component_map(icomp_thin, cfg, "comp_thin");
 	read_component_map(icomp_thick, cfg, "comp_thick");

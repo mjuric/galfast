@@ -29,7 +29,7 @@
       <terminal>true</terminal>
       <directoryradio>custom</directoryradio>
       <customdirectory>/home/mjuric/projects/galaxy/tests/os_photometry/</customdirectory>
-      <programargs>catalog --nstars=2e5 111 extinction.conf skygen.conf model.powerLawEllipsoid.conf foot.048152.conf FeH.66f506.conf photometry.a69e1d.conf</programargs>
+      <programargs></programargs>
       <autocompile>true</autocompile>
       <envvars>
         <envvar value="5" name="all_log_level" />
@@ -60,7 +60,7 @@
         <selector.x/>
       </runarguments>
       <globaldebugarguments>catalog cmd.conf</globaldebugarguments>
-      <globalcwd>/home/mjuric/projects/galaxy/tests/dc3b_model</globalcwd>
+      <globalcwd>/home/mjuric/projects/galaxy/tests/ngp/</globalcwd>
       <useglobalprogram>true</useglobalprogram>
       <autoinstall>false</autoinstall>
       <autokdesu>false</autokdesu>

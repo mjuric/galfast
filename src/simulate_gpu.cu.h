@@ -32,5 +32,6 @@
 #include "modules/unresolvedMultiples_gpu.cu.h"
 #include "modules/photometry_gpu.cu.h"
 #include "modules/kinTMIII_gpu.cu.h"
+#include "modules/Bond2010_gpu.cu.h"
 #include "modules/vel2pm_gpu.cu.h"
 #include "modules/gal2other_gpu.cu.h"

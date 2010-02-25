@@ -1,0 +1,2008 @@
+smmacros
+	verbose 0
+	define FINAL 1
+
+figures 1
+	initstate
+	$1
+	quit
+
+rr
+	re "$!HOME/bin/smmacros.sm"
+
+lfplot 2
+	data "$!1"
+	lweight 3
+	device postfile "$!2.ps"
+	read <m 1 f 2>
+	limits m f
+	box
+	histogram m f
+	xlabel m (mag)
+	ylabel \Phi(m) (stars pc^{-3} mag^{-1})
+	hardcopy
+	! convert -density 50 "$!2.ps" "$!2.png" && rm "$!2.ps"
+	quit
+
+initstate
+	if($?LFFILE) { undef LFFILE\n }
+	if($?__lf_initialized) { undef __lf_initialized\n }
+
+	##re "/home/mjuric/projects/thesis/src/macros.sm"
+	re "/home/galfast/bin/macros.sm"
+
+	define CATFILE ('sky.cat.txt.gz')
+	define OBSFILE ('sky.obs.txt.gz')
+
+	# defaults
+	setparalax 0 1
+	set component_names = <'Thin disk' 'Thick disk' 'Halo'>
+
+	userinit
+
+toscreen 122
+	$2
+
+tofile 122
+	echo "******** PLOTTING $!1 $!2 ********"
+	psfile $1.ps $2
+	echo "******** CONVERTING $!1.ps --> $!1.png ********"
+	! convert -density 50 "$!1.ps" "$!1.png"
+	echo "******** COMPRESSING $!1.ps --> $!1.ps.gz ********"
+	! rm -f "$!1.ps.gz" && gzip "$!1.ps"
+
+enableobsplots 1
+	define OBSPLOTS_ENABLED ($1)
+	##echo OBSPLOTS_ENABLED = $OBSPLOTS_ENABLED
+
+addplot 111
+	#
+	# addplot <outputfile> <command...>
+	#
+	local set tmp = <'$1'>
+	if(!is_vector(figvec)) {
+		set figvec = tmp
+	} else {
+		set figvec = figvec concat tmp
+	}
+
+userplots 01
+	if(!$?1) { define 1 toscreen\n }
+
+	if(!is_vector(figvec)) { return }
+	foreach fv figvec {
+		$1 $fv
+	}
+
+catplots
+	#
+	# Top level macro -- called to generate plots
+	# depending on $CATFILE
+	# TODO: Make these use addplot as well
+	#
+
+	tofile cmd    cmdplot  $CATFILE
+	tofile den    denplot  $CATFILE
+	tofile foot   footplot $CATFILE
+	tofile lfdata lfplot   $CATFILE
+	! touch catplots
+
+obsplots
+	#
+	# Top level macro -- called to generate plots
+	# depending on $OBSFILE, and added via addplot in user.sm
+	#
+	if(!$?OBSPLOTS_ENABLED) { define OBSPLOTS_ENABLED 1\n }
+	echo OBSPLOTS_ENABLED = $OBSPLOTS_ENABLED
+
+	if($OBSPLOTS_ENABLED) {
+		userplots tofile
+	}
+	! touch obsplots
+
+ ################## Paralax
+
+setparalax 111
+	set paralax = <$1>
+
+	set __mag2col_ri = 0,4,0.005
+	set __mag2col_Mr = col2mag(__mag2col_ri)
+	define __mag2col_initialized 1
+
+col2mag 1
+	set $0 = poly($1, paralax)
+
+mag2col 1
+	## Inverse photometric paralax relation
+	if(!$?__mag2col_initialized) {
+		set __mag2col_ri = 0,4,0.005
+		set __mag2col_Mr = col2mag(__mag2col_ri)
+		define __mag2col_initialized 1
+	}
+	interp2 __mag2col_Mr __mag2col_ri $1 $0
+
+
+ ################## Bahcall-Soneira Model
+
+BS_mthin 2
+	# set rho=BS_mthin(R,Z)
+	set $0 = $rho0*( exp(($Rg-abs($1))/$l  + (abs($z0)-abs($2+$z0))/$h) )
+	local set RR = sqrt($1**2 + $2**2)
+	set $0 = RR > $rcut ? 0 : $0
+
+BS_mthick 2
+	# set rho=BS_mthick(R,Z)
+	set $0 = $rho0*( $f*(exp(($Rg-abs($1))/$lt + (abs($z0)-abs($2+$z0))/$ht)) )
+	local set RR = sqrt($1**2 + $2**2)
+	set $0 = RR > $rcut ? 0 : $0
+
+BS_mhalo 2
+	# set rho=BS_mhalo(R,Z)
+	set $0 = $rho0*( $fh*($Rg/sqrt($1**2 + $q**2*($2+$z0)**2))**$n )
+	local set RR = sqrt($1**2 + $2**2)
+	set $0 = RR > $rcut ? 0 : $0
+
+ttx 01
+	if(!$?1) { define 1 " "\n }
+	echo $(tt($1))
+
+tt 01
+	if($?1) {
+		set $0 = '1 specified'
+	} else {
+		set $0 = '0 specified'
+	}
+
+model_BahcallSoneira 34
+	local set _R = sqrt($1**2 + $2**2)
+	local define Rg 8000
+
+	if(!$?4) { define 4 " "\n }
+	local define __norm (lf($4))
+	set $0 = $__norm * (BS_mthin(_R, $3) + BS_mthick(_R, $3) + BS_mhalo(_R, $3))
+
+compf_BahcallSoneira 366
+	# Usage: compf <X> <Y> <Z> <fthin> <fthick> <fhalo>
+	# Returns the fractional contribution of each component at XYZ
+	local set _R = sqrt($1**2 + $2**2)
+	local define Rg 8000
+	local set rhothin  = BS_mthin(_R, $3)
+	local set rhothick = BS_mthick(_R, $3)
+	local set rhohalo  = BS_mhalo(_R, $3)
+	local set rho = rhothin + rhothick + rhohalo
+	#print <rhothin rhothick rhohalo rho>
+
+	set rho = rho == 0 ? 1 : rho ## Avoid divide by zero
+	set $4 = rhothin  / rho
+	set $5 = rhothick / rho
+	set $6 = rhohalo  / rho
+	#print <$4 $5 $6>
+
+setmodel_BahcallSoneira 999
+	#
+	# setmodel rho0 l h z0 f lt ht fh q n rcut
+	#
+	local define __2 0
+	define __3 local
+	local set _m = <$1 $2 $3 $4 $5 $6 $7 $8 $9 0 0 0 0 0 0 0 0>
+	foreach __3 <rho0 l h z0 f lt ht fh q n rcut> {
+		define $__3 (_m[$__2])
+		define __2 ($__2 + 1)
+	}
+
+ ################## ToyHomogeneous Model
+
+model_ToyHomogeneous 34
+	if(!$?4) { define 4 " "\n }
+	local define __norm (lf($4))
+	set $0 = $__norm * ($1*0 + $rho0)
+
+setmodel_ToyHomogeneous 1
+	#
+	# setmodel rho0
+	#
+	define rho0 ($1)
+
+ ################## ToyGeocentricPowerLaw Model
+
+model_ToyGeocentricPowerLaw 34
+	local define Rg 8000
+	if(!$?4) { define 4 " "\n }
+	local define __norm (lf($4))
+	set $0 = $__norm * ($rho0 * (($1-$Rg)**2 + $2**2 + $3**2)**($n/2.))
+
+setmodel_ToyGeocentricPowerLaw 2
+	#
+	# setmodel rho0 n
+	#
+	define rho0 ($1)
+	define n ($2)
+
+ ################## Generic model interface
+
+model 34
+	#
+	# Return the density of systems with (x,y,z[,M])
+	#  where x,y,z are in pc and M is in mag
+	# If M is unspecified, return the density at
+	#  x,y,z marginalized over M (the total density 
+	#  irrespective of absolute magnitude)
+	#
+	if(!$?4) {
+		set $0 = model_$MODEL($1,$2,$3)
+	} else {
+		set $0 = model_$MODEL($1,$2,$3,$4)
+	}
+
+compf 345
+	# Usage: compf <X> <Y> <Z> <comp1> [comp2 [comp3 [..]]]
+	# Returns the fractional contribution of each component at XYZ
+	# If not model-overriden (by defining compf_$MODEL macro),
+	# sets comp1 = 1 and all others to zero
+
+	if(!$?5) { define 5 (' ') }
+	if(is_macro(compf_$MODEL)) {
+		compf_$MODEL $1 $2 $3 $4 $5
+	} else {
+		set $4 = $1*0 + 1.
+		foreach 9 <$5> {
+			set $9 = $1*0.
+		}
+	}
+
+compn 1
+	#
+	# Usage: set compName = compn(<idx>)
+	#
+	# Returns the name of the component with index <idx>
+	#
+	if(is_macro(compn_$MODEL)) {
+		set $0 = compn_$MODEL($1)
+	} else {
+		if($1 < 0) {
+			set $0 = 'All'\n
+		} else {
+			set $0 = component_names[$1]
+		}
+	}
+
+setmodel 222
+	define MODEL "$!1"
+	setmodel_$MODEL $2
+
+setFeHmodel 222
+	define FEHMODEL "$!1"
+	setFeHmodel_$FEHMODEL $2
+
+setFeHmodel_FeH_I08 111
+	local set vals = <$1>
+	local set pars = <A0 sigma0 offs0 A1 sigma1 offs1 muInf deltaMu Hmu offsH sigmaH>
+	do 9=0,$(dimen(pars)-1) {
+		define $(pars[$9]) (vals[$9])
+	}
+
+setKinematicModel 1
+	define KINMODEL	$1
+
+initKinematicModel
+	initKinematicModel_$KINMODEL
+
+kinmodel 111
+	#
+	# Given XYZ and comp (possibly vectors), returns the means and
+	# the fill cylindrical velocity tensor at location XYZ
+	#
+	# comp is model-defined, but comp=-1 is guaranteed to return the sum of 
+	#  all components
+	#
+	# Example:
+	#	kinmodel   vR vPhi vZ  sRR sRPhi sRZ sPhiPhi sPhiZ sZZ   X Y Z comp
+	#
+	kinmodel_$KINMODEL $1
+
+
+ ################### TMIII kinematic model
+
+setTMIIIparam 122
+	set TMIII$1 = <$2>
+
+initKinematicModel_TMIII
+	define fk (TMIIInormoffs[0]/(TMIIInormoffs[0]+1))
+	define DeltavPhi (TMIIInormoffs[1])
+
+	set TMIIIvPhi1 = TMIIIvPhi
+	set TMIIIvPhi2 = TMIIIvPhi
+	set TMIIIvPhi2[0] = TMIIIvPhi2[0] + $DeltavPhi
+	unset TMIIIvPhi
+
+TMIIImod 3
+	#
+	# set f = TMIIImod(R, Z, abcde)
+	#   where abcde is a 5-elem vector defining parameters a,b,c,d,e from TMIII
+	#   and R, Z are in parsecs
+	#
+	#   If trunc1 is given, and f > trunc1, sets f = trunc1
+	#
+	if('$3' == 'TMIIIsigmaPhiPhi') {			## Special handling for sigmaPhiPhi (two-Gaussian superposition)
+		local set sD1 = TMIIImod($1, $2, TMIIIsigmaPhiPhi1)	# \sigma_y1
+		local set sD2 = TMIIImod($1, $2, TMIIIsigmaPhiPhi2)	# \sigma_y2
+		local set mD1 = TMIIImod($1, $2, TMIIIvPhi1)		# \mu_1
+		local set mD2 = TMIIImod($1, $2, TMIIIvPhi2)		# \mu_2
+		set $0 = kinmodel_joint_covar($fk, sD1, mD1, mD1, $(1-$fk), sD2, mD2, mD2)
+		return
+	}
+	if('$3' == 'TMIIIvPhi') {				## Special handling for vPhi (sum of two Gaussians)
+		set $0 = $fk*TMIIImod($1, $2, TMIIIvPhi1) + (1-$fk)*TMIIImod($1, $2, TMIIIvPhi2)
+		return
+	}
+
+	set $0 = $3[0] + $3[1]*(abs($2/1000)**$3[2])
+	set $0 = $0 + $3[3]*(($1/1000)**$3[4])
+
+	# Account for weird definition of diagonal elements
+	if('$3' == 'TMIIIsigmaRR' || '$3' == 'TMIIIsigmaZZ' || '$3' == 'TMIIIsigmaPhiPhi1' || '$3' == 'TMIIIsigmaPhiPhi2') {
+		set $0 = $0**2
+	}
+	if('$3' == 'TMIIIHsigmaRR' || '$3' == 'TMIIIHsigmaZZ' || '$3' == 'TMIIIHsigmaPhiPhi') {
+		set $0 = $0**2
+	}
+
+	if('$3' == 'TMIIIvPhi1' || '$3' == 'TMIIIvPhi2') {	## Truncate disk mean velocity at v = 0
+		set $0 = $0 > 0 ? 0 : $0
+	}
+
+kinTMIIItest 03
+	#
+	# Plots theoretical means and velocity dispersions vs. distance
+	# in <l>, <b> direction, for component <component>
+	#
+	# Usage:
+	# 	kinTMIIItest <l> <b> <component>
+	#
+	if(!$?1) { define 1 0\n }
+	if(!$?2) { define 2 90\n }
+	if(!$?3) { define 3 0\n }
+
+	local set D = 0,22,.1
+	set D = D * 1000
+	computeCartesianPositions X Y Z  $1 $2 D
+	set comp = $3 + 0*Z
+
+	kinmodel   vR vPhi vZ  sRR sRPhi sRZ sPhiPhi sPhiZ sZZ   X Y Z comp
+
+	erase
+	expand 1.001
+
+	## Mean velocity panel
+	window -1 -2 1 2
+	limits D (vR concat vPhi concat vZ)
+	ctype red   connect D vR
+	ctype green connect D vPhi
+	ctype blue  connect D vZ
+	ctype black
+	box
+	xlabel D (kpc)
+	ylabel v_R [red], v_{\Phi} [green], v_Z [blue] (km/s)
+
+	## Dispersion panel
+	window -1 -2 1 1
+	limits D (sRR concat sRPhi concat sRZ concat sPhiPhi concat sPhiZ concat sZZ)
+	ctype red   connect D sRR
+	ctype green connect D sPhiPhi
+	ctype blue  connect D sZZ
+	ctype black
+
+	ltype 2
+	ctype red   connect D sRPhi
+	ctype green connect D sRZ
+	ctype blue  connect D sPhiZ
+	ctype black
+	ltype 0
+
+	xlabel D (kpc)
+	ylabel \sigma_R [r], \sigma_{\Phi} [g], \sigma_Z [b] (km/s)
+	box 0 2 0 0
+	relocate $fx2 $($fy1 + ($fy2-$fy1)*.5)
+	angle 90
+	putlabel 2 \raise-1000{}"\sigma_{R\Phi} [r], \sigma_{RZ} [g], \sigma_{\Phi Z} [b] (km/s)"
+	angle 0	
+
+	window 1 1 1 1
+	define 3 (compn($3))
+	xuplabel "l = $!1, b = $!2, $!3"
+
+kinmodel_joint_covar 8
+	#
+	# Usage:
+	#	set sxy = kinmodel_joint_covar(norm1, sxy1, mx1, my1, norm2, sx2, mx2, my2)
+	#
+	# Returns <(x-mx)(y-my)(norm1*f1 + norm2*f2)>, where f1 and f2 are arbitrary probability
+	#  density distributions with means and covariances mx, my, sx, sy, and norm1+norm2=1.
+	#
+
+	local define f1		$1
+	local define sxy1	$2
+	local define mx1	$3
+	local define my1	$4
+
+	local define f2		$5
+	local define sxy2	$6
+	local define mx2	$7
+	local define my2	$8
+
+	## Compute covariance
+	local set __mx = $f1*$mx1 + $f2*$mx2
+	local set __my = $f1*$my1 + $f2*$my2
+	set $0 =      $f1*($sxy1 + ($mx1 - __mx)*($my1 - __my))
+	set $0 = $0 + $f2*($sxy2 + ($mx2 - __mx)*($my2 - __my))
+
+kinmodel_TMIII 999
+	#
+	# Given XYZ and comp (possibly vectors), returns the means and
+	# the fill cylindrical velocity tensor at location XYZ
+	#
+	# Assumes comp=0,1 is disk, halo otherwise
+	#
+	#  kinmodel_TMIII   vR vPhi vZ  sRR sRPhi sRZ sPhiPhi sPhiZ sZZ   X Y Z comp
+	#
+
+	# overcome SM parameter passing limitations
+	local set _tmp = <$1 $2 $3 $4 $5 $6 $7 $8 $9>
+	define 1 (_tmp[9])      # X
+	define 2 (_tmp[10])     # Y
+	define 3 (_tmp[11])     # Z
+	define 4 (_tmp[12])     # comp
+		
+	local set _x_R = sqrt($1**2 + $2**2)    local define _R _x_R
+	local set _x_Z = $3                     local define _Z _x_Z
+	local set _vname = <R Phi Z>
+	
+	# Model component ratios
+	set fthin local set fthick local set fH local
+	compf $1 $2 $3 fthin fthick fH
+	local set fD = fthin + fthick
+	unset fthin unset fthick
+	
+	# Select disk-only (comp=0,1), or halo-only (comp=2), if the user requested so
+	set fD = ($4 == 0 || $4 == 1) ? 1 : ($4 == 2 ? 0 : fD)
+	set fH = ($4 == 0 || $4 == 1) ? 0 : ($4 == 2 ? 1 : fH)
+	
+	#
+	# Velocities
+	#
+	do 9=0,2 {
+		define 8 $(_vname[$9])
+		local set mD$8 = TMIIImod($_R, $_Z,  TMIIIv$8)  # \mu_xD
+		local set mH$8 = TMIIImod($_R, $_Z, TMIIIHv$8)  # \mu_xH
+		set $(_tmp[$9]) = fD*mD$8 + fH*mH$8
+	}
+	
+	#
+	# Dispersions
+	#
+	set _tmp = _tmp[DO(3,8)]
+	local set _R = sqrt($1**2 + $2**2)
+	local set _svec1 = <0  0  0  1  2  2 >
+	local set _svec2 = < 0  1  2  1  1  2>
+	set sDxy local set sHxy local
+	do 9=0,5 {
+		define 8 (_svec1[$9])   # 1st R, Phi or Z comp. index
+		define 7 (_svec2[$9])   # 2nd R, Phi or Z comp. index
+		define 6 (_tmp[$9])     # Output variable
+	
+		define 5 (_vname[$8])
+		define 4 (_vname[$7])
+	
+		set sDxy = TMIIImod($_R, $_Z,  TMIIIsigma$5$4)
+		set sHxy = TMIIImod($_R, $_Z, TMIIIHsigma$5$4)
+		set $6 = kinmodel_joint_covar(fD, sDxy, mD$5, mD$4, fH, sHxy, mH$5, mH$4)
+	}
+
+ ################## Data loading facilities
+
+getcolumns_aux 111
+	define __temp_cols ('$1')
+
+getcolumns 111
+	#
+	# Finds out the right column numbers for the requested
+	# column set from $data_file, and records them using
+	# setcolumns. Can take anything that head_to_sm_read.pl
+	# understands as an argument.
+	#
+	# Usage example:
+	#	set cols = getcolumns("lb[3] SDSSugriz[5] M")
+	#
+	! echo __usecolumns_aux > __temp__.usecolumns.txt
+	! echo -n '	getcolumns_aux ' >> __temp__.usecolumns.txt
+	! head_to_sm_read.pl $data_file "$!1" >> __temp__.usecolumns.txt
+	re __temp__.usecolumns.txt
+	! rm -f __temp__.usecolumns.txt
+	__usecolumns_aux
+	set $0 = <'$__temp_cols'>
+	undef __temp_cols
+
+hascolumn 1
+	#
+	# Tests if a requested column is present in the current
+	# data file.
+	#
+	# Usage:
+	#	if(hascolumn(M1)) { ... }
+	#
+	! echo __hascolumns_aux > __temp__.hascolumns.txt
+	! echo -n '	getcolumns_aux ' >> __temp__.hascolumns.txt
+	! (head_to_sm_read.pl $data_file "$!1" > /dev/null && echo 1 || echo 0) >> __temp__.hascolumns.txt
+	re __temp__.hascolumns.txt
+	! rm -f __temp__.hascolumns.txt
+
+	__hascolumns_aux
+	set $0 = $__temp_cols
+	undef __temp_cols
+
+usecolumns 222
+	#
+	# Finds out the right column numbers for the requested
+	# column set from $data_file, and records them using
+	# setcolumns. Can take anything that head_to_sm_read.pl
+	# understands as an argument.
+	#
+	# Usage example: usecolumns ugrizAndM ugriz[5] M
+	#
+	! echo __usecolumns_aux > __temp__.usecolumns.txt
+	! echo -n '	setcolumns $1 ' >> __temp__.usecolumns.txt
+	! head_to_sm_read.pl $data_file "$!2" >> __temp__.usecolumns.txt
+	re __temp__.usecolumns.txt
+	__usecolumns_aux
+	echo Defined colgroup '$1' == <$DATA$1>
+	! rm -f __temp__.usecolumns.txt
+	set $0 = <'$DATA$1'>
+
+setcolumns 222
+	#
+	# Define a column group (mapping between a name and a set
+	# of columns and column indices in an SM-readable file)
+	#
+	define DATA$1 ('$2')
+
+read2 111
+	#
+	# Same as the read built-in, but able to read the same column
+	# multple times (e.g., 'read2 <a 1 b 2 c 3 bb 2>' )
+	#
+
+	# Find and weed out duplicate fields
+	local set _vs = $1
+	local set _ii = 1,dimen(_vs),2
+	local set _cols = atof(_vs[_ii])	# All column indices
+	local set _fields = _vs[_ii-1]		# All field names
+	sort <_cols _fields>
+	define 8 (' ')
+	local define _iip -1		# Previously read column
+	local set _dup = < ' ' >
+	do _ii=0,$(dimen(_cols)-1) {
+		define 9 (_cols[$_ii])
+		if($9 != $_iip) {
+			# unique field
+			define 7 (_fields[$_ii])
+			define 8 ('$8 $7 $9')
+		} else {
+			# duplicate of previously read
+			set _dup = _dup concat <'set $(_fields[$_ii]) = $7'>
+		}
+		define _iip ($9)
+	}
+
+	# Read
+	echo Reading fields: $8
+	read <$8>
+
+	# Duplicate fields that were mentioned multiple times
+	foreach 9 _dup {
+		if('$9' != ' ') { 
+			echo "Duplicating field:     $!9"
+			$9
+		}
+	}
+
+col2veclist 111
+	local set _vs = <$1>
+	local set _ii = 0,$(dimen(_vs)-1),2
+	local set _fields = _vs[_ii]
+	local define veclist (' ')
+	foreach 9 _fields {
+		define veclist ('$veclist $9')
+	}
+	set $0 = <'$veclist'>
+
+getveclist 111
+	# Get veclist for the given column set
+	if(isfits($data_file)) {
+		echo $data_file is a FITS file
+		set $0 = fgetveclist($1)
+		return
+	}
+	define 8 (getcolumns("$!1"))
+	set $0 = col2veclist("$!8")
+
+readdata2 111
+	#
+	# From currently opened file, read column groups $1
+	# and set $veclist to list of read columns.
+	#
+	if(isfits($data_file)) {
+		echo $data_file is a FITS file
+		freaddata2 $1
+		return
+	}
+
+	define 8 (getcolumns("$!1"))
+	define veclist (col2veclist("$!8"))
+
+	echo Veclist:        $veclist
+	echo Requested fields: $8
+
+	read2 <$8>
+
+gg
+	data sky.fits
+	readdata2 M color XYZ comp lb
+
+isfits 1
+	#
+	# Returns 1 if extension of the argument is '.fits'
+	#
+	define 9 (strlen('$1'))
+	if($9 < 5) { set $0 = 0\n return }
+	local define _s (substr('$1', $($9-5), 5))
+	set $0 = '$_s' == '.fits'
+
+fgetveclist 111
+	# Get veclist for the given column set
+	table 1 $data_file
+
+	define veclist local
+	define collist local
+	define outlist local
+
+	# Load the columns
+	! echo __usecolumns_aux > __temp__.usecolumns.txt
+	! $HOME/bin/head_to_sm_read.pl $data_file "$!1" >> __temp__.usecolumns.txt
+	re __temp__.usecolumns.txt
+	! rm -f __temp__.usecolumns.txt
+	__usecolumns_aux
+
+	echo G Veclist:        $veclist
+	set $0 = '$veclist'
+
+freaddata2 111
+	#
+	# From currently opened file, read column groups $1
+	# and set $veclist to list of read columns.
+	#
+
+	table 1 $data_file
+
+	# Load the columns
+	! echo __usecolumns_aux > __temp__.usecolumns.txt
+	! $HOME/bin/head_to_sm_read.pl $data_file "$!1" >> __temp__.usecolumns.txt
+	re __temp__.usecolumns.txt
+	! rm -f __temp__.usecolumns.txt
+	__usecolumns_aux
+
+	echo Veclist:        $veclist
+	echo Columns:        $collist
+	echo   Temps:        $outlist
+
+	set cl = < $collist >
+	set vl = < $veclist >
+	set ol = < $outlist >
+	sort <ol cl vl>
+	##print <ol cl vl>
+
+	# Unique list of FITS columns that will be read
+	set u = uniq(cl)
+	define rl (' ')
+	foreach c u {
+		define rl ('$rl $c')
+	}
+
+	# Make local the SM columns into which the FITS columns will be read
+	set u = uniq(sort(ol))
+	define ol (' ')
+	foreach c u {
+		set $c local
+	}
+
+	# Read
+	echo RL: $rl
+	read table 'byname' { $!!rl }
+
+	# Copy to desired output vectors
+	set i=0,$(dimen(ol)-1)
+	foreach i i {
+		define 1 (vl[$i])
+		define 2 (ol[$i])
+		set $1 = $2
+	}
+
+oldtmpstufftodelete
+	define 8 (' ')
+	define veclist (' ')
+	local define lbexists 0
+	foreach 9 <$1> {
+		define 7 ('DATA$9')
+		define 8 ('$8 $$7')
+
+		set _tmp = <$$7>
+		do 6=0,$(dimen(_tmp)-1),2 {
+			if(_tmp[$6] == 'l') { define lbexists 1 }
+			define veclist ('$veclist $(_tmp[$6])')
+		}
+	}
+
+ ################## Plot generation macros
+
+gop
+	##photometryplot LSSTugrizy sky.obs.txt 1 3  u g r i z y
+	##photometryplot LSSTugrizy $OBSFILE 1 3 LSSTu LSSTg SDSSr LSSTi LSSTz LSSTy
+	##photometryplot SDSSugriz $OBSFILE 2 3 SDSSu SDSSg SDSSr SDSSi SDSSz
+	photometryplot obsSDSSugriz $OBSFILE 2 3 SDSSu SDSSg SDSSr SDSSi SDSSz
+	
+photometryplot 455
+	#
+	# ugrizplot <photosys> <sky.obs.txt> <magIdx1> <magIdx2> [bandsToPlot...]
+	#
+	# Eg: photometryplot SDSSugriz[5] sky.obs.txt 1 3
+	#      will plot color-color and g-i vs. M plots
+	#
+	data "$!2"
+	readdata2 lb[2] M $1
+	echo Loaded $!(dimen(M)) stars
+	selectpencilbeam
+	if(dimen(M) < 500) {
+		echo "Too few stars in pencil beam; reverting to full sample."
+		readdata2 lb[2] M $1
+	}
+
+	# Get the list of bands, and compute the panel layout
+	if(!$?5) {
+		define 5 (getveclist("$!1"))
+	}
+	local set bands = <$5>
+	local define nw (sqrt(dimen(bands)-1))
+	      define nw (int($nw) + (int($nw) < $nw))
+
+	erase
+	if($nw >= 3) { expand 0.7 } else { expand 1.0001 }
+	# Color-color plots
+	do _i=1,(dimen(bands)-2) {
+		set_window $nw $nw
+		define 9 ('$(bands[$_i-1]) $(bands[$_i]) $(bands[$_i]) $(bands[$_i+1])')
+		aux_ccplot $(bands[$_i-1]) $(bands[$_i]) $(bands[$_i]) $(bands[$_i+1]) $9
+	}
+	# Color-absmag plot
+	set_window $nw $nw	aux_ccplot $(bands[$3]) $(bands[$4]) M 0 $(bands[$3]) $(bands[$4]) M
+	set_window
+
+	if(!$?TTEXT_$1) {
+		local define TTEXT (' ')
+	} else {
+		local define TTEXT ('$TTEXT_$1')
+	}
+	lweight 3
+	xuplabel "CMDs towards l=$!l0, b=$!b0""$TTEXT" .5
+	lweight 1
+	expand 1.0001
+	undef TTEXT
+
+	# Cleanup
+	foreach 9 <$veclist> { unset $9\n }
+
+ugrizplot 1
+	#
+	# ugrizplot <sky.obs.txt>
+	#
+	data "$!1"
+	readdata2 lb[2] M SDSSugriz[5]
+	selectpencilbeam
+	erase
+	window 2 2 1 2	aux_ccplot g i M
+	window 2 2 2 2	aux_ccplot u g g r
+	window 2 2 1 1	aux_ccplot g r r i
+	window 2 2 2 1	aux_ccplot r i i z
+
+	window 1 1 1 1
+
+	lweight 3
+	xuplabel "CMDs towards l=$!l0, b=$!b0" .5
+	lweight 1
+
+aux_ccplot 78
+	#
+	# First half are actual vectors to work on, second half are user-friendly names to show
+	# If the fourth arg. is 0, we're ploting a CMD instead of a CCD
+	#
+	if(!$?4) { define 4 0\n }
+
+	local set x = $1-$2
+	local set y = $3-$4
+	limits x y
+	if('$4' == '0') { limits $fx1 $fx2 $fy2 $fy1 } # Flip y-axis direction for magnitude
+
+	ptype 0 0
+	lweight 3 box
+	box
+	xlabel $5-$6
+	if('$4' == '0') { ylabel $7\n } else { ylabel $7-$8\n }
+	lweight 1
+
+	#echo Plotting CMD for $!(dimen(x)) stars
+	points x y
+	if($?TTEXT_$1) {
+		define colcont red
+		contour_dot x y 0.05 0.05
+	}
+
+goc
+	cmdplot $OBSFILE
+
+cmdplot 1
+	#
+	# cmdplot <sky.txt>
+	#
+	data $1
+	readdata2 DM M1
+	set m1 = DM + M1
+
+	ptype 0 0
+	limits M1 m1
+	limits M1 $fy2 $fy1
+
+	erase
+	expand 1.0001
+	lweight 3 box
+	xlabel Absolute magnitude of primary, M_1 (mag)
+	ylabel Apparent magnitude of primary, m_1 (mag)
+
+	lweight 1 points M1 m1
+		
+	define colcont red
+	contour_dot M1 m1 0.05 0.05
+		
+	# cleanup
+	foreach 9 <$veclist> { unset $9\n }
+
+computeCartesianPositions 6
+	#
+	#  computeCartesianPositions <X> <Y> <Z>   <l> <b> <d>
+	#
+	#  Given l, b (in degrees) and distance D (in parsecs), compute galactocentric
+	#  cartesian coordinates X Y Z and return them in the first three vectors
+	#
+	set $1 = 8000 - cos($4*PI/180)*cos($5*PI/180)*$6
+	set $2 = -sin($4*PI/180)*cos($5*PI/180)*$6
+	set $3 = sin($5*PI/180)*$6
+
+denprof
+	#
+	# An auxilliary macro for denplot (designed to be called from denplot)
+	#
+	local set d = 10**(mbins/5+1)
+	computeCartesianPositions x y z  $l0 $b0 d
+
+	set dN = model(x,y,z,$MM) * d**2 \
+		* ln(10)/5 * d * $dm \
+		* $dM \
+		* ($beam_dA * (PI/180)**2)
+
+	# Normalize
+	local set i=10,$(dimen(h)-10),1
+	echo Norm factor: $(sum(h[i])/sum(dN[i]))
+	if($beam_auto) {
+		echo "Renormalizing density as exact covered area is unknown"
+		set dN = sum(h[i])/sum(dN[i]) * dN
+	}
+
+denprof2
+	#
+	# An auxilliary macro for denplot2 (designed to be called from denplot2)
+	#
+	computeCartesianPositions x y z  $l0 $b0 Dbins
+
+	set dN = model(x,y,z) * Dbins**2 * $dD
+
+	# Normalize
+	set i=10,$(dimen(h)-10),1
+	set dN = sum(h[i])/sum(dN[i]) * dN
+
+sampselect
+	#
+	# An auxilliary macro for denplot (designed to be called from denplot)
+	#
+
+	# Thin slice in absolute magnitude
+	stats_med M1 MM MS
+	define MM (sprintf('%.2f', $MM))
+	define dM 0.2
+	select - - abs(M1-$MM) < 0.5*$dM
+
+	selectpencilbeam
+
+setpencilbeam 4
+	#
+	# setpencilbeam coordys l0 b0 r
+	#
+	define l0	$2
+	define b0	$3
+	define beam_dr	$4
+	if($beam_dr > 1) { define beam_dr 1\n }
+	define beam_auto 0
+
+	if('$1' == 'equ') {
+		eq2gal $l0 $b0 _tmpl _tmpb
+		define l0 (sprintf('%.2f',_tmpl[0]))
+		define b0 (sprintf('%.2f',_tmpb[0]))
+	}
+
+selectpencilbeam
+	# Find the maximum starcount density direction by binning the north and
+	# south hemispheres, and select a radius=1deg beam in that direction.
+	#
+	set x local set y local set lr local
+	if(!$?l0 || !$?b0) {
+		local define dx (1 * PI/180)
+		local define nmax 0
+		set xn local set yn local set nn local
+		foreach bpole <90 -90> {
+		        lambert l b x y 90 $bpole
+		        pi_binvec img x y $dx $dx
+		        pi_xyn img xn yn nn
+		        set lr = xn**2 + yn**2
+		        vecselect "xn yn nn" - lr < 2.2
+		        if(dimen(nn) > 0) {
+		                set nn = -nn
+		                sort <nn xn yn>
+		                if($nmax <= -nn[0]) {
+		                        define nmax (-nn[0])
+		                        ilambert $(xn[0]) $(yn[0]) l0 b0 90 $bpole
+		                        ## echo $l0 $b0
+		                }
+		        }
+		}
+		
+		if($l0 < 0) { define l0 (360+$l0)\n }
+		if($l0 > 360) { define l0 ($l0-360)\n }
+		define l0 (sprintf('%.1f', $l0))
+		define b0 (sprintf('%.1f', $b0))
+		define beam_auto 1
+		define beam_dr 1
+		
+		pi_del img
+	} else {
+		echo "Reusing cached pencil beam: l=$!l0 b=$!b0"
+	}
+
+	# 1deg radius pencil beam in (l,b) towards the region of maximum density
+	lambert l b x y $l0 $b0
+	lambert 0 $(90-$beam_dr) dx dummy -90 90
+	define beam_dA ($dx**2 * PI * (180/PI)**2)
+	set lr = x**2 + y**2
+	select - - lr < $dx**2
+	echo Selected pencil beam towards l=$l0 b=$b0, radius $beam_dr deg, area $beam_dA deg^2
+
+footplot 1
+	readdata $1
+	##set l = l >= 180 ? l - 360 : l
+	expand 1.0001
+	limits l b
+	erase
+	ptype 0 0
+	points l b
+	lweight 3
+	box
+	xlabel l (deg)
+	ylabel b (deg)
+	
+	if($?l0 && $?b0) {
+		# Make a selection footprint polygon for footplot
+		local set phi=0,2*PI,0.01
+		local set x = PI/180 * cos(phi)
+		local set y = PI/180 * sin(phi)
+	
+		set lsam local set bsam local
+		ilambert x y lsam bsam $l0 $b0
+		set lsam = lsam < 0 ? 360 + lsam : lsam
+		set lsam = lsam > 360 ? lsam - 360 : lsam
+	
+		ctype red
+		lweight 3
+		points lsam bsam
+		lweight 1
+		ctype black
+	}
+	
+	# cleanup
+	foreach 9 <$veclist> { unset $9\n }
+
+readdata 1
+	# Reads data from catalog file (for backwards compatibility)
+	data "$!1"
+	ptype 0 0
+	readdata2 lb[2] color DM absmag
+	set mag = DM + M
+	define veclist <$veclist mag>
+	define ntot (dimen(DM))
+
+god
+	denplot $OBSFILE
+
+denplot 1
+	#
+	# denplot <sky.obs.txt>
+	#
+	##readdata $1
+	data "$!1"
+	readdata2 lb DM M1
+	define ntot (dimen(DM))
+
+					# Select only a small slice in absmag and area
+	sampselect
+
+	if(dimen(DM) == 0) {
+		# Too few stars available to measure the density profile
+		return
+	}
+
+					# Measure the generated density profile
+	vecminmax DM m0 m1
+	define dm $(($m1-$m0)/50)
+	set mbins = $m0,$m1,$dm set mbins = mbins + 0.5*$dm
+	set h = histogram(DM:mbins)
+	vecselect "mbins h" - $m0 <= mbins && mbins < $m1
+
+	denprof				# Compute expected model density profile
+
+					# Plot
+	set mbins = mbins + $MM		# Shift to apparent magnitude space (easier to understand)
+	limits mbins h
+	expand 1.001
+	lweight 3
+	erase box
+
+	ctype blue
+	connect mbins dN
+	ctype black
+	if($beam_auto) {
+		relocate $($fx1 + 0.05*($fx2-$fx1)) $($fy2 - 0.05*($fy2-$fy1))
+		ctype red
+		putlabel 3 Note: arbitrary normalization.
+		ctype black
+	}
+
+	histogram mbins h
+
+	expand 1.0001
+	xlabel mag (mag)
+	ylabel dN/dmag \times $dm
+	xuplabel "l=$!l0, b=$!b0, M_{primary}=$!MM\pm $!dM, N_{stars}=$!(dimen(DM)) (out of $!ntot)"
+
+	lweight 1
+
+	# cleanup
+	##foreach 9 <$veclist> { unset $9\n }
+
+denplot2 1
+	#
+	# denplot2 <sky.txt>
+	# Plot dN/dD along an automatically chosen pencil beam
+	#
+	if(1) {
+	readdata $1
+
+	# Select only a small slice in absmag and area
+	sampselect
+
+	set R = sqrt(X**2 + Y**2)
+	set D = sqrt((X-8000)**2 + Y**2 + Z**2)
+	define veclist <D R $veclist>
+	}
+
+	vecminmax D D0 D1
+	define dD $(round($D1-$D0)/100)
+	set Dbins = $($D0-$dD),$($D1+$dD),$dD
+	set h = histogram(D:Dbins)
+
+	limits Dbins h
+	lweight 3
+	erase box
+
+	denprof2
+	ctype blue
+	connect Dbins dN
+	ctype black
+
+	histogram Dbins h
+
+	expand 1.0001
+	xlabel D (pc)
+	ylabel dN/dD \times $dD
+	xuplabel "l=$!l0, b=$!b0, M=$!MM, N_{stars}=$!(dimen(D)) (out of $!ntot)"
+
+	lweight 1
+
+lfread 1
+	## Read and finely resample LF, to emulate what's done
+	## in simulate.x code
+	##
+
+	data "$!1"
+	read <colorLFx 1 Phix 2>
+	vecminmax colorLFx c0 c1
+	define dcLF (($c1-$c0)/1000)
+	set colorLF = $($c0-$dcLF),$($c1+$dcLF),$dcLF
+	interp2 colorLFx Phix colorLF Phi
+
+	##limits colorLF Phi erase box connect colorLF Phi
+
+lf 01
+	# Returns the value of the luminosity function for magnitude M
+	# or the integral of the luminosity function if M is not given
+	#
+	# 	set Phi      = lf(M)
+	#	set PhiTotal = lf()
+	#
+	if(!$?LFFILE) {			# Return unity LF if the model has none
+		set $0 = $1*0 + 1.
+		return
+	}
+
+	if(!$?__lf_initialized) {	# Load LF if not loaded already
+		datapush
+		data "$!LFFILE"
+		read <__lf_M 1 __lf_Phi 2>
+		datapop
+
+					# Store LF limits
+		vecminmax __lf_M __lf_M0 __lf_M1
+
+					# Compute integral of the LF
+		local define __N 1000
+		local define __dM (($__lf_M1 - $__lf_M0)/$__N)
+		local set __bb = 0,$($__N-1)
+		      set __bb = $__lf_M0 + $__dM*(0.5 + __bb)
+		set __hh local
+		interp2 __lf_M __lf_Phi __bb __hh
+		set __hh = __hh*$__dM
+		define __lf_integral $(sum(__hh))
+
+		define __lf_initialized 1
+	}
+
+	if(!$?1) {			# Return the integral if M is not specified
+		set $0 = $__lf_integral
+		return
+	}
+
+	interp2 __lf_M __lf_Phi $1 $0	# Interpolate into requested points
+					# Ensure cutoff at edges
+	set $0 = $1 < $__lf_M0 || $1 > $__lf_M1 ? 0 : $0
+
+nintegrate 4
+	#
+	# set I = nintegrate(x,y,x0,x1)
+	#
+	integrate $1 $2 $3 $4
+	set $0 = $sum
+
+setlumfunc 1
+	define LFFILE ('$1')
+
+setobslims 2
+	#
+	# setobslims $mmin $mmax
+	define mmin ($1)
+	define mmax ($2)
+
+ddd
+	readdata sky.cat.txt
+	lweight 0
+	ptype 0 0
+	limits color mag erase box points color mag
+	set DM = mag - col2mag(color)
+	define veclist <$veclist DM>
+	limits color DM erase box points color DM
+	select - 2 10.5 < DM && DM < 11.25 && 3.5014 < color && color < 10.7514
+	vh color_2
+
+gol
+	lfplot $OBSFILE
+
+lfplot 1
+	define HAVELF ($?LFFILE)
+	if($HAVELF) { define HAVELF (is_file($LFFILE))\n }
+
+	##readdata $1
+	data "$!1"
+	local define HAVEBINARIES (hascolumn(M2))
+	if($HAVEBINARIES) {
+		readdata2 lb DM M1 M2
+	} else {
+		readdata2 lb DM M1
+	}
+	define ntot (dimen(DM))
+
+	selectpencilbeam
+
+	if($HAVELF) {
+		lfread "$!LFFILE"
+	} else {
+		# Store nice limits covering the entire _observed_
+		# absolute magnitude range
+		limits M1 M1
+		local define clim0 $fx1
+		local define clim1 $fx2
+	}
+
+	if(dimen(DM) < 10) {
+		return
+	}
+
+	# Select a representative thin distance shell
+	# This is a trade-off between wanting to have as large
+	# absmag range as possible, while still having enough stars
+	# to produce a reasonable histogram
+	# We look for the shell with the biggest color range that
+	# still has more than 10000 stars
+	vecminmax DM DM0 DM1
+	define dDM $(round($DM1-$DM0)/20)
+	local set DMbins = $($DM0-$dDM),$($DM1+$dDM),$dDM
+	local set h = histogram(DM:DMbins)
+
+	if(dimen(M1) < 10) {
+		return
+	}
+
+	vecminmax M1 c0 c1
+	local set dcol = min($c1, mag2col($mmax - (DMbins+0.5*$dDM))) - max($c0, mag2col($mmin - (DMbins-0.5*$dDM)))
+
+	set dcol = -dcol
+	sort <dcol h DMbins>
+		
+	# Reject those with really few stars, unless we have no choice
+	vecselect "dcol DMbins h" 2 h >= 1000
+	if(dimen(dcol_2) != 0) {
+		vecselect "dcol DMbins h" - h >= 1000
+	}
+
+	# Try to get an even better sample, if it doesn't cost
+	# us much in absmag span
+	define dcmax (-dcol[0])
+	vecselect "dcol DMbins h" 2 h >= 10000
+	echo "dcmax = $dcmax, $!(DMbins[0])"
+	if(dimen(dcol_2)) {
+		if(-dcol_2[0] > 0.7*$dcmax) {
+		        echo "Reseting dcmax to $!(-dcol_2[0]), $!(DMbins_2[0])"
+		}
+		set DMbins = DMbins_2
+	}
+	## print <dcol DMbins h>
+
+	local define DMm (DMbins[0])
+	local define DM0 ($DMm-0.5*$dDM)
+	local define DM1 ($DMm+0.5*$dDM)
+	select - - $DM0 < DM && DM < $DM1
+	if(dimen(DM) < 10) {
+		return
+	}
+		
+	# Plot measured vs. input luminosity function
+	#
+	local define NBINS (dimen(M1)/50)
+	if($NBINS > 100) { define NBINS 100\n }
+	if($NBINS < 10)  { define NBINS 10\n }
+	vecminmax M1 c0 c1
+	local define dc $(round($c1-$c0)/$NBINS)
+	local set cbins = $($c0-$dc),$($c1+$dc),$dc
+	local set h = histogram(M1:cbins)
+
+	# Renormalize
+	# Find a volume limited subsample
+	local define cmin (mag2col($mmin-$DM0))
+	local define cmax (mag2col($mmax-$DM1))
+	if($HAVELF) {
+		if($beam_auto) {
+			set csel = cbins if($cmin < cbins && cbins < $cmax)
+
+			# TODO: We don't do csel[0], csel[last] because of some weird bug in
+			#       nintegrate. I should take a look at it and fix it at some point
+			define c1 (csel[1])
+			define c2 (csel[last(csel)-1])
+		
+			local define norm (nintegrate(cbins,h,$c1,$c2)/nintegrate(colorLF, Phi, $c1, $c2)/$dc)
+		} else {
+							## Total expected number of stars in DM0<DM<DM1
+			if(0) {
+				local set DMmid = 0.5*($DM0+$DM1)
+				set d = 10**(DMmid/5+1)
+				computeCartesianPositions x y z  $l0 $b0 d
+				local define xdDM $dDM
+			} else {
+				# Integrate the density on a finer grid within the bin
+				define nDM (round($dDM/0.1))
+				define xdDM ($dDM/$nDM)
+				set DMbins = 0,$($nDM-1)
+				set DMbins = $DM0 + $dDM * (0.5 + DMbins) / $nDM
+				set d = 10**(DMbins/5+1)
+
+				computeCartesianPositions x y z  $l0 $b0 d
+				set DMbins = DMbins + 0.5*$xdDM
+			}
+
+			set dN = model(x,y,z) * d**2 \
+				* ln(10)/5 * d * $xdDM \
+				* ($beam_dA * (PI/180)**2)
+
+							## Compute LF normalization factor for this bin
+			define norm $(sum(dN)/lf())
+		}
+							## Convert theor. LF to counts in bins in DM0<DM<DM1
+		echo "LF renormalization factor: $!norm"
+		local set PhiN = $norm * $dc * lf(colorLF)
+
+		limits colorLF (PhiN concat h)
+	} else {
+		limits $clim0 $clim1 h
+	}
+		
+	lweight 3
+	expand 1.001
+	erase box
+		
+	if($HAVELF) {
+		ctype blue
+		connect colorLF PhiN
+		ctype black
+
+		if($beam_auto) {
+			relocate $($fx1 + 0.05*($fx2-$fx1)) $($fy2 - 0.05*($fy2-$fy1))
+			ctype red
+			putlabel 3 Note: model LF renormalized.
+			ctype black
+		}
+	}
+		
+	histogram cbins h
+	
+							## Plot secondaries
+	if($HAVEBINARIES) {
+		local define NBINS2 (dimen(M2)/50)
+		if($NBINS2 > 100) { define NBINS2 100\n }
+		if($NBINS2 < 10)  { define NBINS2 10\n }
+		vecminmax M2 c0 c1
+		local define dc2 $(round($c1-$c0)/$NBINS)
+		local set cbins2 = $($c0-$dc2),$($c1+$dc2),$dc2
+		local set h2 = histogram(M2:cbins2) / $dc2 * $dc
+		ltype 1
+		histogram cbins2 h2
+		ltype 0
+	}
+
+	# plot volume limits
+	vline $cmin black 1
+	vline $cmax black 1
+		
+	xlabel M_1 (mag)
+	ylabel dN/dM \times $(sprintf('%.2f', $dc))
+	define DM0 $(sprintf('%.2f', $DM0))
+	define DM1 $(sprintf('%.2f', $DM1))
+	xuplabel "$DM0 < DM < $DM1, N_{stars}=$!(dimen(M1)) (out of $!ntot)"
+
+	# cleanup
+	foreach 9 <$veclist> { unset $9\n }
+
+findPeakBin 46
+	#
+	# findPeakBin <x> <Nmax> <xpeak (out)> <dx (out)> [bb] [hh]
+	#
+	# Finds the mode of the distribution of vector <x>
+	# and returns <dx> such that ~$Nmax stars are in
+	# xpeak-dx/2 < x < xpeak+dx/2
+	#
+	# Optionally, returns the binned distribution in bb, hh
+	#
+
+	foreach 9 <xmin xmax dx Nmax> { define $9 local\n }
+	set bb local
+	set hh local
+
+	vecminmax $1 xmin xmax
+	define dx (($xmax-$xmin)/2)
+	define Nmax ($2+1)
+	while { $Nmax > $2 } {
+		define dx ($dx*0.75)
+		set bb = $xmin,$xmax,$dx
+		set hh = histogram($1:bb)
+		sort <hh bb>
+		define Nmax (hh[last(hh)])
+		## echo $dx $Nmax
+	}
+	define $3 (bb[last(bb)])
+	define $4 $dx
+	sort <bb hh>
+	if($?5) { set $5 = bb }
+	if($?6) { set $6 = hh }
+
+FeHdist 56
+	# Returns the probability that a star at x,y,z belonging to a component c
+	# has metallicity FeH.
+	#
+	# Designed to be used with BahcallSoneira-type models, where c=0,1 are the
+	# the disk, and c=2 is the halo.
+	#
+	# Usage: set prob = metallicity(FeH, x, y, z, c, [fhalo])
+	#    where c can be 0 (thin disk), 1 (thick disk), 2 (halo), or -1 (all)
+	#    there's no difference between c=0,1 -- in bot cases the TOTAL of thin+thick
+	#      disk is returned.
+	#    x, y, z are galactocentric coordinates in pc
+
+	# Model:
+	# disk:
+	# 	p(x=[Fe/H])= 0.63*G(a(Z),sigma=0.20) + 0.37*G(a(Z)+0.14,sigma=0.20)
+	# 	  sa
+	# 	a(Z) = -0.82+0.55*exp(-|Z/1kpc|/0.5)
+	# halo:
+	#	p(x=[Fe/H])= G(-1.46, sigma=0.3)
+	#
+
+	compf $2 $3 $4 fthin fthick fhalo
+
+	set $0 = $1 * 0
+	if($5 < 2  || $5 == -1) {
+		# Disks
+		local set aZ = $muInf + $deltaMu*exp(-abs($4)/$Hmu)
+		set aZ = aZ - 0.067
+		set $0 = $0 + (1-fhalo) * ($A0*gauss($1, aZ+$offs0, $sigma0) + $A1*gauss($1, aZ+$offs1, $sigma1))
+	}
+	if($5 == 2 || $5 == -1) {
+		# Halo
+		set $0 = $0 + fhalo * gauss($1, $offsH, $sigmaH)
+	}
+	if($?6) { define $6 (fhalo[0])\n }
+
+FeHmedsplot 1
+	#
+	# Plot medians of metallicity distribution along a pencil beam
+	#
+	if(1) {
+	data "$!1"
+	readdata2 lb[2] XYZ[3] comp M FeH
+	selectpencilbeam
+
+	set R = sqrt(X**2 + Y**2)
+	set D = sqrt((X-8000)**2 + Y**2 + Z**2)
+	define veclist <D R $veclist>
+
+	sort <$veclist>
+	}
+	local define dN 20000
+	local define i0 0
+	local define ii 0
+	set _i local
+	set _tmp local
+	define nSamp (int(dimen(D) / $dN) + (dimen(D) % $dN != 0))
+	foreach 9 (Dmed Xmed Ymed Zmed FeHmed thFeHmed FeHmedErr) {
+		set dimen($9) = $nSamp
+	}
+	local set bFeH = -4,4,.0005
+	while { $i0 < dimen(D) } {
+		set _i = $i0,$i0+$dN-1
+		set _i = _i if(_i < dimen(D))
+		set _tmp = D[_i]   stats_med _tmp Dmed DSIQR
+		set _tmp = X[_i]   stats_med _tmp Xmed XSIQR
+		set _tmp = Y[_i]   stats_med _tmp Ymed YSIQR
+		set _tmp = Z[_i]   stats_med _tmp Zmed ZSIQR
+		set _tmp = FeH[_i] stats_med _tmp FeHmed FeHSIQR
+
+		# TODO: This below a placeholder -- read up on how the error
+		# of the estimate of the median is really done...
+		define FeHmedErr ($FeHSIQR/sqrt(dimen(_tmp)-1))
+
+		set _tmp = FeHdist(bFeH, $Xmed, $Ymed, $Zmed, -1)
+		set _cum = cumulate(_tmp) set _cum = _cum / _cum[$(dimen(_cum)-1)]
+		interp2 _cum bFeH 0.5 _tmp2
+		define thFeHmed (_tmp2[0])
+
+		#echo $i0 $Dmed $Xmed $Ymed $Zmed $FeHmed $thFeHmed
+		foreach 9 (Dmed Xmed Ymed Zmed FeHmed thFeHmed FeHmedErr) {
+			set $9[$ii] = $$9
+		}
+		define i0 ($i0 + $dN)
+		define ii ($ii + 1)
+	}
+
+	set Dmed = Dmed / 1000
+
+	# Plot!	
+	lweight 3
+	expand 1.0001
+	limits Dmed FeHmed
+	erase box
+	ltype 2 connect Dmed thFeHmed ltype 0
+	ctype red
+		#connect Dmed FeHmed
+		error_y Dmed FeHmed FeHmedErr
+	ctype black
+	xlabel D (kpc)
+	ylabel Median [Fe/H]
+	xuplabel "Median metallicity towards l=$!l0, b=$!b0" .5
+	lweight 1
+
+MDFplot 1
+	#
+	# Plot the metallicity distribution at peak observed density
+	# in the direction determined by selectpencilbeam
+	#
+	data "$!1"
+	readdata2 lb[2] XYZ[3] comp M FeH
+	selectpencilbeam
+	if(dimen(M) < 10) {
+		return
+	}
+
+	set R = sqrt(X**2 + Y**2)
+	set D = sqrt((X-8000)**2 + Y**2 + Z**2)
+	define veclist <$veclist R D>
+
+	lweight 3
+	expand 1.0001
+
+	# Bin the density so that the mode of the binned histogram
+	# contains ~5000 stars (this is a trade-off between fine
+	# binning, and having enough stars to compute distributions)
+	findPeakBin D 5000 Dpeak dD bD hD
+
+	# Plot Fe/H distribution
+	select - 2 abs(D-$Dpeak) < .5*$dD
+	findPeakBin FeH_2 500 FeHpeak dFeH bFeH hFeH
+	limits bFeH hFeH erase box histogram bFeH hFeH
+
+	stats_med X_2 xmed xSIQR
+	stats_med Y_2 ymed xSIQR
+	stats_med Z_2 zmed xSIQR
+	define norm (dimen(FeH_2)*$dFeH)
+
+	echo Sample position (x,y,z): $xmed, $ymed, $zmed
+	echo Sample position (D,dD):  $Dpeak, $dD
+	set p = $norm*FeHdist(bFeH, $xmed, $ymed, $zmed, -1, fHalo)
+	ctype 2 connect bFeH p ctype 0
+
+	xlabel [Fe/H]
+	ylabel N
+	define textD0 $(sprintf('%.1f', $($Dpeak-.5*$dD)))
+	define textD1 $(sprintf('%.1f', $($Dpeak+.5*$dD)))
+	xuplabel "Metallicity distribution at l=$!l0, b=$!b0, $!textD0 < D/pc < $!textD1" .5
+
+	lweight 1
+
+ # *******************************
+
+varbin 233
+	#
+	# varbin <callback> <dN> [output vectors...]
+	#
+	# varbin cback_kin 1000 mvR mvPhi mvZ sRR sRPhi sRZ sPhiPhi sPhiZ sZZ
+	#
+	local define _callback $1
+	local define dN $2
+	local define i0 0
+	local define ii 0
+	set _i local
+	set _tmp local
+
+	# Allocate output vectors
+	local define nSamp (int(dimen(D) / $dN) + (dimen(D) % $dN != 0))
+	foreach 9 <Dmed Xmed Ymed Zmed $3> {
+		define $9 local
+		set dimen($9) = $nSamp
+	}
+
+	# Do binning
+	while { $i0 < dimen(D) } {
+		set _i = $i0,$i0+$dN-1
+		set _i = _i if(_i < dimen(D))
+
+		if(0) {
+		set _tmp = D[_i]   stats_med _tmp Dmed DSIQR
+		set _tmp = X[_i]   stats_med _tmp Xmed XSIQR
+		set _tmp = Y[_i]   stats_med _tmp Ymed YSIQR
+		set _tmp = Z[_i]   stats_med _tmp Zmed ZSIQR
+		} else {
+		set _tmp = D[_i]   stats _tmp Dmed DSIQR dummy
+		set _tmp = X[_i]   stats _tmp Xmed XSIQR dummy
+		set _tmp = Y[_i]   stats _tmp Ymed YSIQR dummy
+		set _tmp = Z[_i]   stats _tmp Zmed ZSIQR dummy
+		}
+
+		#echo $i0 $Dmed $Xmed $Ymed $Zmed
+		if($_callback(_i, $nSamp)) {
+			# pack everything up into output vectors
+			foreach 9 <Dmed Xmed Ymed Zmed $3> {
+				set $9[$ii] = $$9
+			}
+			define ii ($ii + 1)
+		}
+
+		define i0 ($i0 + $dN)
+		
+		#break
+	}
+
+	# Chop off the last (incomplete) bin if it's not the only bin
+	if($ii > 1) {
+		echo Chopping of the last (incomplete) bin
+		define ii ($ii-1)
+	}
+	# Truncate output if not entirely filled
+	if($ii != $nSamp) {
+		echo Truncating to $ii
+		set _i = 0,$($ii-1)
+		foreach 9 <Dmed Xmed Ymed Zmed $3> {
+			set $9 = $9[_i]
+		}
+	}
+
+varbin2 344
+	#
+	# varbin <callback> <dN> <x> [output vectors...]
+	#
+	# varbin cback_photoerr SDSSr 1000 mSDSSr sSDSSr kSDSSr
+	#
+	local define _callback $1
+	local define dN $2
+	local define i0 0
+	local define ii 0
+	set _i local
+	set _tmp local
+
+	# Allocate output vectors
+	local define nSamp (int(dimen($3) / $dN) + (dimen($3) % $dN != 0))
+	foreach 9 <$4> {
+		define $9 local
+		set dimen($9) = $nSamp
+	}
+
+	set _idx = 0,$(dimen($3)-1)
+	set _dst = $3
+	sort <_dst _idx>
+
+	# Do binning
+	while { $i0 < dimen(_dst) } {
+		set _i = $i0,$i0+$dN-1
+		set _i = _i if(_i < dimen(_dst))
+		set _i = _idx[_i]
+
+		if($_callback(_i, $nSamp)) {
+			# pack everything up into output vectors
+			foreach 9 <$4> {
+				set $9[$ii] = $$9
+			}
+			define ii ($ii + 1)
+		}
+
+		define i0 ($i0 + $dN)
+
+		#break
+	}
+
+	# Chop off the last (incomplete) bin if it's not the only bin
+	if($ii > 1) {
+		echo Chopping of the last (incomplete) bin
+		define ii ($ii-1)
+	}
+	# Truncate output if not entirely filled
+	if($ii != $nSamp) {
+		echo Truncating to $ii
+		set _i = 0,$($ii-1)
+		foreach 9 <$4> {
+			set $9 = $9[_i]
+		}
+	}
+
+cback_kin 2
+	#
+	# varbin callback.
+	# 
+	# Usage:    cback_kin(idxvec, $nSamp)
+	# Returns:  1 if the result should be added to output, 0 if not
+	#
+	
+	# velocity means and dispersions
+	foreach 9 <R Phi Z> {
+		local set _v$9 = v$9[$1]
+		stats _v$9 mv$9 sv$9$9 dummy
+		#echo $Dmed: _v$9 mv$9 sv$9$9 = $(mv$9) $(sv$9$9)
+	}
+
+	# velocity covariances
+	local define _N	  (dimen(_vR))
+	define svRPhi (sum((_vR - $mvR)*(_vPhi - $mvPhi)) / ($_N - 1))
+	define svPhiZ (sum((_vZ - $mvZ)*(_vPhi - $mvPhi)) / ($_N - 1))
+	define svRZ   (sum((_vR - $mvR)*(_vZ   - $mvZ))   / ($_N - 1))
+
+	#if(abs($Dmed - 10000) < 100) {
+	#	limits _vR _vPhi erase box points _vR _vPhi
+	#	echo $Dmed $svRPhi
+	#	print <xxx>
+	#}
+
+	#echo $Dmed $mvR $mvPhi $mvZ $svRR $svRPhi $svRZ $svPhiPhi $svPhiZ $svZZ
+	#echo $Dmed $mvR $mvPhi $mvZ $svRR $svPhiPhi $svZZ
+
+	set $0 = 1
+
+kp_aux 3
+	##varbin cback_kin 1000 mvR mvPhi mvZ svRR svRPhi svRZ svPhiPhi svPhiZ svZZ
+	kinmodel  TmvR TmvPhi TmvZ TsvRR TsvRPhi TsvRZ TsvPhiPhi TsvPhiZ TsvZZ Xmed Ymed Zmed $3
+	set TsvRR     = sqrt(TsvRR)
+	set TsvPhiPhi = sqrt(TsvPhiPhi)
+	set TsvZZ     = sqrt(TsvZZ)
+		
+	erase
+	expand 1.001
+	lweight 3
+		
+	local set ldmed = lg(Dmed/1000)
+	ticksize -1 10 0 0
+		
+	local define xplot ('points')
+	#local define xplot ('connect')
+		
+	LOCATION 3500 30000 3500 31000
+	## Mean velocity panel
+	window 1 -2 1 2
+	ptype 4 1
+	limits ldmed (mvR concat mvPhi concat mvZ)
+	lweight 3 ctype red   $xplot ldmed mvR  lweight 1 ctype black connect ldmed TmvR
+	lweight 3 ctype green $xplot ldmed mvPhi  lweight 1 ctype black connect ldmed TmvPhi
+	lweight 3 ctype blue  $xplot ldmed mvZ    lweight 1 ctype black connect ldmed TmvZ
+	ctype black
+	lweight 3
+	box 0 2 0 0
+	ylabel "<v_R>, <v_{\Phi}>, <v_Z> (km/s)"
+		
+	## Dispersion panel
+	window -1 -2 1 1
+	ptype 4 1
+	limits ldmed (svRR concat svPhiPhi concat svZZ)
+	lweight 3 ctype red   $xplot ldmed svRR     lweight 1 ctype black connect ldmed TsvRR
+	lweight 3 ctype green $xplot ldmed svPhiPhi lweight 1 ctype black connect ldmed TsvPhiPhi
+	lweight 3 ctype blue  $xplot ldmed svZZ     lweight 1 ctype black connect ldmed TsvZZ
+	ctype black
+	lweight 3
+	box 1 1 0 4
+	ylabel \raise1000\sigma_R [r], \sigma_{\Phi} [g], \sigma_Z [b] (km/s)
+	xlabel D (kpc)
+		
+	ptype 4 0
+	limits ldmed (svRPhi concat svRZ concat svPhiZ)
+	lweight 3 ltype 0 ctype red   $xplot ldmed svRPhi   lweight 1 ctype black ltype 2 connect ldmed TsvRPhi
+	lweight 3 ltype 0 ctype green $xplot ldmed svRZ     lweight 1 ctype black ltype 2 connect ldmed TsvRZ
+	lweight 3 ltype 0 ctype blue  $xplot ldmed svPhiZ   lweight 1 ctype black ltype 2 connect ldmed TsvPhiZ
+	lweight 3
+	ltype 0 ctype black
+	box 1 4 0 1
+	relocate $fx2 $($fy1 + ($fy2-$fy1)*.5)
+	angle 90
+	putlabel 2 \raise-2000{}"\sigma_{R\Phi} [r], \sigma_{RZ} [g], \sigma_{\Phi Z} [b] (km/s)"
+	angle 0 
+		
+	window 1 1 1 1
+	if($3 != 2 && $3 >= 0) {
+		define 3 (compn(0) + ' + ' + compn(1))
+	} else {
+		define 3 (compn($3))
+	}
+	xuplabel "l = $!1, b = $!2, $!3"
+		
+	LOCATION 3500 31000 3500 31000
+	ticksize 0 0 0 0
+	lweight 1
+
+go0
+	kinematicsplot $OBSFILE
+
+kinematicsDiskplot 1
+	kinematicsplot $1 0
+
+kinematicsHaloplot 1
+	kinematicsplot $1 2
+
+kinematicsAllplot 1
+	kinematicsplot $1 -1
+
+kinematicsplot 12
+	#
+	# Plot means and velocity dispersion tensor components along a linesight
+	#
+	# Usage: kinematicsplot <datafile> [component=-1]
+	#
+	if(!$?2) { define 2 -1\n }
+	
+	if(1) {
+		data "$!1"
+		readdata2 lb[2] XYZ[3] comp M vcyl
+		selectpencilbeam
+		
+		set R = sqrt(X**2 + Y**2)
+		set D = sqrt((X-8000)**2 + Y**2 + Z**2)
+		define veclist <D R $veclist>
+		sort <$veclist>
+		
+		if($2 >= 0) {
+		        if($2 == 2) {
+		                select - - comp == 2
+		        } else {
+		                select - - comp != 2
+		        }
+		}
+	}
+		
+	varbin cback_kin 10000  mvR mvPhi mvZ svRR svRPhi svRZ svPhiPhi svPhiZ svZZ
+	kp_aux $l0 $b0 $2
+		
+	#cleanup
+	foreach 9 <mvR mvPhi mvZ svRR svRPhi svRZ svPhiPhi svPhiZ svZZ> {
+		unset $9 unset T$9
+	}
+	foreach 9 <$veclist Xmed Ymed Zmed Dmed> { unset $9\n }
+
+
+addpherrband 3
+	#
+	# Load (mag,magerr) relation for (bandset,band) pair
+	#
+	#  addpherrband <bandset> <band> <errdeffile>
+	#
+
+	define 9 "errdef_$!1""_$!2"
+	data $3
+	read <mag_$9 1 sigma_$9 2>
+
+expectedPhotoErr 3
+	#
+	# Return the expected photometry error for (bandset,band)
+	# at magnitude(s) <mag>
+	#
+	#   set sigma = expectedPhotoErr(bandset, band, mag)
+	#
+	define 9 "errdef_$!1""_$!2"
+	interp2 mag_$9 sigma_$9 $3 $0
+
+cback_photoerr 2
+	#
+	# varbin callback.
+	# 
+	# Usage:    cback_photoerr(idxvec, $nSamp)
+	# Returns:  1 if the result should be added to output, 0 if not
+	#
+	# E.g.:
+	#  define OBSBAND obsSDSSr
+	#  define BAND SDSSr
+	#  varbin cback_photoerr 1000 mSDSSr sSDSSr kSDSSr
+
+	# magnitude means and dispersions
+	local set mag = $BAND[$1]
+	stats mag m$BAND s$BAND d$BAND
+
+	local set dmag = $OBSBAND[$1] - $BAND[$1]
+	stats dmag dm$BAND ds$BAND dk$BAND
+
+	set $0 = 1
+
+photoerrplot 123
+	#
+	# Plot 
+	#
+	# Usage: photoerrplot <datafile> <bandset> <band1 [band2 [band3...]]>
+	#
+
+	local set bands = <$3>
+	set bands = reverse(bands)
+	define NBANDS (dimen(bands))
+
+	define obsbands (' ')
+	foreach band bands {
+		define obsbands "$!obsbands obs$!band"
+	}
+	##echo $3 $obsbands
+	##return
+
+	data "$!1"
+	readdata2 XYZ $3 $obsbands
+
+	erase
+	lweight 3
+	expand 1.0001
+	foreach band bands {
+		set_window 1 -$NBANDS
+
+		define OBSBAND "obs$!band"
+		define BAND "$!band"
+		varbin2 cback_photoerr 5000 $BAND m$BAND ds$BAND
+		limits m$BAND ds$BAND
+		box
+
+		vecminmax m$BAND mmin mmax
+		set mag = $mmin, $mmax, $(($mmax-$mmin)/100)
+		set sigma = expectedPhotoErr($2, $band, mag)
+		ctype red ltype 1 connect mag sigma ltype 0 ctype black
+
+		histogram m$BAND ds$BAND
+
+		ylabel \sigma_{$band}
+		relocate $($fx1 + 0.05*($fx2-$fx1)) $($fy2 - 0.15*($fy2-$fy1))
+		putlabel 3 $band
+		
+		if($_iy == 1) {
+			xlabel Magnitude (mag)
+		}
+	}
+	set_window 1 1
+	lweight 1
+
+go
+	multiplesplot $OBSFILE binaryfraction.binfrac.txt
+
+multiplesplot 12
+	#
+	# Plot 
+	#
+	# Usage: multiplesplot <datafile> [binfracfile]
+	#  multiplesplot $OBSFILE binaryfraction.binfrac.txt
+
+	data "$!1"
+	readdata2 absmagSys DM
+
+	lweight 3
+	expand 1.001
+
+						# Derive the binary fraction from the data
+	vecselect "M1 M2" b M2 < 99
+	vecminmax M1 M1min M1max
+	define dM $(.02*($M1max - $M1min))
+	set b = $M1min,$M1max,$dM + 0.5*$dM
+	set h  = histogram(M1:b)
+	set hb = histogram(M1_b:b)
+	#limits $fx1 $fx2 h erase box histogram b h histogram b hb
+	vecselect "b h hb" - h > 0
+	set err = sqrt(hb*(hb+h)/h**3)
+	set hb = hb / h
+	limits b hb
+	erase box
+	##histogram b hb
+	error_y b hb err
+
+						# Overplot the expectation
+	if($?2) {
+		data "$!2"
+		read <MprimX 1 bfX 2>
+		set Mprim=$fx1,$fx2,$(0.01*($fx2-$fx1))
+		interp2 MprimX bfX Mprim bf
+	} else {
+		set Mprim = <$fx1 $fx2>		# 100% binary fraction, if no file specified
+		set bf = <1. 1.>
+	}
+	ctype red ltype 2
+	connect Mprim bf
+	ctype black ltype 0
+	
+	xlabel M_1 (mag)
+	ylabel f_b
+	xuplabel "Binary fraction vs. absmag of primary"
+
+	# Compute the absolute magnitude of the primary
+	##set Ltot = 10**(-0.4*M)
+	##set L2   = 10**(-0.4*M2)
+	##set L1   = Ltot - L2
+	##set M1   = -2.5*lg(L1)

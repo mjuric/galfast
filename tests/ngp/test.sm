@@ -1,0 +1,66 @@
+ginit
+	re "smmacros.sm"
+	re "test.sm"
+	
+rr
+	re test.sm
+
+test
+	data "sky.fits"
+	readdata2 XYZ[2] vcyl[3] comp
+
+	# convert to galactocentric
+	set X = 8000 - X
+	set Y = -Y
+
+	##set vR = vR*0 + 0
+	##set vZ = vZ*0 + 1
+
+	# rotate velocities to galactocentric spherical frame
+	set R = sqrt(X**2 + Y**2)
+	set theta = atan2(R, Z)*180/PI
+	##set theta = theta*0 + 45
+	set ct = cosd(theta) set st = sind(theta)
+	set vTh = ct*vR - st*vZ
+	set vr  = st*vR + ct*vZ
+	define veclist <$veclist R vr vTh theta>
+
+	# cut out subsections
+	# select - - abs(Z-2000) < 500
+	#limits X Z erase box points X Z
+	select - - comp == 2
+	vs vr
+	vs vTh
+	vs vPhi
+
+userinit
+	setmodel BahcallSoneira 100   2150 245 24  0.13 3261 743   0.0051 1.5625 2.77   100000
+	setpencilbeam gal 0 90 10
+	setobslims 15 25
+
+	setKinematicModel TMIII
+	setTMIIIparam vPhi -194 19.2 1.25 0 0
+	setTMIIIparam vR 0 0 0 0 0
+	setTMIIIparam vZ 0 0 0 0 0
+	setTMIIIparam sigmaPhiPhi1 12 1.8 2 0 0
+	setTMIIIparam sigmaPhiPhi2 34 1.2 2 0 0
+	setTMIIIparam sigmaRR 40 5 1.5 0 0
+	setTMIIIparam sigmaZZ 25 4 1.5 0 0
+	setTMIIIparam sigmaRPhi 0 0 0 0 0
+	setTMIIIparam sigmaZPhi 0 0 0 0 0
+	setTMIIIparam sigmaRZ 0 0 0 0 0
+	setTMIIIparam HvPhi 0 0 0 0 0
+	setTMIIIparam HvR 0 0 0 0 0
+	setTMIIIparam HvZ 0 0 0 0 0
+	setTMIIIparam HsigmaPhiPhi 85 0 0 0 0
+	setTMIIIparam HsigmaRR 135 0 0 0 0
+	setTMIIIparam HsigmaZZ 85 0 0 0 0
+	setTMIIIparam HsigmaRPhi 0 0 0 0 0
+	setTMIIIparam HsigmaZPhi 0 0 0 0 0
+	setTMIIIparam HsigmaRZ 0 0 0 0 0
+	setTMIIIparam normoffs 3 34
+	initKinematicModel
+
+go
+	initstate
+	kinematicsDiskplot sky.fits

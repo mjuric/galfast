@@ -110,4 +110,6 @@
 		{ }
 	};
 
+	float inline __device__ sqrf(float x) { return x*x; }
+
 #endif

@@ -31,6 +31,8 @@
 #include <astro/system/config.h>
 #include <astro/useall.h>
 
+using namespace kinTMIII;
+
 // os_kinTMIII -- Generate kinematics based on Bond et al. (in prep)
 class os_kinTMIII : public osink, os_kinTMIII_data
 {	

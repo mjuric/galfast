@@ -18,10 +18,11 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef kinTMIII_gpu_cu_h__
-#define kinTMIII_gpu_cu_h__
+#ifndef Bond2010_gpu_cu_h__
+#define Bond2010_gpu_cu_h__
 
-namespace kinTMIII {
+namespace Bond2010
+{
 	//
 	// Module data passed to device kernel
 	//
@@ -33,31 +34,25 @@ namespace kinTMIII {
 		__device__ const float& operator [] (int i) const { return data[i]; }
 	};
 	
-	struct iarray5
+	struct vmoments
 	{
-		short int data[5];
-		
-		__device__ short int& operator [] (int i) { return data[i]; } 
-		__device__ const short int& operator [] (int i) const { return data[i]; } 
+		// first (means) and second (dispersion tensor) velocity moments
+		farray5  m[3];	// means: vR,vPhi,vZ or vr,vTheta,vPhi
+		farray5 ss[6];	// dispersion tensor components: s11, s12, s13, s22, s23, s33
 	};
-	
-	struct i8array5
-	{
-		char data[5];
-		
-		__device__ char& operator [] (int i) { return data[i]; } 
-		__device__ const char& operator [] (int i) const { return data[i]; }
-	};
-	
-	struct os_kinTMIII_data
+
+	struct os_Bond2010_data
 	{
 		bit_map comp_thin, comp_thick, comp_halo;
+
 		float Rg;
-		float fk, DeltavPhi;
-		farray5 	vPhi1, vPhi2, vR, vZ,
-			sigmaPhiPhi1, sigmaPhiPhi2, sigmaRR, sigmaZZ, sigmaRPhi, sigmaZPhi, sigmaRZ,
-			HvPhi, HvR, HvZ,
-			HsigmaPhiPhi, HsigmaRR, HsigmaZZ, HsigmaRPhi, HsigmaZPhi, HsigmaRZ;
+
+		// two-component disk
+		float fk;
+		vmoments disk_1, disk_2;
+
+		// halo
+		vmoments halo;
 	};
 }
 
@@ -66,27 +61,33 @@ namespace kinTMIII {
 //
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
+	DECLARE_KERNEL(os_Bond2010_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
 
 #else // #if !__CUDACC__ && !BUILD_FOR_CPU
 
 	#define K_IO
 	#define K_OUT
 
-namespace kinTMIII 
+namespace Bond2010
 {
+	/*
+		Draws a 3D vector from a 3D gaussian defined by the symmetric tensor s11..s33.
+	
+		NOTE: WARNING: CAVEAT: Tensor components s11, s22, and s33 are SQUARE ROOTS
+				OF VARIANCES (sigma) and not the variances (sigma^2)!!
+	*/
 	void __device__ trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
 	{		
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!	
 		float b10=s12;      float b11=sqrf(s22); 
 		float b20=s13;      float b21=s23;      float b22=sqrf(s33);
-		
+
 		float a00=s11; float oneDivA00=1.0f/a00;
-			float a10=( b10 ) * oneDivA00;	
+		float a10=( b10 ) * oneDivA00;	
 		
 		float a11=sqrtf( b11 - a10*a10 );
-			float a20=( b20 ) * oneDivA00;
-			float a21=(b21 - a20*a10)/a11;		
+		float a20=( b20 ) * oneDivA00;
+		float a21=(b21 - a20*a10)/a11;		
 
 		float a22=sqrtf( b22 - a20*a20 - a21*a21);				
 			
@@ -100,12 +101,13 @@ namespace kinTMIII
 	}
 
 
-	__device__ inline float modfun(float Rsquared, float Z, farray5 val)
+	__device__ inline float modfun(float Rsquared, float Z, const farray5 &val)
 	{
+		// model function: result = a + b*|Z|^c + d*R^e
 		return val[0] + val[1]*powf(fabs(Z), val[2]) + val[3]*powf(Rsquared, 0.5*val[4]);
 	}
 
-	__device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, farray5 ellip[6],K_IO gpu_rng_t &rng)
+	__device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, const farray5 ellip[6], K_IO gpu_rng_t &rng)
 	{
 		// compute velocity dispersions at this position, and draw from trivariate gaussian
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
@@ -116,96 +118,62 @@ namespace kinTMIII
 		trivar_gaussK_draw(v, sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5], rng);
 	}
 
-	__device__ void compute_means(K_OUT float v[3], float Rsquared, float Z, farray5 means[3])
+	__device__ void compute_means(K_OUT float v[3], float Rsquared, float Z, const farray5 means[3])
 	{
 		// returns means in v[3]
 		for (int i=0;i<3;i++) 	
 			v[i] = modfun(Rsquared, Z, means[i]);	
 	}
 
-	__device__ void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng,
-				os_kinTMIII_data& par, farray5 diskMeans[3], farray5 diskEllip[6] )
+	__device__ void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng, const os_Bond2010_data& par)
 	{
-		// set up which gaussian are we drawing from
+		// select the gaussian
 		float p = rng.uniform();
-		if(p < par.fk)
-		{
-			// first gaussian
-			diskMeans[1] = par.vPhi1;
-			diskEllip[3] = par.sigmaPhiPhi1;
-		}
-		else
-		{
-			// second gaussian
-			diskMeans[1] = par.vPhi2;
-			diskEllip[3] = par.sigmaPhiPhi2;
-		}
+		const vmoments &disk = p < par.fk ? par.disk_1 : par.disk_2;
 
-		compute_means(v, Rsquared, Z, diskMeans);
-		// truncate v_phi > 0
-		if(v[1] > 0.) { v[1] = 0.; }
-
-		add_dispersion(v, Rsquared, Z, diskEllip, rng);
+		// draw
+		compute_means(v, Rsquared, Z, disk.m);
+		if(v[1] > 0.) { v[1] = 0.; } // truncate v_phi > 0
+		add_dispersion(v, Rsquared, Z, disk.ss, rng);
 	}
 
-	__device__ void get_halo_kinematics(K_OUT float v[3], float Rsquared, float Z, K_IO gpu_rng_t &rng, farray5 haloMeans[3], farray5 haloEllip[6])
+	__device__ void get_halo_kinematics(K_OUT float v[3], float Rcyl_squared, float Z, K_IO gpu_rng_t &rng, const os_Bond2010_data& par)
 	{
-		compute_means(v, Rsquared, Z, haloMeans);
-		add_dispersion(v, Rsquared, Z, haloEllip, rng);
-	}
+		// These are all in _SPHERICAL_ coordinate system, while the output velocity is expected in _CYLINDRICAL_ coordinates
+		// v[0,1,2] = v_r, v_theta, v_phi
+		compute_means(v, Rcyl_squared, Z, par.halo.m);
+		add_dispersion(v, Rcyl_squared, Z, par.halo.ss, rng);
 
-	__device__ void iarray_to_farray(farray5& fa, iarray5& ia)
-	{
-		for (int i=0;i<5;i++)
-			fa[i]=ia[i]/100.0f;
-	}
+		// Rotate to cylindrical system (v_R, v_phi, v_Z)
+		float invR = 1.f/sqrtf(Rcyl_squared + Z*Z);
+		float cosa = sqrtf(Rcyl_squared) * invR;
+		float sina =                   Z * invR;
+		float vR = cosa * v[0] - sina * v[1];
+		float vZ = sina * v[0] + cosa * v[1];
 
-	__device__ void i8array_to_farray(farray5& fa, i8array5& ia)
-	{
-		for (int i=0;i<5;i++)
-			fa[i]=ia[i]*10.0f;
+		v[0] = vR;
+		v[1] = v[2]; // v_phi is unchanged
+		v[2] = vZ;
 	}
 }
-	__device__ __constant__ kinTMIII::os_kinTMIII_data os_kinTMIII_par;
+
+	__device__ __constant__ Bond2010::os_Bond2010_data os_Bond2010_par;
 
 	KERNEL(
 		ks, 3*4,
-		os_kinTMIII_kernel(
+		os_Bond2010_kernel(
 			otable_ks ks, gpu_rng_t rng, 
 			cint_t::gpu_t comp,
 			cfloat_t::gpu_t XYZ,
 			cfloat_t::gpu_t vcyl),
-		os_kinTMIII_kernel,
+		os_Bond2010_kernel,
 		(ks, rng, comp, XYZ, vcyl)
 	)
 	{
-		using namespace kinTMIII;
+		using namespace Bond2010;
+		const os_Bond2010_data &par = os_Bond2010_par;
+
 		rng.load(threadID());
-
-	#define par os_kinTMIII_par
-		farray5 diskEllip[6], haloEllip[6], diskMeans[3], haloMeans[3];
-
-		diskMeans[0] = par.vR;
-		diskMeans[1] = par.vPhi1;
-		diskMeans[2] = par.vZ;
-		diskEllip[0] = par.sigmaRR;
-		diskEllip[1] = par.sigmaRPhi;
-		diskEllip[2] = par.sigmaRZ;
-		diskEllip[3] = par.sigmaPhiPhi1;
-		diskEllip[4] = par.sigmaZPhi;
-		diskEllip[5] = par.sigmaZZ;
-
-		haloMeans[0] = par.HvR;
-		haloMeans[1] = par.HvPhi;
-		haloMeans[2] = par.HvZ;
-		haloEllip[0] = par.HsigmaRR;
-		haloEllip[1] = par.HsigmaRPhi;
-		haloEllip[2] = par.HsigmaRZ;
-		haloEllip[3] = par.HsigmaPhiPhi;
-		haloEllip[4] = par.HsigmaZPhi;
-		haloEllip[5] = par.HsigmaZZ;
-
-		uint32_t tid = threadID();
 		for(int row=ks.row_begin(); row < ks.row_end(); row++)
 		{
 			// fetch prerequisites
@@ -219,7 +187,7 @@ namespace kinTMIII
 			if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
 			{
 				float tmp[3]; 
-				get_disk_kinematics(tmp, Rsquared, Z, rng, par, diskMeans, diskEllip);
+				get_disk_kinematics(tmp, Rsquared, Z, rng, par);
 				vcyl(row, 0) = tmp[0];
 				vcyl(row, 1) = tmp[1];
 				vcyl(row, 2) = tmp[2];
@@ -227,17 +195,16 @@ namespace kinTMIII
 			else if(par.comp_halo.isset(cmp))
 			{
 				float tmp[3]; 
-				get_halo_kinematics(tmp, Rsquared, Z, rng, haloMeans, haloEllip);
+				get_halo_kinematics(tmp, Rsquared, Z, rng, par);
 				vcyl(row, 0) = tmp[0];
 				vcyl(row, 1) = tmp[1];
 				vcyl(row, 2) = tmp[2];
 			}
 		}
 		rng.store(threadID());
-	#undef par
 	}
 
 
 #endif // #else (!__CUDACC__ && !BUILD_FOR_CPU)
 
-#endif // kinTMIII_gpu_cu_h__
+#endif // Bond2010_gpu_cu_h__

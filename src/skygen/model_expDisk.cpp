@@ -24,6 +24,7 @@
 #include "skyconfig_impl.h"
 
 #include "model_lib.h"
+#include "transform.h"
 
 void expDisk::prerun(host_state_t &hstate, bool draw)
 {
@@ -40,10 +41,34 @@ void expDisk::postrun(host_state_t &hstate, bool draw)
 void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 {
 	// density distribution parameters
-	l     = cfg.get("l");
-	h     = cfg.get("h");
-	z0    = cfg.get("z0");
-	Rg    = cfg.get("Rg");
+	l        = cfg.get("l");
+	h        = cfg.get("h");
+#if 0
+	float z0 = cfg.get("z0");	// Solar offset from the Galactic plane
+	Rg       = cfg.get("Rg");	// Distance to the Galactic center (assumed to be in l=0, b=0 direction)
+
+	// compute the rotation of the Galactic plane, and cylindrical
+	// coordinates of the Sun
+	zsun = z0;
+	rsun = sqrt(double(Rg*Rg) - double(z0*z0));
+	asin = zsun / Rg;
+	acos = rsun / Rg;
+#else
+	std::string ctr, orient;
+	cfg.get(ctr,    "center",      "galplane");
+	cfg.get(orient, "orientation", "galplane");
+	load_transform(&T.x, M, ctr, orient, cfg);
+#if 0
+	std::cout << "translation = " << std::setprecision(10) << T.x << " " << T.y << " " << T.z << "\n";
+	print_matrix(M);
+
+	// Do some testing here...
+	float3 v = { 0.f, 0.f, 0.f };
+	v = transform(v, T, M);
+	std::cout << std::setprecision(10) << v.x << " " << v.y << " " << v.z << "\n";
+	abort();
+#endif
+#endif
 
 	comp = componentMap.seqIdx(cfg.get("comp"));
 

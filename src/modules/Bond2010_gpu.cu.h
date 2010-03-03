@@ -45,14 +45,16 @@ namespace Bond2010
 	{
 		bit_map comp_thin, comp_thick, comp_halo;
 
-		float Rg;
-
 		// two-component disk
 		float fk;
 		vmoments disk_1, disk_2;
 
 		// halo
 		vmoments halo;
+	
+		// coordinate system definition
+		float M[3][3];
+		float3 T;
 	};
 }
 
@@ -178,11 +180,19 @@ namespace Bond2010
 		{
 			// fetch prerequisites
 			const int cmp = comp(row);
+			
+#if 0
 			float X = par.Rg - XYZ(row, 0);
 			float Y = -XYZ(row, 1);
 			float Zpc = XYZ(row, 2);
 			const float Rsquared = 1e-6 * (X*X + Y*Y);
 			const float Z = 1e-3 * Zpc;
+#else
+			float3 v = { XYZ(row, 0), XYZ(row, 1), XYZ(row, 2) };
+			v = transform(v, par.T, par.M);
+			const float Rsquared = 1e-6 * (v.x*v.x + v.y*v.y);
+			const float Z = 1e-3 * v.z;
+#endif
 
 			if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
 			{

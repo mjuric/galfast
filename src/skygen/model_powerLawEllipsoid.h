@@ -36,13 +36,12 @@ public:
 	};
 
 public:
-	float3 c;		// Center of the ellipsoid (heliocentric cartesian coordinates)
+	float3 T;		// Translation parameter for transform() (negative distance to ellipsoid center, in Galactic coordinates)
 	float f, n, ba, ca;	// Density normalization, power law index, b/a and c/a axes ratios
 	float rminSq, rmaxSq;	// Minimum/maximum radius from the center of the ellipsoid where the density is nonzero (the square of)
-	float rot[3][3];	// Rotation matrix of the ellipsoid, to rotate it to arbitrary orientation wrt. the Galactic plane
+	float rot[3][3];	// Rotation matrix of the ellipsoid (transforms points from Galactic to ellipsoid coordinate system)
 
-//	int comp;		// Component ID
-	int dummy[1];
+	int dummy[1];		// for padding (nvcc vs. gcc structure alignment issues)
 
 protected:
 	void load_geometry(host_state_t &hstate, const peyton::system::Config &cfg);
@@ -57,23 +56,30 @@ public:
 	void postrun(host_state_t &hstate, bool draw);
 
 public:
-	__host__ __device__ float3 matmul3d(const float M[3][3], float3 v) const
-	{
-		// w = M*v
-		float3 w;
-		w.x = M[0][0]*v.x + M[0][1]*v.y + M[0][2]*v.z;
-		w.y = M[1][0]*v.x + M[1][1]*v.y + M[1][2]*v.z;
-		w.z = M[2][0]*v.x + M[2][1]*v.y + M[2][2]*v.z;
-		return w;
-	}
-
 	__host__ __device__ float rho(float x, float y, float z) const
 	{
 		using namespace cudacc;
 
+#if 0
+		printf("Coordinates before translation, rotation: %.9f %.9f %.9f\n", x, y, z);
+#endif
+
 		// translate and rotate into ellipsoid-centric frame
+#if 0
 		float3 v = { c.x - x, c.y - y, z - c.z };
 		v = matmul3d(rot, v);
+#else
+		float3 v = {x, y, z};
+		v = transform(v, T, rot);
+#endif
+
+#if 0
+		printf("Coordinates after translation, rotation: %.9f %.9f %.9f\n", v.x, v.y, v.z);
+		printf("% 11.9f % 11.9f % 11.9f\n", rot[0][0], rot[0][1], rot[0][2]);
+		printf("% 11.9f % 11.9f % 11.9f\n", rot[1][0], rot[1][1], rot[1][2]);
+		printf("% 11.9f % 11.9f % 11.9f\n", rot[2][0], rot[2][1], rot[2][2]);
+		abort();
+#endif
 
 		// test for whether we're within the ellipsoid
 		float DSq = sqr(v.x) + sqr(v.y) + sqr(v.z);

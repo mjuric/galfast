@@ -1,0 +1,170 @@
+Coordinate Systems
+==================
+Author: Mario Juric
+
+There are many coordinate systems used in galfast. Here are the definitions
+and the reasoning behind them.
+
+General coordinate system definitions
+=====================================
+
+	* Equatorial spherical (equ):
+		* J2000 equatorial coordinates: (ra, dec, D)
+		* Distance D is in parsecs
+
+	* Galactic spherical (gal):
+		* (l, b, D)
+		* Distance D is in parsecs
+		* Relation to equatiorial coordinates via formulas/constants
+		  from Reid et al. (2004ApJ...616..872R), that are also used
+		  by LAMBDA/WMAP http://lambda.gsfc.nasa.gov/toolbox/tb_coordconv.cfm
+
+	* Galactic cartesian (gal xyz):
+		* Textbook conversion of (l, b, D) -> (x, y, z)
+		* Sun is at the origin, x axis points to the GC, z axis
+		  points towards the NGP.
+		* This is the system that gets written out to galfast output
+		  files.
+		* This is the system internally used by galfast; unless
+		  noted otherwise, any coordinates passed to functions will
+		  be in this coordinate system. Most notable examples are:
+		  	* rho(x, y, z, Mr) and variants in density models.
+		  	* XYZ column in the output tables
+
+	* Galactocentric cartesian (galcentric xyz):
+		* Obtained from Galactic cartesian, assuming a distance to the
+		  Galactic center Rg, with the following formulae:
+		  
+		    x_{gc} = Rg - x
+		    y_{gc) = -y
+		    z_{gc} = z
+		  
+		  The center is at Rg, with the x axis pointing towards the
+		  Earth, z axis pointing towards the NGP, and the y axis
+		  being such as to preserve the right-handedness of the
+		  coordinate system.
+		  
+		  This is the system that Juric et al (2008), Ivezic et al
+		  (2008) and Bond et al (2008) typically use, with
+		  Rg=8000pc.
+
+		  Note that z=0 plane in this coordinate system does NOT
+		  coincide with the Galactic disk plane.
+
+		* This system is different from the others above as it is defined by
+		  a user-settable parameters: Rg. The user must ensure this
+		  parameters is properly set for each module that uses
+		  galactocentric coordinates.  How to do this is/should
+		  be/will be documented for each individual module.
+
+	* Galactic plane cartesian coordinates (galplanar xyz):
+		* A right-handed system centered at the Galactic center, in
+		  which the Sun is at z = z0 and at distance d=Rg.
+
+		  Its principal quality is that the nominal Galactic plane
+		  is at z=0 forall y.
+
+		  This system is obtained by rotating the Galactocentric
+		  cartesian system axes by an angle \alpha = asin(z/Rg)
+		  counter-clockwise around the y_{gc} axis.
+
+		  Note that, in this system, x_{Sun} != Rg, as the system is
+		  defined such that the _distance_ to the Galactic center is
+		  Rg (i.e., x^2 + z^2 = Rg). x_{Sun} = Rg * cos(alpha). For
+		  realistic Rg and z0, alpha is ~0.17deg so the difference
+		  is typically hardly noticable.
+
+		* This system is different from others as it is defined by
+		  two user-settable parameters: Rg and z0. The user must
+		  ensure these parameters are properly set for each module
+		  that uses the plane coordinates.  How to do this is/should
+		  be/will be documented for each individual module.
+
+Specifying coordinate systems
+=============================================
+
+Density models, as well as some postprocessing modules, need to know how
+position and orient their data with respect to the Galactic coordinate
+system that galfast uses internally. Examples include the disk density model
+that is offset from the Sun by ~8kpc and slightly tilted so that the disk
+plane passes at ~25pc below the Sun, or (in case of modules) the Fe/H or
+Bond2010 kinematics modules that need to align themselves with the disk
+whose metallicity/kinematics they're describing.
+
+We distinguish between the "internal" coordinate system (always the Galactic
+coordinate system), and the "natural" coordinate system that is apropriate
+to each model/module.  For example, the natural coordinate system of the
+disk models is the one having the disk plane being at z=0. It is usually
+much easier to work in the natural system, than in galfast's default
+Galactic.
+
+galfast provides a way to specify the transformation between the natural and
+Galactic coordinate systems via two keywords:
+
+	center = <coordsys> [type [x y z]]
+	orientation = <coordsys> [kind> [params]]
+
+The center keyword specifies a point in 3D space that is the center of the
+natural coordinate system. This point can be specified in any of the
+coordinate systems described above. Here are a few examples:
+
+	center = gal sph 33 44 1000	# center at l=33, b=44, D=1kpc
+	center = equ sph 11 22 2000	# center at ra=11, dec=22, D=2kpc
+	center = galcentric		# center at the center of the
+					# Galaxy (defined by Rg; see below)
+	center = galcentric xyz 5 5 5	# center is offset by (5,5,5) from
+					# the Galactic center
+	center = galplane xyz 3 4 5	# center offset by (3,4,5)pc in the
+					# Galactic plane coordinate system
+
+The final three examples involve coordinate systems that require
+user-defined variables to be present for them to be fully defined: Rg for
+the galcentric and Rg and z0 for the galplane system.  These should be given
+in the configuration file, or specified in a global definitions.conf file
+(recommended).
+
+The orientation keyword is similar, in that it specifies the rotation of the
+natural coordinate system with respect to the chosen <coordsys>. For
+example:
+
+	orientation = equ		# natural coord. system is aligned
+					# with the J2000 equatorial
+	orientation = equ euler 10 20 1 # natural sys is rotated by Euler
+					# angles phi=10,theta=20,psi=1 from
+					# J2000 equatorial system
+	orientation = galplane		# aligned with the Galactic plane
+					# system
+	orientation = galplane axisangle 1 1 1 120
+					# starting by being alinged with the
+					# Galactic plane system, the natural
+					# sys is rotated around an axis
+					# parallel to vector (1,1,1) by 120
+					# degrees
+
+These two keywords specify a translation (T) and a rotation (M) that is
+applied to shift from Galactic to natural system (and back).  galfast
+internally computes these two. Typical way to load the keywords and compute
+the matrices is: in the setup code:
+
+	std::string ctr, orient;
+	cfg.get(ctr,    "center",      "galplane");
+	cfg.get(orient, "orientation", "galplane");
+	load_transform(&T.x, M, ctr, orient, cfg);
+
+and in the kernels (or model's rho(x,y,z)) :
+
+	// in module kernels...
+	float3 v = { XYZ(row, 0), XYZ(row, 1), XYZ(row, 2)
+	// in model::rho(x,y,z)
+	float3 v = {x, y, z};
+	v = transform(v, T, M);
+
+The transform() function will convert the Galactic coordinates v, into the
+natural coordinates with which your model/module works internally.
+
+The modules that read/apply the center/orientation keywords are:
+
+	models: expDisk, powerLawEllipsoid, brokenPowerLaw
+	modules: Bond2010, FeH
+
+The defaults for all of these are center=galplane and orientation=galplane.

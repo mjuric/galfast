@@ -23,6 +23,7 @@
 #include "module_lib.h"
 #include "../pipeline.h"
 #include "FeH_gpu.cu.h"
+#include "transform.h"
 
 #include <astro/system/config.h>
 #include <astro/useall.h>
@@ -77,6 +78,13 @@ size_t os_FeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
+	// coordinate system definitions
+	std::string ctr, orient;
+	cfg.get(ctr,    "center",      "galplane");
+	cfg.get(orient, "orientation", "galplane");
+	load_transform(&T.x, M, ctr, orient, cfg);
+
+	// Ivezic et al. model parameters
 	cfg.get(A[0],     "A0",     0.63f);
 	cfg.get(sigma[0], "sigma0", 0.20f);
 	cfg.get(offs[0],  "offs0",  0.00f);

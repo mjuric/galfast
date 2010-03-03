@@ -23,8 +23,7 @@
 #include "model_powerLawEllipsoid.h"
 #include "skyconfig_impl.h"
 #include "model_lib.h"
-
-#include <astro/math.h>
+#include "transform.h"
 
 #include <astro/useall.h>
 
@@ -42,55 +41,38 @@ void powerLawEllipsoid::postrun(host_state_t &hstate, bool draw)
 
 void powerLawEllipsoid::load_geometry(host_state_t &hstate, const peyton::system::Config &cfg)
 {
+#if 0
 	// center of the ellipsoid
 	cfg.get(c.x, "center_l", 0.f);	// Galactic longitude
 	cfg.get(c.y, "center_b", 0.f);	// Galactic latitude
 	cfg.get(c.z, "center_D", 0.f);	// Distance (in parsecs)
 	c = direction(peyton::math::rad(c.x), peyton::math::rad(c.y)).xyz(c.z);
 
-	cfg.get(ca, "c_a", 1.f);	// ratio of c / a (z and x axes of the ellipsoid)
-	cfg.get(ba, "b_a", 1.f);	// ratio of b / a (z and x axes of the ellipsoid)
-
-	// Euler rotation for a point in Galactic frame to the xyz frame of the ellipsoid
-	//
-	// If imagining this as the rotation of the _ellipsoid_, the following
-	// rotation sequence occurs:
-	//
-	//	1) ccw around the z axis by an angle phi
-	//	2) ccw around the x axis by theta
-	//	3) ccw around the z acis by psi
-	//
-	// See http://mathworld.wolfram.com/EulerAngles.html, eqs 6-14
-	//
-	float phi, theta, psi;
-	cfg.get(phi,   "phi",   0.f);	phi   = rad(phi);
-	cfg.get(theta, "theta", 0.f);	theta = rad(theta);
-	cfg.get(psi,   "psi",   0.f);	psi   = rad(psi);
-
-	rot[0][0] =  cos(psi)   * cos(phi)   - cos(theta) * sin(phi) * sin(psi);
-	rot[0][1] =  cos(psi)   * sin(phi)   + cos(theta) * cos(phi) * sin(psi);
-	rot[0][2] =  sin(psi)   * sin(theta);
-	rot[1][0] = -sin(psi)   * cos(phi)   - cos(theta) * sin(phi) * cos(psi);
-	rot[1][1] = -sin(psi)   * sin(phi)   + cos(theta) * cos(phi) * cos(psi);
-	rot[1][2] =  cos(psi)   * sin(theta);
-	rot[2][0] =  sin(theta) * sin(phi);
-	rot[2][1] = -sin(theta) * cos(phi);
-	rot[2][2] =  cos(theta);
-
+	std::string orientation; double M[3][3];
+	cfg.get(orientation, "orientation", "");
+	get_rotation_matrix(M, orientation, cfg);
+	for(int i = 0; i != 3; i++)
+		for(int j = 0; j != 3; j++)
+			rot[i][j] = M[i][j];
+#else
+	std::string ctr, orient;
+	cfg.get(ctr,    "center",      "galplane");
+	cfg.get(orient, "orientation", "galplane");
+	load_transform(&T.x, rot, ctr, orient, cfg);
 #if 0
-	std::cerr << deg(phi) << " " << deg(theta) << " " << deg(psi) << "\n";
-	FOR(0, 3)
-	{
-		FORj(j, 0, 3) { std::cerr << rot[i][j] << " "; }
-		std::cerr << "\n";
-	}
+	std::cout << "translation = " << std::setprecision(10) << c.x << " " << c.y << " " << c.z << "\n";
+	print_matrix(rot);
 
 	// Do some testing here...
-	float3 v = { 1.f, 0.f, 0.f };
-	v = matmul3d(rot, v);
-	std::cout << v.x << " " << v.y << " " << v.z << "\n";
-	exit(0);
+	float3 v = { 0.f, 100.f, -24.f };
+	v = transform(v, c, rot);
+	std::cout << std::setprecision(10) << v.x << " " << v.y << " " << v.z << "\n";
+	abort();
 #endif
+#endif
+
+	cfg.get(ca, "c_a", 1.f);	// ratio of c / a (z and x axes of the ellipsoid)
+	cfg.get(ba, "b_a", 1.f);	// ratio of b / a (z and x axes of the ellipsoid)
 }
 
 void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config &cfg)

@@ -18,71 +18,23 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef FEH_gpu_cu_h__
-#define FEH_gpu_cu_h__
+#ifndef transform_h__
+#define transform_h__
 
-//
-// Module data passed to device kernel
-//
-struct os_FeH_data
+#include <astro/system/config.h>
+#include <string>
+#include <cstdio>
+
+// loads a coordinate system transform (translation+rotation) given the keywords and config object
+// see the comments in transform.cpp for more details.
+void load_transform(float tran[3], float rot[3][3], const std::string &center_str, const std::string &orientation_str, const peyton::system::Config &cfg);
+
+template<typename T>
+void print_matrix(T rot[3][3])
 {
-	float A[2], sigma[3], offs[3];
-	float Hmu, muInf, DeltaMu;
-	bit_map comp_thin, comp_thick, comp_halo;
-
-	// coordinate system definition
-	float M[3][3];
-	float3 T;
-};
-
-//
-// Device kernel implementation
-//
-#if (__CUDACC__ || BUILD_FOR_CPU)
-
-KERNEL(
-	ks, 3*4,
-	os_FeH_kernel(
-		otable_ks ks, os_FeH_data par, gpu_rng_t rng, 
-		cint_t::gpu_t comp,
-		cfloat_t::gpu_t XYZ,
-		cfloat_t::gpu_t FeH),
-	os_FeH_kernel,
-	(ks, par, rng, comp, XYZ, FeH)
-)
-{
-	uint32_t tid = threadID();
-	rng.load(tid);
-	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
-	{
-		int cmp = comp(row);
-		if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
-		{
-			// choose the gaussian to draw from
-			float p = rng.uniform()*(par.A[0]+par.A[1]);
-			int i = p < par.A[0] ? 0 : 1;
-
-			// find our location within the disk
-			float3 v = { XYZ(row, 0), XYZ(row, 1), XYZ(row, 2) };
-			v = transform(v, par.T, par.M);
-
-			// calculate mean
-			float muD = par.muInf + par.DeltaMu*exp(-fabs(v.z)/par.Hmu);		// Bond et al. A2
-			float aZ = muD - 0.067f;
-
-			// draw
-			float feh = rng.gaussian(par.sigma[i]) + aZ + par.offs[i];			
-			FeH(row) = feh;
-		}
-		else if(par.comp_halo.isset(cmp))
-		{
-			float feh = par.offs[2] + rng.gaussian(par.sigma[2]);
-			FeH(row) = feh;
-		}
-	}
-	rng.store(threadID());
+	printf("% 11.9f % 11.9f % 11.9f\n", rot[0][0], rot[0][1], rot[0][2]);
+	printf("% 11.9f % 11.9f % 11.9f\n", rot[1][0], rot[1][1], rot[1][2]);
+	printf("% 11.9f % 11.9f % 11.9f\n", rot[2][0], rot[2][1], rot[2][2]);
 }
 
-#endif // (__CUDACC__ || BUILD_FOR_CPU)
-
-#endif // FEH_gpu_cu_h__
+#endif // transform_h__

@@ -22,6 +22,7 @@
 
 #include "../pipeline.h"
 #include "Bond2010_gpu.cu.h"
+#include "transform.h"
 
 #include "spline.h"
 #include "analysis.h"
@@ -144,8 +145,12 @@ bool os_Bond2010::construct(const Config &cfg, otable &t, opipeline &pipe)
 	read_component_map(icomp_thick, cfg, "comp_thick");
 	read_component_map(icomp_halo,  cfg, "comp_halo");
 
-	// Distance to the Galactic center
-	Rg = cfg.get("Rg");
+	// Load disk position and orientation
+//	Rg = cfg.get("Rg");
+	std::string ctr, orient;
+	cfg.get(ctr,    "center",      "galplane");
+	cfg.get(orient, "orientation", "galplane");
+	load_transform(&T.x, M, ctr, orient, cfg);
 
 	typedef std::vector<float> fvec;
 	fvec 	vPhi1_fvec, vPhi2_fvec, vR_fvec, vZ_fvec,

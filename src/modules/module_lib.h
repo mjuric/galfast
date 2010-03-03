@@ -112,4 +112,36 @@
 
 	float inline __device__ sqrf(float x) { return x*x; }
 
+	//
+	// 3D matrix-vector multiplication
+	//   Typically, T=float3 and TM=float.
+	//
+	template<typename T, typename TM>
+	T inline __host__ __device__ matmul3d(const TM M[3][3], const T &v)
+	{
+		// w = M*v
+		T w;
+		w.x = M[0][0]*v.x + M[0][1]*v.y + M[0][2]*v.z;
+		w.y = M[1][0]*v.x + M[1][1]*v.y + M[1][2]*v.z;
+		w.z = M[2][0]*v.x + M[2][1]*v.y + M[2][2]*v.z;
+		return w;
+	}
+
+	//
+	// Translation followed by matrix multiplication (rotation)
+	//
+	template<typename T, typename TM>
+	T inline __host__ __device__ transform(T v, const T tran, const TM rot[3][3])
+	{
+		// transform _from_ Galactic _to_ user-defined coordinate system
+		v.x += tran.x;
+		v.y += tran.y;
+		v.z += tran.z;
+
+		// rotation
+		v = matmul3d(rot, v);
+		
+		return v;
+	}
+
 #endif

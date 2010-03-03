@@ -1147,6 +1147,7 @@ void apply_definitions(const std::string &def_modules)
 {
 	if(def_modules.empty()) { return; }
 
+#if 1
 	// concatenate all files
 	std::string deffn, merged_config_text;
 	std::istringstream in(def_modules.c_str());
@@ -1160,7 +1161,7 @@ void apply_definitions(const std::string &def_modules)
 		}
 	}
 
-	// load them as config (and expand any variables)
+	// load them as global config (and expand any variables)
 	std::istringstream cfgstrm(merged_config_text);
 	Config cfg;
 	cfg.load(cfgstrm);
@@ -1175,13 +1176,14 @@ void apply_definitions(const std::string &def_modules)
 
 		EnvVar(var).set(value);
 	}
+#endif
 }
 
 void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun)
 {
 	rng_gsl_t rng(seed);
 
-	// find and load (== set corresponding EnvVars) definitions from
+	// find and load into Config::globals all definitions from
 	// definition module(s) before doing anything else
 	std::string defs;
 	FOREACH(modules)
@@ -1197,14 +1199,21 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 		Config cfg;
 		cfg.load(cffn, false);
 		std::string module = normalizeKeyword(cfg["module"]);
+		std::cerr << module << " " << cffn << "\n";
 
 		if(module == "definitions")
 		{
+			// load into globals, without expanding the variables
+			Config::globals.load(cffn, false);
+			Config::globals.erase("module");
+			
+			// this is just informational (printed out for the user, below...)
 			if(!defs.empty()) { defs += " "; }
 			defs += cffn;
 		}
 	}
-	apply_definitions(defs);
+	Config::globals.expandVariables();
+// 	apply_definitions(defs);
 
 	// output table setup
 	// HACK: Kbatch should be read from skygen.conf, or auto-computed to maximize memory use otherwise

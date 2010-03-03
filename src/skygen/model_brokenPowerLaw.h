@@ -52,8 +52,13 @@ public:
 		using namespace cudacc;
 
 		// translate and rotate into ellipsoid-centric frame
+#if 0
 		float3 v = { c.x - x, c.y - y, z - c.z };
 		v = matmul3d(rot, v);
+#else
+		float3 v = {x, y, z};
+		v = transform(v, T, rot);
+#endif
 
 		// test for whether we're within the ellipsoid
 		float DSq = sqr(v.x) + sqr(v.y) + sqr(v.z);

@@ -7,7 +7,7 @@ rr
 
 test
 	data "sky.fits"
-	readdata2 XYZ[2] vcyl[3] comp
+	readdata2 XYZ[2] vcyl[3] comp FeH
 
 	# convert to galactocentric
 	set X = 8000 - X
@@ -34,8 +34,8 @@ test
 	vs vPhi
 
 userinit
-	setmodel BahcallSoneira 100   2150 245 24  0.13 3261 743   0.0051 1.5625 2.77   100000
-	setpencilbeam gal 0 90 10
+	setmodel BahcallSoneira 100   2150 245 25  0.13 3261 743   0.0051 1.5625 2.77   100000
+	setpencilbeam gal 0 90 1
 	setobslims 15 25
 
 	setKinematicModel TMIII

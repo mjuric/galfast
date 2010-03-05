@@ -1199,7 +1199,6 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 		Config cfg;
 		cfg.load(cffn, false);
 		std::string module = normalizeKeyword(cfg["module"]);
-		std::cerr << module << " " << cffn << "\n";
 
 		if(module == "definitions")
 		{

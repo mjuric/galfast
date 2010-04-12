@@ -233,11 +233,11 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 ////////////////////////////////////////////////////////////////////////////
 
 // defined in footprint.cpp
-std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<std::string> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale);
+std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<Config::filespec> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale);
 
 const os_clipper &os_skygen::load_footprints(const std::string &footprints, float dx, opipeline &pipe)
 {
-	std::vector<std::string> footstr;
+	std::vector<Config::filespec> footstr;
 	split(footstr, footprints);
 	if(footstr.empty())
 	{
@@ -315,7 +315,7 @@ int os_skygen::load_models(skygenParams &sc, const std::string &model_cfg_list, 
 
 	// Load density model configurations, instantiate
 	// and configure the correct skygenHost kernels
-	std::vector<std::string> models;
+	std::vector<Config::filespec> models;
 	split(models, model_cfg_list);
 	if(models.empty())
 	{

@@ -40,17 +40,19 @@
 //         the "f" value set by the user in the config file).
 //
 template<typename LFSeparableModel>
-cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg)
+cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg, std::string &lffile)
 {
 	cuxTexture<float> lf;
 
 	// luminosity function
 	if(cfg.count("lumfunc"))
 	{
-		lf = load_resample_and_clip_texture_1D(cfg["lumfunc"].c_str());
+		lffile = cfg["lumfunc"];
+		lf = load_resample_and_clip_texture_1D(lffile.c_str());
 	}
 	else
 	{
+		lffile = "";
 		lf = load_constant_texture_1D(1.f, -100., 100.);
 	}
 

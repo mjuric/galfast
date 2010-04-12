@@ -26,6 +26,7 @@ inline std::ostream &operator <<(std::ostream &out, const interval_list &il)
 		if(first)
 		{
 			out << "{ ";
+			first = false;
 		}
 		else
 		{

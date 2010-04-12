@@ -108,11 +108,9 @@ bool os_FeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	read_component_map(icomp_thin, cfg, "comp_thin");
 	read_component_map(icomp_thick, cfg, "comp_thick");
 	read_component_map(icomp_halo, cfg, "comp_halo");
-// 	comp_thin  = componentMap.seqIdx(cfg.get("comp_thin"));
-// 	comp_thick = componentMap.seqIdx(cfg.get("comp_thick"));
-// 	comp_halo  = componentMap.seqIdx(cfg.get("comp_halo"));
 
 	// Output model parameters
+	MLOG(verb1) << "Metallicity: Ivezic+2008 for components " << icomp_thin << " (thin), " << icomp_thick << " (thick), " << icomp_halo << " (halo)" << "   ## " << instanceName();
 	MLOG(verb2) << "Component IDs (thin, thick, halo):        "<< icomp_thin << " " << icomp_thick << " " << icomp_halo;
 	MLOG(verb2) << "Normalized disk amplitudes  (A[0], A[1]): "<< A[0] << " " << A[1];
 	MLOG(verb2) << "Disk sigma          (sigma[0], sigma[1]): "<< sigma[0] << " " << sigma[1];

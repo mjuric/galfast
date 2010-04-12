@@ -67,11 +67,13 @@ size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 bool os_gal2other::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
 	//if(!cfg.count("FeH")) { THROW(EAny, "Keyword 'filename' must exist in config file"); }
-	std::string cs;
+	std::string cs, msg;
 	cfg.get(cs, "coordsys", "gal");
-	     if(cs == "gal") { coordsys = GAL; /* -- noop -- */ }
-	else if(cs == "equ") { coordsys = EQU; prov.insert("radec[2]"); }
+	     if(cs == "gal") { coordsys = GAL; /* -- noop -- */; msg = "Galactic coordinates in column lb"; }
+	else if(cs == "equ") { coordsys = EQU; prov.insert("radec[2]"); msg = "Equatorial coordinates in column radec"; }
 	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
+
+	MLOG(verb1) << "Astrometry: " << msg << "   ## " << instanceName();
 
 	return true;
 }

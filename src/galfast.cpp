@@ -34,8 +34,8 @@ using namespace std;
 ///////////////////////////////////
 
 extern "C" void resample_texture(const std::string &outfn, const std::string &texfn, float2 crange[3], int npix[3], bool deproject, Radians l0, Radians b0);
-void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun);
-void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<std::string> &modules);
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<Config::filespec> &modules, const std::string &input, const std::string &output, bool dryrun);
+void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<Config::filespec> &modules);
 
 int main(int argc, char **argv)
 {
@@ -63,7 +63,7 @@ try
 	size_t nstars = 0;
 	size_t maxstars = 100*1000*1000;
 	bool dryrun = false;
-	std::vector<std::string> modules;
+	std::vector<Config::filespec> modules;
 	std::string infile, outfile;
 	sopts["catalog"].reset(new Options(argv0 + " catalog", progdesc + " Generate and postprocess a mock catalog.", version, Authorship::majuric));
 	sopts["catalog"]->argument("module").bind(input).desc("Module configuration file.");
@@ -199,6 +199,15 @@ try
 	{
 		if(modules.empty())
 		{
+			// find and load the definitions first, if any
+			{
+				Config cfg(input, "", false);
+				std::string defs;
+				cfg.get(defs, "definitions", "");
+				Config::globals.load(defs);
+				Config::globals.erase("module");
+			}
+
 			// slurp up command line parameters from the config file (cmd.conf)
 			Config cfg(input);
 			if(cfg.get("module") == "config")
@@ -216,17 +225,21 @@ try
 				cfg.get(tmp, "models", "");      allmodules += " " + tmp;
 				cfg.get(tmp, "footprints", "");  allmodules += " " + tmp;
 				cfg.get(tmp, "definitions", ""); allmodules += " " + tmp;
-
+				
+				// split the modules into filespecs
+				//std::cerr << allmodules << "\n";
 				std::istringstream ss(allmodules);
-				while(ss >> tmp)
+				Config::filespec fs;
+				while(ss >> fs)
 				{
-					modules.push_back(tmp);
+					//std::cerr << fs << "\n";
+					modules.push_back(fs);
 				}
 			}
 		}
 
-		// ./galfast.x catalog 43 catalog.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
-		std::set<std::string> mset;
+		// ./galfast.x catalog cmd.conf [--infile=sky.cat.txt] [--outfile=sky.obs.txt] [module1.conf [module2.conf]....]
+		std::set<Config::filespec> mset;
 		if(!input.empty()) { mset.insert(input); }
 		mset.insert(modules.begin(), modules.end());
 		generate_catalog(seed, maxstars, nstars, mset, infile, outfile, dryrun);
@@ -235,11 +248,13 @@ try
 	{
 		THROW(ENotImplemented, "Should not get to here. I'm really confused. Aborting.");
 	}
+	abort();
 	return 0;
 }
 catch(EAny &e)
 {
 	e.print();
+	abort();
 	return -1;
 }
 }

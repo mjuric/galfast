@@ -156,19 +156,22 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	}
 
 	// find and open the definition file for the isochrones
-	cfg.get(tmp,   "file",   "");
-	if(tmp == "")
+	std::string fname;
+	bool internalPhotosys = false;
+	cfg.get(fname,   "file",   "");
+	if(fname == "")
 	{
 		// Try to find internal definitions for the photometric system
-		tmp = datadir() + "/" + bandset2 + ".photosys.txt";
-		if(!file_exists(tmp))
+		fname = datadir() + "/" + bandset2 + ".photosys.txt";
+		if(!file_exists(fname))
 		{
-			THROW(EAny, "Default photosys. definition file " + tmp + " for " + bandset2 + " not found. Specify it explicitly using the file=xxx keyword.");
+			THROW(EAny, "Default photosys. definition file " + fname + " for " + bandset2 + " not found. Specify it explicitly using the file=xxx keyword.");
 		}
+		internalPhotosys = true;
 	}
 
 	// load the isochrone table into a map indexed by FeH
-	text_input_or_die(in, tmp);
+	text_input_or_die(in, fname);
 	std::map<double, std::vector<Mr2col> > v; // map of the form v[FeH] -> vec(Mr,colors)
 	Mr2col mc; double FeH;
 	bind(in, mc.Mr,0, FeH,1);
@@ -184,10 +187,10 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	float2 tcFeH = texcoord_from_range(0, nFeH, FeH0, FeH0 + nFeH*dFeH);
 	float2 tcMr  = texcoord_from_range(0, nMr,   Mr0,  Mr0 +  nMr*dMr);
 
-	MLOG(verb1) << "Photometry: Generating " << bandset2 << " ( " << bnames << ")";
+	MLOG(verb1) << "Photometry: " << bandset2 << " for components " << applyToComponents << (!internalPhotosys ? " (" + fname + ")" : "") << "   ## " << instanceName();
 	MLOG(verb2) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
 	MLOG(verb2) << bandset2 << ": Input absolute magnitude assumed to be in " << bband << " band.";
-	MLOG(verb2) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << tmp << ".";
+	MLOG(verb2) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << fname << ".";
 	MLOG(verb2) << bandset2 << ": Resampling color table to fast lookup grid:";
 	MLOG(verb2) << bandset2 << ":    " << absbband << "0, " << absbband << "1, d(" << absbband << ") = " << Mr0 << ", " << Mr1 << ", " << dMr << ".";
 	MLOG(verb2) << bandset2 << ":    FeH0, FeH1, dFeH = " << FeH0 << ", " << FeH1 << ", " << dFeH << ".";

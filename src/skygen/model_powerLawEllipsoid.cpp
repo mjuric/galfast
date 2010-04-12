@@ -86,10 +86,12 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	cfg.get(n, "n", -3.f);		// power law index
 
 	// component ID
-	comp = componentMap.seqIdx(cfg.get("comp"));
+	int userComp = cfg.get("comp");
+	comp = componentMap.seqIdx(userComp);
 
 	// Load luminosity function
-	hstate.lf = load_lf(*this, cfg);
+	std::string lffile;
+	hstate.lf = load_lf(*this, cfg, lffile);
 
 	// limits (\rho = 0 for d < rminSq || d > rmaxSq)
 	// NOTE: This is intentionally after LF normalization computation, so
@@ -97,6 +99,9 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	// excluded by this cut would still be possible.
 	cfg.get(rminSq, "rmin", 0.f);	rminSq *= rminSq;
 	cfg.get(rmaxSq, "rmax", 0.f);	rmaxSq *= rmaxSq;
+
+	if(lffile.empty()) { lffile = "-"; }
+	MLOG(verb1) << "Component " << userComp << " : " << "power law ellipsoid {" << n << ", " << ca << ", " << ba << ", " << lffile << "}";
 }
 
 extern "C" skygenInterface *create_model_powerlawellipsoid()

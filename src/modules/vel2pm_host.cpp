@@ -74,10 +74,10 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 bool os_vel2pm::construct(const Config &cfg, otable &t, opipeline &pipe)
 {
-	std::string cs;
+	std::string cs, type;
 	cfg.get(cs, "coordsys", "gal");
-	     if(cs == "gal") { coordsys = GAL; output_col_name = "pmlb"; }
-	else if(cs == "equ") { coordsys = EQU; output_col_name = "pmradec"; }
+	     if(cs == "gal") { coordsys = GAL; output_col_name = "pmlb"; type = "Galactic"; }
+	else if(cs == "equ") { coordsys = EQU; output_col_name = "pmradec"; type = "Equatorial"; }
 	else { THROW(EAny, "Unknown coordinate system (" + cs + ") requested."); }
 	prov.insert(output_col_name);
 
@@ -89,6 +89,8 @@ bool os_vel2pm::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(u0,   "u0",    -10.0f);
 	cfg.get(v0,   "v0",     -5.3f);
 	cfg.get(w0,   "w0",      7.2f);
+
+	MLOG(verb1) << "Proper motions: " << type << " proper motions in column " << output_col_name << "   ## " << instanceName();
 
 	return true;
 }

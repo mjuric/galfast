@@ -743,7 +743,7 @@ int load_footprint(std::list<sph_polygon> &foot, const Config &cfg)
 	THROW(EAny, "The requested footprint type " + cfg["type"] + " is unknown.");
 }
 
-std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<std::string> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale)
+std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<Config::filespec> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale)
 {
 	// Load footprints. The result is the list of spherical polygons on the sky;
 	std::list<sph_polygon> foot;
@@ -758,7 +758,7 @@ std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<std::strin
 	return project_to_hemispheres(foot, proj, equatorSamplingScale);
 }
 
-void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<std::string> &foots)
+void intersectFootprintWithPencilBeam(Radians l0, Radians b0, Radians r, const std::vector<Config::filespec> &foots)
 {
 	peyton::math::lambert proj(l0, b0);
 	std::pair<gpc_polygon, gpc_polygon> sky = load_footprints(foots, proj, 0.);

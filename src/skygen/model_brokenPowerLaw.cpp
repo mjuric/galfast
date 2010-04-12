@@ -38,7 +38,11 @@ void brokenPowerLaw::load(host_state_t &hstate, const peyton::system::Config &cf
 
 	// radial functional dependence
 	std::vector<float> n = cfg.get("n");		// power law index
-	std::vector<float> rbreak = cfg.get("rbreak");	// power law index breaks (in parsecs)
+	std::vector<float> rbreak;
+	if(n.size() > 1)
+	{
+		rbreak = cfg.get("rbreak");	// power law index breaks (in parsecs)
+	}
 
 	ASSERT(n.size() < MAXPOWERLAWS);
 	ASSERT(rbreak.size() == n.size()-1);
@@ -48,7 +52,8 @@ void brokenPowerLaw::load(host_state_t &hstate, const peyton::system::Config &cf
 	nbreaks = rbreak.size();
 
 	// component ID
-	comp = componentMap.seqIdx(cfg.get("comp"));
+	int userComp = cfg.get("comp");
+	comp = componentMap.seqIdx(userComp);
 
 	// compute piece-wise normalizations so that the density
 	// profile remains continuous at power-law breaks
@@ -65,7 +70,8 @@ void brokenPowerLaw::load(host_state_t &hstate, const peyton::system::Config &cf
 
 	// Load luminosity function (this will also compute the
 	// overall normalization)
-	hstate.lf = load_lf(*this, cfg);
+	std::string lffile;
+	hstate.lf = load_lf(*this, cfg, lffile);
 
 	// limits (\rho = 0 for d < rminSq || d > rmaxSq)
 	// NOTE: This is intentionally after LF normalization computation, so
@@ -84,6 +90,12 @@ void brokenPowerLaw::load(host_state_t &hstate, const peyton::system::Config &cf
 	out.close();
 	exit(0);
 #endif
+
+	if(lffile.empty()) { lffile = "-"; }
+	std::ostringstream ss;
+	ss << nArr[0];
+	FOR(0, nbreaks) { ss << "=(" << sqrt(rbreakSq[i])/1000 << "kpc)=" << nArr[i+1]; }
+	MLOG(verb1) << "Component " << userComp << " : " << "broken power law {" << ss.str() << ", " << ca << ", " << ba << ", " << lffile << "}";
 }
 
 

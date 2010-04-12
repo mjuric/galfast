@@ -77,8 +77,8 @@ bool os_GaussianFeH::construct(const Config &cfg, otable &t, opipeline &pipe)
 	sigma = cfg.get("sigma");
 
 	// Output model parameters
-	//MLOG(verb2) << "Component IDs       : " << compFirst << " " << compLast;
-	MLOG(verb2) << "Gaussian (mu, sigma): " << mean      << " " << sigma;
+	MLOG(verb1) << "Metallicity: Gaussian for components " << applyToComponents << "   ## " << instanceName();
+	MLOG(verb2) << "           : (mu, sigma) = " << mean      << ", " << sigma;
 
 	return true;
 }

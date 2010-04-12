@@ -36,13 +36,17 @@ class opipeline_stage
 		interval_list applyToComponents;	// components this module will apply to (unless overridden by the module)
 		std::set<std::string> prov, req;	// add here the fields required/provided by this modules, if using stock runtime_init() implementation
 //		std::string uniqueId;			// a string uniquely identifying this module instance
+		int m_instanceId;			// an integer uniquely identifying this module instance
 		stopwatch swatch;			// times how long it takes to process() this stage
 
 		osink *nextlink;
+
 	public:
 		void chain(osink *nl) { nextlink = nl; }
 		float getProcessingTime() { return swatch.getTime(); }
 
+		int instanceId(); 		// returns an integer uniquely identifying this module instance (e.g.: 2)
+		std::string instanceName();	// returns a string uniquely identifying this module name and instance (e.g.: photometry[2])
 //		void setUniqueId(const std::string &uid) { uniqueId = uid; }
 //		const std::string &getUniqueId() const { return uniqueId; }
 
@@ -52,7 +56,7 @@ class opipeline_stage
 		virtual const std::string &type() const { static std::string s("stage"); return s; }
 
 	public:
-		void read_component_map(interval_list &applyToComponents, const peyton::system::Config &cfg, const std::string &compCfgKey = "", uint32_t compFirst = 0U, uint32_t compLast = 0xffffffffU);
+		void read_component_map(interval_list &applyToComponents, const peyton::system::Config &cfg, const std::string &compCfgKey = "comp", uint32_t compFirst = 0U, uint32_t compLast = 0xffffffffU);
 
 	public:
 		virtual bit_map getAffectedComponents() const { return applyToComponents; } // NOTE: Override if your class doesn't use applyToComponents to decide which components to apply to
@@ -84,7 +88,7 @@ class opipeline_stage
 		virtual double ordering() const = 0;
 
 	public:
-		opipeline_stage() : nextlink(NULL)
+		opipeline_stage() : nextlink(NULL), m_instanceId(-1)
 		{
 			applyToComponents.push_back(std::make_pair(0U, 0xffffffffU));
 		}

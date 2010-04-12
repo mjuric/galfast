@@ -82,6 +82,28 @@ bit_map::bit_map(const interval_list &cl)
 
 ///////////////////////////////////////////////////////////////////////
 
+int opipeline_stage::instanceId()
+{
+	// FIXME: This function should really be made const, and assignment of component Id should somehow be moved to the constructor
+	// FIXME: This is not thread safe (not that it has to be, but just to keep it in mind...)
+
+	if(m_instanceId == -1)
+	{
+		// construct-on-first-use idiom
+		static std::map<std::string, int> instanceIdMap;
+		m_instanceId = instanceIdMap[name()]++;
+	}
+
+	return m_instanceId;
+}
+
+std::string opipeline_stage::instanceName()
+{
+	std::ostringstream ss;
+	ss << name() << "[" << instanceId() << "]";
+	return ss.str();
+}
+
 bool opipeline_stage::runtime_init(otable &t)
 {
 //	// components we care about
@@ -147,6 +169,7 @@ void opipeline_stage::read_component_map(interval_list &applyToComponents, const
 	}
 	else
 	{
+#if 0
 		// backwards compatibility
 		if(compCfgKey.empty())
 		{
@@ -160,9 +183,12 @@ void opipeline_stage::read_component_map(interval_list &applyToComponents, const
 		}
 		else
 		{
+#endif
 			// explode otherwise -- the key _must_ exist
 			if(!cfg.count(compCfgKey)) { THROW(EAny, "Value for " + compCfgKey + " missing in configuration file."); }
+#if 0
 		}
+#endif
 	}
 }
 
@@ -1070,7 +1096,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 		last = next;
 
 		bit_map comps = last->getAffectedComponents();
-		std::string name = last->name();
+		std::string name = last->instanceName();
 		std::string empty(name.size(), ' ');
 		FOR(0, ss.size())
 		{
@@ -1080,7 +1106,7 @@ size_t opipeline::run(otable &t, rng_t &rng)
 	}
 	FOREACH(componentMap.comp2seq)
 	{
-		MLOG(verb1) << "Pipeline (comp=" << i->first << ") : " << ss[i->second]->str() << "\n";
+		MLOG(verb1) << "Pipeline [comp=" << i->first << "] : " << ss[i->second]->str() << "\n";
 	}
 
 	int ret = source->run(t, rng);
@@ -1179,7 +1205,7 @@ void apply_definitions(const std::string &def_modules)
 #endif
 }
 
-void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<std::string> &modules, const std::string &input, const std::string &output, bool dryrun)
+void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<Config::filespec> &modules, const std::string &input, const std::string &output, bool dryrun)
 {
 	rng_gsl_t rng(seed);
 
@@ -1189,10 +1215,11 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 	FOREACH(modules)
 	{
 		const std::string &cffn = *i;
+		const std::string fn = cffn.substr(0, cffn.find('{'));
 
-		if(!file_exists(cffn))
+		if(!file_exists(fn))
 		{
-			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
+			THROW(EAny, "Module configuration file " + fn + " is inaccessible or doesn't exist.");
 		}
 
 		// load from file
@@ -1229,14 +1256,24 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 	FOREACH(modules)
 	{
 		const std::string &cffn = *i;
+		const std::string fn = cffn.substr(0, cffn.find('{'));
 
-		if(!file_exists(cffn))
+		if(!file_exists(fn))
 		{
-			THROW(EAny, "Module configuration file " + cffn + " is inaccessible or doesn't exist.");
+			THROW(EAny, "Module configuration file " + fn + " is inaccessible or doesn't exist.");
 		}
 
 		// load from file
 		Config modcfg(cffn);
+
+		#if 0
+		std::cout << "# ======== " << cffn << "\n";
+		FOREACH(modcfg)
+		{
+			if(Config::globals.count(i->first)) { continue; }
+			std::cout << i->first << " = " << i->second << "\n";
+		}
+		#endif
 
 		if(!modcfg.count("module")) { THROW(EAny, "Configuration file " + cffn + " does not specify the module name"); }
 		std::string module = normalizeKeyword(modcfg["module"]);
@@ -1266,10 +1303,10 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<s
 			module_configs.push_back(modcfg);
 		}
 	}
-	MLOG(verb1) << "Definitions: " << (defs.empty() ? "<none>" : defs);
-	MLOG(verb1) << "Models: " << (models.empty() ? "<none>" : models);
-	MLOG(verb1) << "Footprints: " << (foots.empty() ? "<none>" : foots);
-	MLOG(verb1) << "Extinction maps: " << (extmaps.empty() ? "<none>" : extmaps);
+	MLOG(verb2) << "Definitions: " << (defs.empty() ? "<none>" : defs);
+	MLOG(verb2) << "Models: " << (models.empty() ? "<none>" : models);
+	MLOG(verb2) << "Footprints: " << (foots.empty() ? "<none>" : foots);
+	MLOG(verb2) << "Extinction maps: " << (extmaps.empty() ? "<none>" : extmaps);
 
 	// Create the modules and construct the pipeline
 	opipeline pipe(dryrun);

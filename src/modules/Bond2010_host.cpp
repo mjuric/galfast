@@ -214,6 +214,7 @@ bool os_Bond2010::construct(const Config &cfg, otable &t, opipeline &pipe)
 	fvecToFarray(HsigmaPhi_fvec,   halo.ss[5]);
 
 	// Output model parameters
+	MLOG(verb1) << "Kinematics: Bond+2010 for components " << icomp_thin << " (thin), " << icomp_thick << " (thick), " << icomp_halo << " (halo)" << "   ## " << instanceName();
 	MLOG(verb2) << "Component IDs (thn, thk, hl): " << icomp_thin << " " << icomp_thick << " " << icomp_halo;
 	MLOG(verb2) << "Disk gaussian normalizations: " << fk << " : " << (1-fk);
 	MLOG(verb2) << "Second disk gaussian offset:  " << DeltavPhi;

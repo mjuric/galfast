@@ -43,6 +43,9 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	// density distribution parameters
 	l        = cfg.get("l");
 	h        = cfg.get("h");
+
+	assert(l > 0);
+	assert(h > 0);
 #if 0
 	float z0 = cfg.get("z0");	// Solar offset from the Galactic plane
 	Rg       = cfg.get("Rg");	// Distance to the Galactic center (assumed to be in l=0, b=0 direction)
@@ -70,18 +73,23 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 #endif
 #endif
 
-	comp = componentMap.seqIdx(cfg.get("comp"));
+	int userComp = cfg.get("comp");
+	comp = componentMap.seqIdx(userComp);
 
 	// set this to 0. for now, to allow LF normalization
 	// even beyond the user-specified model cutoff
 	r_cut2 = 0.f;
 
 	// Load luminosity function
-	hstate.lf = load_lf(*this, cfg);
+	std::string lffile;
+	hstate.lf = load_lf(*this, cfg, lffile);
 
 	// cutoff radius (default: no cutoff)
 	cfg.get(r_cut2,  "rcut",   0.f);
 	r_cut2 *= r_cut2;
+
+	if(lffile.empty()) { lffile = "-"; }
+	MLOG(verb1) << "Component " << userComp << " : " << "exponential disk {" << l << ", " << h << ", " << lffile << "}";
 }
 
 extern "C" skygenInterface *create_model_exponentialdisk()

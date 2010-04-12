@@ -37,7 +37,7 @@ struct star_comp
 	cint_t::host_t		projIdx;
 	cfloat_t::host_t	XYZ, projXY;
 	cint_t::host_t		comp;
-	cfloat_t::host_t	M, Am;
+	cfloat_t::host_t	M, Am, AmInf;
 	cfloat_t::host_t	DM;
 
 	star_comp(otable &in)
@@ -49,6 +49,7 @@ struct star_comp
 		comp    = in.col<int>("comp");
 		M       = in.col<float>("absmag");
 		Am      = in.col<float>("Am");
+		AmInf   = in.col<float>("AmInf");
 		DM      = in.col<float>("DM");
 	}
 
@@ -434,6 +435,7 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		this->stars.projIdx = in.col<int>("projIdx");
 		this->stars.projXY  = in.col<float>("projXY");
 		this->stars.Am      = in.col<float>("Am");
+		this->stars.AmInf   = in.col<float>("AmInf");
 		this->stars.XYZ     = in.col<float>("XYZ");
 		this->stars.comp    = in.col<int>("comp");
 		this->stars.M       = in.col<float>("absmag");
@@ -468,7 +470,7 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 				SWAP1(lb, 0);	SWAP1(lb, 1);
 				SWAP(projIdx);
 				SWAP1(projXY, 0);	SWAP1(projXY, 1);
-				SWAP(Am);
+				SWAP(Am); SWAP(AmInf);
 				SWAP1(XYZ, 0);	SWAP1(XYZ, 1);	SWAP1(XYZ, 2);
 				SWAP(comp);
 				SWAP(M);

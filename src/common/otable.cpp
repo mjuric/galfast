@@ -532,6 +532,7 @@ int otable::getSortedColumnsForOutput(std::vector<const columndef*> &outColumns)
 	field["pmlb"] = ord++;
 	field["pmradec"] = ord++;
 	field["Am"] = ord++;
+	field["AmInf"] = ord++;
 	std::sort(outColumns.begin(), outColumns.end(), pred_col_less(field));
 
 	return outColumns.size();
@@ -729,7 +730,8 @@ void otable::init()
 	"(column) hidden	{type=int;hidden=true;}"
 	"(column) projIdx       {type=int;hidden=true;}"
 	"(column) projXY[2]     {type=float;hidden=true;}"
-	"(column) Am            {type=float;fmt=%5.2f;}"
+	"(column) Am            {type=float;fmt=%6.3f;}"
+	"(column) AmInf         {type=float;fmt=%6.3f;}"
 	);
 
 	// store these column definitions as defaults

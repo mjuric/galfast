@@ -166,7 +166,7 @@ struct ALIGN(16) ocolumns
 {
 	cdouble_t::gpu_t	lb;
 	cint_t::gpu_t		projIdx;
-	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am;
+	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am, AmInf;
 	cint_t::gpu_t		comp;
 };
 

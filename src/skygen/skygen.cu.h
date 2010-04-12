@@ -372,7 +372,11 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 		stars.projXY(idx, 1) = y;
 
 		// Draw extinction
-		stars.Am(idx) = sampleExtinction(pix.projIdx, x, y, DM);
+		float Am0, Am1;
+		stars.Am(idx) = Am0 = sampleExtinction(pix.projIdx, x, y, DM);
+		Am1 = sampleExtinction(pix.projIdx, x, y, 100);
+		stars.AmInf(idx) = Am1 > Am0 ? Am1 : Am0;	// work around the situation where due to trilinear interp. in _all_ dimensions AmInf can come out being slightly smaller than Am
+								// FIXME: implement a proper (possibly nontrivial) fix for this, some day
 
 		// Transform projected coordinates to (l,b), in degrees
 		double l, b;

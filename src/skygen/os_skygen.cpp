@@ -702,6 +702,7 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	t.use_column("projIdx");
 	t.use_column("projXY");
 	t.use_column("Am");
+	t.use_column("AmInf");
 	t.use_column("XYZ");
 	t.use_column("comp");
 	t.use_column("DM");

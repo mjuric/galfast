@@ -142,6 +142,7 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 		if(!(ss >> reddening[i])) { break; }
 	}
 
+#if 0
 	// load isochrone texture sampling parameters
 	float FeH0, FeH1, dFeH, Mr0, Mr1, dMr;
 	cfg.get(tmp,   "absmag_grid",   "3 15 0.01"); ss.clear(); ss.str(tmp);
@@ -154,6 +155,7 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	{
 		THROW(EAny, "Error reading FeH field from config file. Expect FeH = <FeH0> <FeH1> <dFeH>, got FeH = " + tmp);
 	}
+#endif
 
 	// find and open the definition file for the isochrones
 	std::string fname;
@@ -180,6 +182,49 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	{
 		v[FeH].push_back(mc);
 	}
+	assert(!v.empty());
+
+#if 1
+	double dFeH, dMr;
+	cfg.get(dFeH, "dFeH", 0.);
+	cfg.get(dMr,  "dM",   0.);
+	if(dFeH == 0)
+	{
+		cfg.get(tmp,   "FeH_grid",   "-3 0.5 0.01");
+		std::istringstream ss(tmp); double dummy;
+		if(!(ss >> dummy >> dummy >> dFeH))
+		{
+			THROW(EAny, "Error reading FeH field from config file. Expect FeH = <FeH0> <FeH1> <dFeH>, got FeH = " + tmp);
+		}
+		MLOG(verb1) << "WARNING: Explicit setting of CMR grid bounds using 'FeH_grid' is deprecated. Use 'dFeH' to specify just the sampling interval.";
+	}
+	if(dMr == 0)
+	{
+		cfg.get(tmp,   "absmag_grid",   "3 15 0.01");
+		std::istringstream ss(tmp); double dummy;
+		if(!(ss >> dummy >> dummy >> dMr))
+		{
+			THROW(EAny, "Error reading Mr field from config file. Expect Mr = <Mr0> <Mr1> <dMr>, got Mr = " + tmp);
+		}
+		MLOG(verb1) << "WARNING: Explicit setting of CMR grid bounds using 'absmag_grid' is deprecated. Use 'dM' to specify just the sampling interval.";
+	}
+	assert(dFeH > 0.f);
+	assert(dMr > 0.f);
+
+	double FeH0, FeH1, Mr0, Mr1;
+	FeH0 = FeH1 = v.begin()->first;
+	Mr0 = Mr1 = v.begin()->second[0].Mr;
+	FOREACH(v)
+	{
+		FeH0 = std::min(FeH0, i->first);
+		FeH1 = std::max(FeH1, i->first);
+		FOREACHj(j, i->second)
+		{
+			Mr0 = std::min(Mr0, j->Mr);
+			Mr1 = std::max(Mr1, j->Mr);
+		}
+	}
+#endif
 
 	// compute the needed texture size, and the texture coordinates
 	int nFeH = (int)((FeH1-FeH0)/dFeH + 1);	// +1 pads it a little, to ensure FeH1 gets covered
@@ -187,7 +232,13 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	float2 tcFeH = texcoord_from_range(0, nFeH, FeH0, FeH0 + nFeH*dFeH);
 	float2 tcMr  = texcoord_from_range(0, nMr,   Mr0,  Mr0 +  nMr*dMr);
 
-	MLOG(verb1) << "Photometry: " << bandset2 << " for components " << applyToComponents << (!internalPhotosys ? " (" + fname + ")" : "") << "   ## " << instanceName();
+//	MLOG(verb1) << "Photometry: " << bandset2 << " for components " << applyToComponents << (!internalPhotosys ? " (" + fname + ")" : "") << "   ## " << instanceName();
+	MLOG(verb1) << "Photometry: " << bandset2 << " ("
+		<< FeH0 << " <= FeH <= " << FeH1 << " [" << dFeH << "], "
+		<<  Mr0 << " <= M <= "   <<  Mr1 << " [" << dMr << "]"
+		<< (!internalPhotosys ? ", " + fname : "") 
+		<< ") for components " << applyToComponents
+		<< "   ## " << instanceName();
 	MLOG(verb2) << bandset2 << ": Generating " << bnames.size() << " bands: " << bnames;
 	MLOG(verb2) << bandset2 << ": Input absolute magnitude assumed to be in " << bband << " band.";
 	MLOG(verb2) << bandset2 << ": Using color(" << absbband << ", FeH) table from " << fname << ".";

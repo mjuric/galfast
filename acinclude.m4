@@ -28,7 +28,8 @@ dnl Extract the path name from a --with-boost=PATH argument
   WANT_BOOST_MINOR=`expr $boost_min_version : '[[0-9]]\+\.\([[0-9]]\+\)'`
   WANT_BOOST_SUB_MINOR=`expr $boost_min_version : '[[0-9]]\+\.[[0-9]]\+\.\([[0-9]]\+\)'`
 
-  BOOST_CPPFLAGS="-I$BOOST_ROOT/include/boost-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR"
+#  BOOST_CPPFLAGS="-I$BOOST_ROOT/include/boost-${WANT_BOOST_MAJOR}_$WANT_BOOST_MINOR"
+  BOOST_CPPFLAGS="-I$BOOST_ROOT/include"
 
   AC_LANG_SAVE
   AC_LANG_CPLUSPLUS
@@ -105,7 +106,8 @@ AC_DEFUN([RS_BOOST_THREAD],
   OLD_CPPFLAGS="$CPPFLAGS"
   CPPFLAGS="$BOOST_CPPFLAGS -D_REENTRANT"
   OLD_LIBS="$LIBS"
-  LIBS="-lboost_thread$boost_libsuff_r"
+#  LIBS="-lboost_thread$boost_libsuff_r"
+  LIBS="-lboost_thread"
     AC_TRY_COMPILE(
 	    [ 
 		#include <boost/thread.hpp> 

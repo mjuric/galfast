@@ -140,6 +140,7 @@ bool os_photometricErrors::runtime_init(otable &t)
 		return true;
 	}
 
+	std::ostringstream ss;
 	FOREACH(bandset)
 	{
 		if(availableErrors.count(*i) == 0 ) { continue; }
@@ -178,15 +179,18 @@ bool os_photometricErrors::runtime_init(otable &t)
 			columnsToTransform.push_back(errdef(obsBandset, trueBandset, bandIdx, bandErrors));
 
 			MLOG(verb2) << "Adding photometric errors to " << trueBandset << "." << *i << " (output in " << obsBandset << "." << *i << ")";
+			if(!ss.str().empty()) { ss << ", "; }
+			ss << "obs" << *i;
 		}
 	}
+	MLOG(verb1) << "Photometric errors: Adding errors to {" << ss.str() << "}   ## " << instanceName();
 	return true;
 }
 
 void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::string &band, const std::vector<double> &mag, const std::vector<double> &sigma)
 {
 	availableErrors[bandset][band].construct(mag, sigma);
-	MLOG(verb2) << "Acquired photometric errors for " << bandset << ", " << band << " band";
+	MLOG(verb2) << "Found photometric errors definition for " << bandset << ", " << band << " band";
 }
 
 void os_photometricErrors::addErrorCurve(const std::string &bandset, const std::string &band, const std::string &file)
@@ -216,7 +220,7 @@ bool os_photometricErrors::construct(const Config &cfg, otable &t, opipeline &pi
 	//
 	// Expected banderrs.txt format:
 	//   <mag>   <sigma(mag)>
-	
+
 	// convenience -- 'SDSSugriz.file = internal' slurps up anything with
 	// SDSSugriz.*.photoerr.txt from data directory
 	std::set<std::string> skeys;

@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include "gpu.h"
+#include "io.h"
 
 #include <astro/math.h>
 #include <astro/system/options.h>
@@ -197,6 +198,7 @@ try
 
 	if(cmd == "catalog")
 	{
+		((std::map<std::string, std::string>&)Config::globals)["DATADIR"] = datadir();
 		if(modules.empty())
 		{
 			// find and load the definitions first, if any

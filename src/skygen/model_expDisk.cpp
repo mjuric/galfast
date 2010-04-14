@@ -92,6 +92,11 @@ void expDisk::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	MLOG(verb1) << "Component " << userComp << " : " << "exponential disk {" << l << ", " << h << ", " << lffile << "}";
 }
 
+bool expDisk::hint_absmag(host_state_t &hstate, float &M0, float &M1) const
+{
+	return absmag_adjust_from_lf(hstate.lf, M0, M1);
+}
+
 extern "C" skygenInterface *create_model_exponentialdisk()
 {
 	return new skygenHost<expDisk>();

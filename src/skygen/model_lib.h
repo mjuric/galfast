@@ -79,4 +79,21 @@ cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg
 	return lf;
 }
 
+inline void tex_get_bounds_1D(const cuxTexture<float> &tex, float &X0, float &X1)
+{
+	X0 = tex.coords[0].x;
+	X1 = double(tex.width()-1)/tex.coords[0].y + X0;
+}
+
+inline bool absmag_adjust_from_lf(const cuxTexture<float> &tex, float &M0, float &M1)
+{
+	float X0, X1;
+	tex_get_bounds_1D(tex, X0, X1);
+	
+	bool ret = false;
+	if(X0 > M0) { ret = true; M0 = X0; }
+	if(X1 < M1) { ret = true; M1 = X1; }
+	return ret;
+}
+
 #endif

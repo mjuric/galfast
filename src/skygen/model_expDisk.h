@@ -65,6 +65,7 @@ public:
 	void load(host_state_t &hstate, const peyton::system::Config &cfg);
 	void prerun(host_state_t &hstate, bool draw);
 	void postrun(host_state_t &hstate, bool draw);
+	bool hint_absmag(host_state_t &hstate, float &M0, float &M1) const;
 
 public:
 	__device__ float rho(float x, float y, float z) const

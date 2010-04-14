@@ -249,8 +249,16 @@ bool skygenHost<T>::init(
 	// load the model
 	this->model.load(model_host_state, cfg);
 
-	// setup config & pixels
+	// setup config
 	(skygenParams &)*this = sc;
+	float M0 = this->M0, M1 = this->M1 + 0.5*this->dM;
+	if(this->model.hint_absmag(model_host_state, M0, M1))
+	{
+		reset_absmag(M0, M1, this->dM);
+		MLOG(verb2) << " : Restricting absolute magnitude range to " << M0 << " - " << M1;
+	}
+
+	// setup pixels
 	cpu_pixels = new pencilBeam[this->npixels];
 	FOR(0, this->npixels) { cpu_pixels[i] = pixels[i]; }
 

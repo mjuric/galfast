@@ -70,6 +70,7 @@ struct modelConcept
 	void load(host_state_t &hstate, const peyton::system::Config &cfg);	// loads the density model configuration
 	void prerun(host_state_t &hstate, bool draw);				// called before executing the model generation kernel
 	void postrun(host_state_t &hstate, bool draw);				// called after executing the model generation kernel
+	bool hint_absmag(host_state_t &hstate, float &M0, float &M1) const;	// allow the model to provide a hint as to the range of absmags that is nonzero
 
 	__device__ void setpos(state &s, float x, float y, float z) const;	// set the 3D position which will be implied in subsequent calls to rho()
 	__device__ float rho(state &s, float M) const;				// return the number density at the position set by setpos, and absolute magnitude M
@@ -157,6 +158,8 @@ struct ALIGN(16) skygenParams
 	int stopstars;			// stop after this many stars have been generated
 
 	lambert proj[2];		// north/south sky lambert projections
+
+	void reset_absmag(float M0, float M1, float dM);
 };
 
 //

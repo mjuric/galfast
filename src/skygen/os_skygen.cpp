@@ -336,6 +336,14 @@ int os_skygen::load_models(skygenParams &sc, const std::string &model_cfg_list, 
 	sort(kernels.begin(), kernels.end(), aux_kernel_sorter());
 }
 
+void skygenParams::reset_absmag(float M0_, float M1_, float dM_)
+{
+	M0 = M0_; M1 = M1_; dM = dM_;
+	nM = (int)round((M1 - M0) / dM);
+
+	M1 -= 0.5*dM;	// make M1 the center of the last bin
+}
+
 void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, const Config &cfg)
 {
 	// sky binning scale
@@ -354,10 +362,9 @@ void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, const Co
 	cfg.get(sc.dmin, "dmin", 0.f);
 	cfg.get(sc.dmax, "dmax", 0.f);
 
-	sc.nM = (int)round((sc.M1 - sc.M0) / sc.dM);
+	sc.reset_absmag(sc.M0, sc.M1, sc.dM);
 	sc.nm = (int)round((sc.m1 - sc.m0) / sc.dm);
 	sc.m0 += 0.5*sc.dm;
-	sc.M1 -= 0.5*sc.dM;
 }
 
 #if HAVE_LIBCFITSIO

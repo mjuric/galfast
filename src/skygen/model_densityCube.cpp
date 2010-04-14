@@ -23,6 +23,7 @@
 #include "analysis.h"
 #include <fstream>
 
+#include "model_lib.h"
 #include "model_densityCube.h"
 #include "../gdc.h"
 #include "skyconfig_impl.h"
@@ -297,6 +298,11 @@ void densityCube::load(host_state_t &hstate, const peyton::system::Config &cfg)
 	{
 		hstate.lf = load_constant_texture_1D(1.f, -100., 100.);
 	}
+}
+
+bool densityCube::hint_absmag(host_state_t &hstate, float &M0, float &M1) const
+{
+	return absmag_adjust_from_lf(hstate.lf, M0, M1);
 }
 
 extern "C" skygenInterface *create_model_densitycube()

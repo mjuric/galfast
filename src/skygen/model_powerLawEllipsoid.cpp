@@ -104,6 +104,11 @@ void powerLawEllipsoid::load(host_state_t &hstate, const peyton::system::Config 
 	MLOG(verb1) << "Component " << userComp << " : " << "power law ellipsoid {" << n << ", " << ca << ", " << ba << ", " << lffile << "}";
 }
 
+bool powerLawEllipsoid::hint_absmag(host_state_t &hstate, float &M0, float &M1) const
+{
+	return absmag_adjust_from_lf(hstate.lf, M0, M1);
+}
+
 extern "C" skygenInterface *create_model_powerlawellipsoid()
 {
 	return new skygenHost<powerLawEllipsoid>();

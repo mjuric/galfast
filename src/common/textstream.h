@@ -47,11 +47,12 @@ protected:
 public:
 	int nread;
 	std::string line;
+	int m_line;
 	bool is_comment;
 public:
 	
 public:
-	itextstream(std::istream &f_) : f(f_), nread(0), max_field(0), ret_comments(false) {}
+	itextstream(std::istream &f_) : f(f_), nread(0), max_field(0), ret_comments(false), m_line(0) {}
 
 	void bind(std::string &s, int p) { fields[p] = field(p, s); max_field = std::max(max_field, p); }
 	void bind(double &s, int p) { fields[p] = field(p, s); max_field = std::max(max_field, p); }
@@ -77,7 +78,13 @@ public:
 	}
 
 	bool returncomments(bool rc) { ret_comments = rc; }
-	
+
+	void getline(std::istream &is, std::string &str)
+	{
+		std::getline(is, str);
+		m_line++;
+	}
+
 	itextstream &skip(int n = 1)
 	{
 		while(n > 0)
@@ -102,6 +109,7 @@ public:
 	itextstream &next()
 	{
 		nread = -1;
+		is_comment = false;
 		do {
 			getline(f, line);
 //			std::cerr << "LINE: [" << line << "] " << (bool)*this << "\n";
@@ -167,7 +175,11 @@ public:
 		return *this;
 	}*/
 
-	operator bool() { return nread != -1; }
+	int last_line_read() const { return m_line; }
+
+	bool noerror() { return *this || f.eof(); }
+	operator bool() { return iscomment() || (nread == fields.size()); }
+	//operator bool() { return nread != -1; }
 	bool iscomment() { return is_comment; }
 };
 

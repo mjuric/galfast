@@ -182,7 +182,11 @@ bool os_photometry::construct(const Config &cfg, otable &t, opipeline &pipe)
 	{
 		v[FeH].push_back(mc);
 	}
-	assert(!v.empty());
+	if(v.empty() || !in.noerror())
+	{
+		THROW(EAny, "Error reading color-metallicity-magnitude relations from '" + fname + "' around line " + str(in.last_line_read()) 
+			+ ". Is the formatted correctly, and does it contain " + str(2+ncolors) + " columns?");
+	}
 
 #if 1
 	double dFeH, dMr;

@@ -22,7 +22,7 @@
   <kdevautoproject>
     <general>
       <activetarget>src/galfast.x</activetarget>
-      <useconfiguration>debug</useconfiguration>
+      <useconfiguration>optimized</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/galfast.x</mainprogram>
@@ -79,16 +79,16 @@
         <ccompiler>kdevgccoptions</ccompiler>
         <cxxcompiler>kdevgppoptions</cxxcompiler>
         <f77compiler>kdevg77options</f77compiler>
-        <cxxflags>-O2 -g</cxxflags>
-        <configargs>--enable-debug=full --prefix=$HOME/projects/galaxy/workspace/staging --with-cuda --enable-cuda-devemu --with-libpeyton=$HOME/projects/libpeyton --with-libpeyton-libdir=$HOME/projects/libpeyton/lib-optimized</configargs>
-        <topsourcedir/>
+        <cxxflags>-O2 -Wstrict-aliasing -fno-strict-aliasing</cxxflags>
+        <configargs>--with-cuda --enable-cuda-devemuX --with-sm=/usr/local --with-libpeyton=$HOME/projects/libpeyton --prefix=$HOME/projects/galaxy/workspace/staging --with-cfitsio-include=/usr/include/cfitsio --with-libpeyton-libdir=$HOME/projects/libpeyton/lib-optimized</configargs>
+        <topsourcedir></topsourcedir>
         <cppflags>-DDEBUGMODE=0</cppflags>
-        <ldflags/>
-        <ccompilerbinary/>
-        <cxxcompilerbinary/>
-        <f77compilerbinary/>
-        <cflags/>
-        <f77flags/>
+        <ldflags>-rdynamic -L/opt/cudatools/2.3/lib</ldflags>
+        <ccompilerbinary></ccompilerbinary>
+        <cxxcompilerbinary></cxxcompilerbinary>
+        <f77compilerbinary></f77compilerbinary>
+        <cflags></cflags>
+        <f77flags></f77flags>
         <envvars/>
       </optimized>
       <debug>

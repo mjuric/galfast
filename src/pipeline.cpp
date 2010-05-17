@@ -1246,6 +1246,7 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<C
 	size_t Kbatch = 5000000;
 	EnvVar kb("KBATCH");
 	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
+	if(kb) { MLOG(verb1) << "Batch size: " << Kbatch << " objects"; }
 	DLOG(verb1) << "Processing in batches of " << Kbatch << " objects";
 	otable t(Kbatch);
 

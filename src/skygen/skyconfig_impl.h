@@ -39,6 +39,7 @@ struct star_comp
 	cint_t::host_t		comp;
 	cfloat_t::host_t	M, Am, AmInf;
 	cfloat_t::host_t	DM;
+	cint_t::host_t		hidden;
 
 	star_comp(otable &in)
 	{
@@ -51,15 +52,18 @@ struct star_comp
 		Am      = in.col<float>("Am");
 		AmInf   = in.col<float>("AmInf");
 		DM      = in.col<float>("DM");
+		hidden  = in.col<int>("hidden");
 	}
 
 	bool operator()(const size_t a, const size_t b) const	// less semantics
 	{
-		return	lb(a, 0) <  lb(b, 0)	||	lb(a, 0) == lb(b, 0) && (
+		return	hidden(a)<  hidden(b)   ||      hidden(a)== hidden(b) && (	// need to sort by hidden first, as other fields may not even be set if hidden is
+			lb(a, 0) <  lb(b, 0)	||	lb(a, 0) == lb(b, 0) && (
 			lb(a, 1) <  lb(b, 1)	||	lb(a, 1) == lb(b, 1) && (
 			DM(a)    <  DM(b)	||	DM(a)    == DM(b) && (
-			M(a)     <  M(b)
-			)));
+			M(a)     <  M(b)	||	M(a)     == M(b)  && (
+			Am(a)    <  Am(b)
+			)))));
 	}
 };
 
@@ -413,8 +417,9 @@ double skygenHost<T>::integrateCounts(float &runtime, const char *denmapPrefix)
 	ss << "<--" << pow10f(this->lrho0+(this->nhistbins-0.5)*this->dlrho);
 	MLOG(verb2) << ss.str();
 
-	MLOG(verb1) << "Comp. " << componentMap.compID(this->model.component()) << " starcount : " << std::setprecision(9) << this->nstarsExpected
-		<< " (" << this->nstarsExpectedToGenerate << " in pixelized area)";
+	MLOG(verb1) << "Comp. " << componentMap.compID(this->model.component()) << " counts : " << std::setprecision(9)
+		<< this->nstarsExpectedToGenerate << " to generate, "
+		<< this->nstarsExpected << " within footprint.";
 
 	swatch.stop();
 	runtime = swatch.getTime();
@@ -435,8 +440,9 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 	this->output_table_capacity = in.capacity();
 
 	this->ks.alloc(this->nthreads);
-	uint64_t total = 0;
-	do
+	uint64_t totalGenerated = 0, totalStored = 0;
+	bool generated_all = false;
+	while(!generated_all)
 	{
 		// setup output destination
 		this->stars.lb      = in.col<double>("lb");
@@ -448,6 +454,7 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		this->stars.comp    = in.col<int>("comp");
 		this->stars.M       = in.col<float>("absmag");
 		this->stars.DM      = in.col<float>("DM");
+		this->stars.hidden  = in.col<int>("hidden");
 
 		// call the generation kernel
 		upload(true, 0, this->npixels);
@@ -455,6 +462,7 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		download(true, 0, this->npixels);
 
 		in.set_size(this->stars_generated);	// truncate the table to the number of rows that were actually generated
+		generated_all = this->stars_generated < this->stopstars;
 
 		{
 			//
@@ -483,6 +491,7 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 				SWAP(comp);
 				SWAP(M);
 				SWAP(DM);
+				SWAP(hidden);
 
 				std::swap(h2a[hi], h2a[hj]);
 				std::swap(a2h[i],  a2h[j]);
@@ -498,23 +507,26 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		swatch.stop();
 		if(in.size())
 		{
-			total += nextlink->process(in, 0, in.size(), *cpurng);
+			totalGenerated += in.size();
+			totalStored += nextlink->process(in, 0, in.size(), *cpurng);
 		}
 		swatch.start();
-		
-		double pctdone = 100. * total / this->nstarsExpected;
-		char pcts[50]; sprintf(pcts, "%.0f", pctdone);
-		MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " progress: " << pcts << "% done.";
 
-	} while(this->stars_generated >= this->stopstars);
+		if(!generated_all)
+		{
+			double pctdone = 100. * totalGenerated / this->nstarsExpectedToGenerate;
+			char pcts[50]; sprintf(pcts, "%.0f", pctdone);
+			MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " progress: " << pcts << "% done.";
+		}
+	};
 
-	double sigma = (total - this->nstarsExpected) / sqrt(this->nstarsExpected);
-	char sigmas[50]; sprintf(sigmas, "% 4.1f", sigma);
-	MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " completed: " << total << " stars, " << sigmas << " sigma from input model mean (" << this->nstarsExpected << ").";
+	double sigma = (totalGenerated - this->nstarsExpectedToGenerate) / sqrt(this->nstarsExpectedToGenerate);
+	char sigmas[50]; sprintf(sigmas, "%.1f", sigma);
+	MLOG(verb1) << "Comp. "<< componentMap.compID(this->model.component()) << " completed: " << totalStored << " stars (" << totalGenerated << " generated, " << sigmas << " sigma from " << this->nstarsExpectedToGenerate << ").";
 
 	swatch.stop();
 	runtime = swatch.getTime();
 	DLOG(verb1) << "run() runtime: " << runtime << "s";
 
-	return total;
+	return totalStored;
 }

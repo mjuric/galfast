@@ -30,6 +30,14 @@
 #include <limits>
 #include <cassert>
 #include "skygen.h"
+#include "../gpulog/gpulog.h"
+#include "../gpulog/lprintf.h"
+
+#if __CUDACC__
+	#define LPRINTF(...) lprintf(dlog, __VA_ARGS__)
+#else
+	#define LPRINTF(...) printf(__VA_ARGS__)
+#endif
 
 #include <gsl/gsl_statistics_float.h>
 
@@ -38,10 +46,20 @@ using namespace cudacc;
 __constant__ gpuRng::constant rng;	// GPU RNG
 __constant__ lambert proj[2];		// Projection definitions for the two hemispheres
 
+#if __CUDACC__
+// The assumption is all CUDA code will be concatenated/included and compiled
+// as a single source file (thus avoiding the creation of duplicate copies of 
+// hlog and dlog)
+gpulog::host_log hlog;
+__constant__ gpulog::device_log dlog;
+#endif
+extern "C" void flush_logs();	// GPU debug logs
+
 /********************************************************/
 
 DEFINE_TEXTURE(ext_north, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(ext_south, float, 3, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
+DEFINE_TEXTURE(ext_beam, float, 3, cudaReadModeElementType, false, cudaFilterModePoint, cudaAddressModeClamp);
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 3D texture resampler, used mainly to debug extinction maps. Should be moved to a separate file.
@@ -189,7 +207,6 @@ __device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
 		Am = TEX3D(ext_north, X, Y, DM);
 	else
 		Am = TEX3D(ext_south, X, Y, DM);
-
 	return Am;
 }
 
@@ -206,7 +223,10 @@ __device__ float3 skygenGPU<T>::compute_pos(float &D, float &Am, float M, const 
 	float DM = m - M;
 
 	D = powf(10.f, 0.2f*DM + 1.f);
-	Am = sampleExtinction(pix.projIdx, pix.X, pix.Y, DM);
+
+	int xidx = pix.extIdx / 2048;
+	int yidx = pix.extIdx % 2048;
+	Am = TEX3D(ext_beam, xidx, yidx, DM);
 
 	return pix.xyz(D);
 }
@@ -347,36 +367,29 @@ __device__ bool skygenGPU<T>::advance(int &ilb, int &i, int &j, pencilBeam &dir,
 	stars. If there isn't, ndraw will be != 0 upon return.
 */
 template<typename T>
-__device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix) const
+__device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix, float AmMin) const
 {
 	if(!ndraw) { return; }
 
 	int idx = atomicAdd(nstars.ptr, ndraw);
 
-	for(; ndraw && idx < stopstars; idx++)
+	for(; ndraw && idx < stopstars; idx++, ndraw--)
 	{
-		// Draw the distance and absolute magnitude
-		float Mtmp, mtmp, DM;
-		stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
-		mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
-		DM = mtmp - Mtmp;
-		stars.DM(idx) = DM;
-		float D = powf(10, 0.2f*DM + 1.f);
-
 		// Draw the position within the pixel
 		float x = pix.X, y = pix.Y;
 		x += pix.dx*(rng.uniform() - 0.5f);
 		y += pix.dx*(rng.uniform() - 0.5f);
+
+		// stop right away if we're beyond the boundaries of the projection.
+		if(x*x + y*y > 2.f)
+		{
+			stars.hidden(idx) = 1;
+			continue;
+		}
+
 		stars.projIdx(idx) = pix.projIdx;
 		stars.projXY(idx, 0) = x;
 		stars.projXY(idx, 1) = y;
-
-		// Draw extinction
-		float Am0, Am1;
-		stars.Am(idx) = Am0 = sampleExtinction(pix.projIdx, x, y, DM);
-		Am1 = sampleExtinction(pix.projIdx, x, y, 100);
-		stars.AmInf(idx) = Am1 > Am0 ? Am1 : Am0;	// work around the situation where due to trilinear interp. in _all_ dimensions AmInf can come out being slightly smaller than Am
-								// FIXME: implement a proper (possibly nontrivial) fix for this, some day
 
 		// Transform projected coordinates to (l,b), in degrees
 		double l, b;
@@ -389,6 +402,14 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 		stars.lb(idx, 0) = l;
 		stars.lb(idx, 1) = b;
 
+		// Draw the distance and absolute magnitude
+		float Mtmp, mtmp, DM;
+		stars.M(idx) = Mtmp = M + dM*(rng.uniform() - 0.5f);
+		mtmp = m0 + dm*(im + rng.uniform() - 0.5f);
+		DM = mtmp - Mtmp;
+		stars.DM(idx) = DM;
+		float D = powf(10, 0.2f*DM + 1.f);
+
 		// Compute and store the 3D position (XYZ)
 		float3 pos = dir2.xyz(D);
 		stars.XYZ(idx, 0) = pos.x;
@@ -399,7 +420,42 @@ __device__ void skygenGPU<T>::draw_stars(int &ndraw, const float &M, const int &
 		//stars.comp(idx) = model.component(pos.x, pos.y, pos.z, Mtmp, rng);
 		stars.comp(idx) = model.component();
 
-		ndraw--;
+		// Draw extinction
+		float Am0, Am1;
+		stars.Am(idx) = Am0 = sampleExtinction(pix.projIdx, x, y, DM);
+		Am1 = sampleExtinction(pix.projIdx, x, y, 100);
+		stars.AmInf(idx) = Am1 > Am0 ? Am1 : Am0;	// work around the situation where due to trilinear interp. in _all_ dimensions AmInf can come out being slightly smaller than Am
+								// FIXME: implement a proper (possibly nontrivial) fix for this, some day
+
+		// hide the star if the magnitude is beyond the flux limit
+		if(mtmp + Am0 > m1)
+		{
+			stars.hidden(idx) = 1;
+		}
+		else
+		{
+			stars.hidden(idx) = 0;
+		}
+
+		if(AmMin > Am0)
+		{
+#if __CUDACC__
+			float2 &tcx = ext_northTC[0];
+			float2 &tcy = ext_northTC[1];
+			float2 &tcz = ext_northTC[2];
+			float xi = (x - tcx.x) * tcx.y + 0.5f;
+			float yi = (y - tcy.x) * tcy.y + 0.5f;
+			float zi = (DM - tcz.x) * tcz.y + 0.5f;
+			int extx = pix.extIdx / 2048;
+			int exty = pix.extIdx % 2048;
+			LPRINTF("%f > %f : (%f, %f, %f) -> (%f, %f, %f)!\n", AmMin, Am0, x, y, DM, xi, yi, zi);
+			LPRINTF("          l,b=%.10f %.10f\n", l, b);
+			LPRINTF("          beam=%f beamIdx=%d\n", TEX3D(ext_beam, extx, exty, 10000), pix.extIdx);
+			LPRINTF("          idx=%d ndraw=%d\n", idx, ndraw);
+			LPRINTF("          projIdx=%d\n", pix.projIdx);
+#endif
+			stars.AmInf(idx) = -AmMin;
+		}
 	}
 }
 
@@ -445,7 +501,7 @@ __device__ void skygenGPU<T>::kernel() const
 		if(ndraw)
 		{
 			float M = M1 - iM*dM;
-			draw_stars(ndraw, M, im, pix);
+			draw_stars(ndraw, M, im, pix, Am);
 		}
 	}
 
@@ -491,7 +547,7 @@ __device__ void skygenGPU<T>::kernel() const
 			if(ilb >= npixels) { break; }
 
 			// We moved to a new distance bin. Recompute and reset.
-			pos = compute_pos(D, Am,     M, im, pix);
+			pos = compute_pos(D, Am, M, im, pix);
 			model.setpos(ms, pos.x, pos.y, pos.z);
 		}
 
@@ -518,7 +574,7 @@ __device__ void skygenGPU<T>::kernel() const
 				ndraw = rng.poisson(rho);
 			}
 
-			draw_stars(ndraw, M, im, pix);
+			draw_stars(ndraw, M, im, pix, Am);
 		}
 		else
 		{
@@ -600,6 +656,8 @@ void skygenHost<T>::compute(bool draw)
 #endif
 	cuxErrCheck( cudaThreadSynchronize() );
 	kernelRunSwatch.stop();
+
+	flush_logs();
 }
 
 #include "model_J08.h"

@@ -94,9 +94,11 @@ struct ALIGN(16) pencilBeam : public direction
 	int projIdx;		// index of the lambert projection in which this pixel was constructed
 	float X, Y;		// lambert coordinates of this pencil beam (in projIdx projection)
 
+	int extIdx;		// index into per-beam extinction texture
+
 	pencilBeam() {}
-	pencilBeam(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_)
-	: direction(l_, b_), X(X_), Y(Y_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_)
+	pencilBeam(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_, int extIdx_)
+	: direction(l_, b_), X(X_), Y(Y_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_), extIdx(extIdx_)
 	{ }
 };
 
@@ -171,6 +173,7 @@ struct ALIGN(16) ocolumns
 	cint_t::gpu_t		projIdx;
 	cfloat_t::gpu_t		projXY, DM, M, XYZ, Am, AmInf;
 	cint_t::gpu_t		comp;
+	cint_t::gpu_t		hidden;
 };
 
 //
@@ -286,7 +289,7 @@ struct ALIGN(16) skygenGPU : public skygenParams
 	template<int draw> __device__ void kernel() const;
 	__device__ float3 compute_pos(float &D, float &Am, float M, const int im, const pencilBeam &dir) const;
 	__device__ bool advance(int &ilb, int &i, int &j, pencilBeam &pix, const int x, const int y) const;
-	__device__ void draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix) const;
+	__device__ void draw_stars(int &ndraw, const float &M, const int &im, const pencilBeam &pix, float AmMin) const;
 };
 
 //

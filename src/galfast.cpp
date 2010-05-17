@@ -22,6 +22,8 @@
 
 #include "gpu.h"
 #include "io.h"
+#include "gpulog/gpulog.h"
+void init_logs(); // defined in os_skygen()
 
 #include <astro/math.h>
 #include <astro/system/options.h>
@@ -160,6 +162,7 @@ try
 		MLOG(verb1) << "Error initializing GPU acceleration. Aborting.";
 		return -1;
 	}
+	init_logs();
 
 	if(cmd == "util cudaquery")
 	{

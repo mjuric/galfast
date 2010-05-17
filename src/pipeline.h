@@ -75,6 +75,7 @@ class opipeline_stage
 		enum
 		{
 			ord_input,
+			ord_clipper,
 			ord_feh,
 			ord_multiples,
 			ord_kinematics,

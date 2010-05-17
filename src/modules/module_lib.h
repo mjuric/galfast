@@ -104,6 +104,9 @@
 			return ret;
 		};
 
+		__device__ __host__ double lon() const { return atan2(sl, cl); }
+		__device__ __host__ double lat() const { return atan2(sb, cb); }
+
 		direction() {}
 		direction(double l_, double b_)				// l,b are in radians
 		: cl(cos(l_)), cb(cos(b_)), sl(sin(l_)), sb(sin(b_))

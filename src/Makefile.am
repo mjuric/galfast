@@ -31,7 +31,7 @@ SUBDIRS = common gpc modules skygen
 # explicit dependency for CUDA sources
 include ./$(DEPDIR)/kernels_gpu.Po
 
-noinst_HEADERS = simulate_gpu.cu.h sph_polygon.h pipeline.h
+noinst_HEADERS = pipeline.h simulate_gpu.cu.h sph_polygon.h
 galfast_x_SOURCES = footprint.cpp galfast.cpp kernels_cpu.cpp kernels_gpu.cu \
 	pipeline.cpp tests.cpp
 galfast_x_LDADD = $(top_builddir)/src/skygen/libskygen.la \

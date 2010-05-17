@@ -75,7 +75,7 @@ public:
 	virtual bool construct(const peyton::system::Config &cfg, otable &t, opipeline &pipe); // NOTE: overriden as it's abstract, but should NEVER be called directly. Use construct_from_hemispheres() instead.
 	virtual const std::string &name() const { static std::string s("clipper"); return s; }
 	//virtual int priority() { return PRIORITY_INSTRUMENT; } // ensure this module is placed near the end of the pipeline
-	virtual double ordering() const { return ord_telescope_pupil; }
+	virtual double ordering() const { return ord_clipper; }
 
 	// constructs the clipper object from north/south hemispheres in projection proj
 	void construct_from_hemispheres(float dx, const peyton::math::lambert &nproj, const std::pair<gpc_polygon, gpc_polygon> &sky);
@@ -104,6 +104,7 @@ protected:
 	bool dryrun;		// whether to stop after computing the expected number of stars
 	float nstars;		// the mean number of stars to generate (if nstars=0, the number will be determined by the model)
 	cuxTexture<float, 3>	ext_north, ext_south;	// north/south extinction maps
+	cuxTexture<float, 3>	ext_beam; // maps of minimum extinction for each pixel (coords are x==pixelIndex/2048, y=pixelIndex%2048, y==DM)
 
 	std::string denMapPrefix;	// HACK: dump the starcount density of each component into a file named denMapPrefix.$comp.txt
 
@@ -114,11 +115,11 @@ public:
 	virtual const std::string &type() const { static std::string s("input"); return s; }
 
 protected:
-	const os_clipper &load_footprints(const std::string &footprints, float dx, opipeline &pipe);
 	skygenInterface *create_kernel_for_model(const std::string &model);
-	int load_models(skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper);
+	void load_footprints(skygenParams &sc, std::vector<pencilBeam> &skypixels, const std::string &footprints, float dx, opipeline &pipe);
+	int load_models(skygenParams &sc, const std::string &model_cfg_list, const std::vector<pencilBeam> &skypixels);
 	void load_skyPixelizationConfig(float &dx, skygenParams &sc, const Config &cfg);
-	void load_extinction_maps(const std::string &econf);
+	void load_extinction_maps(std::vector<pencilBeam> &skypixels, const skygenParams &sc, const std::string &econf);
 };
 extern "C" opipeline_stage *create_module_skygen() { return new os_skygen(); }	// Factory; called by opipeline_stage::create()
 
@@ -235,7 +236,7 @@ partitioned_skymap *make_skymap(Radians dx, gpc_polygon sky)
 // defined in footprint.cpp
 std::pair<gpc_polygon, gpc_polygon> load_footprints(const std::vector<Config::filespec> &footstr, const peyton::math::lambert &proj, Radians equatorSamplingScale);
 
-const os_clipper &os_skygen::load_footprints(const std::string &footprints, float dx, opipeline &pipe)
+void os_skygen::load_footprints(skygenParams &sc, std::vector<pencilBeam> &skypixels, const std::string &footprints, float dx, opipeline &pipe)
 {
 	std::vector<Config::filespec> footstr;
 	split(footstr, footprints);
@@ -256,7 +257,88 @@ const os_clipper &os_skygen::load_footprints(const std::string &footprints, floa
 	gpc_free_polygon(&sky.first);
 	gpc_free_polygon(&sky.second);
 
-	return clipper;
+	// projections the pixels are bound to
+	std::vector<std::pair<double, double> > lb0;	// projection poles
+	int nproj = clipper.getProjections(lb0);
+	assert(nproj == 2);
+	for(int i=0; i != lb0.size(); i++)
+	{
+		sc.proj[i].init(lb0[i].first, lb0[i].second);
+	}
+
+	// prepare the skypixels to be processed by subsequently loaded models
+	std::vector<os_clipper::pixel> pix;
+	sc.npixels = clipper.getPixelCenters(pix);
+	skypixels.resize(sc.npixels);
+	Radians pixdx = 0;
+	FOR(0, sc.npixels)
+	{
+		os_clipper::pixel &p = pix[i];
+		float coveredFraction = p.coveredArea / p.pixelArea;
+		pixdx = sqrt(p.pixelArea);
+		skypixels[i] = pencilBeam(p.l, p.b, p.X, p.Y, p.projIdx, pixdx, coveredFraction, -1);
+	}
+
+	MLOG(verb1) << "Footprint: Tiled with " << sc.npixels << " " << deg(pixdx) << "x" << deg(pixdx) << " deg^2 pixels";
+}
+
+void find_extinction_minima(cuxTexture<float, 3> &ext_beam, const pencilBeam &p, const cuxTexture<float, 3> &tex, const ::lambert &proj)
+{
+	int xidx = p.extIdx / 2048;
+	int yidx = p.extIdx % 2048;
+
+	// Find minimum extinctions along a pencil beam p
+	// It is assumed that ext_binned has already been correctly sized, and
+	// the values initialized
+	ASSERT(ext_beam.depth() == tex.depth());
+	ASSERT(xidx*2048 + yidx < ext_beam.width()*ext_beam.height());
+
+	// bottom left corner of this pixel assuming the pixel is square
+	// and aligned with the coordinates of the given projection
+	float x, y;
+	proj.project(x, y, p);
+
+	// find all texture pixels that may overlap this sky pixel. These are
+	// those satisfying the worst-case condition that the distance between the centers is
+	// leq. sqrt(2)*(dx+dx'). The 1.0001 is there to avoid numerical precision problems.
+	const afloat2 &tcx = tex.coords[0];
+	const afloat2 &tcy = tex.coords[1];
+	double dr = 1.0001/2.*sqrt(2)*(p.dx + std::max(1./tcx.y, 1./tcy.y));
+	int xi  = (int)((x - dr - tcx.x) * tcx.y);	xi  = std::max(0, std::min(xi -1, (int)tex.width()));
+	int yi  = (int)((y - dr - tcy.x) * tcy.y);	yi  = std::max(0, std::min(yi -1, (int)tex.height()));
+	int xie = (int)((x + dr - tcx.x) * tcx.y); 	xie = std::max(0, std::min(xie+2, (int)tex.width()));
+	int yie = (int)((y + dr - tcy.x) * tcy.y); 	yie = std::max(0, std::min(yie+2, (int)tex.height()));
+
+	// for every distance pixel in the beam, find the minimum extinction one pixel
+	// closer. This is the worst-case scenario when bilinear interpolation
+	// during texture sampling is taken into account.
+	for(int x = xi; x != xie; x++)
+	{
+		if(x < 0 || x >= tex.width()) { continue; }
+		for(int y = yi; y != yie; y++)
+		{
+			if(y < 0 || y >= tex.width()) { continue; }
+			
+			// detect empty pixels outside our hemisphere
+			double Amax = tex(x, y, tex.depth()-1);
+			if(Amax == 0)
+			{
+				double xx = ((double)x)/tcx.y + tcx.x;
+				double yy = ((double)y)/tcy.y + tcy.x;
+				double r2 = xx*xx + yy*yy;
+				if(r2 > 2) { continue; }
+			}
+
+			for(int z = 0; z < tex.depth(); z++)
+			{
+				float &bAr = ext_beam(xidx, yidx, z);
+				int zz = z-1;
+				float Ar = zz < 0 ? 0.f : tex(x, y, zz);
+
+				bAr = std::min(bAr, Ar);
+			}
+		}
+	}
 }
 
 typedef skygenInterface *(*modelFactory_t)();
@@ -291,28 +373,8 @@ struct aux_kernel_sorter
 	}
 };
 
-int os_skygen::load_models(skygenParams &sc, const std::string &model_cfg_list, const os_clipper &clipper)
+int os_skygen::load_models(skygenParams &sc, const std::string &model_cfg_list, const std::vector<pencilBeam> &skypixels)
 {
-	// projections the pixels are bound to
-	std::vector<std::pair<double, double> > lb0;	// projection poles
-	int nproj = clipper.getProjections(lb0);
-	assert(nproj == 2);
-	for(int i=0; i != lb0.size(); i++)
-	{
-		sc.proj[i].init(lb0[i].first, lb0[i].second);
-	}
-
-	// prepare the skypixels to be processed by subsequently loaded models
-	std::vector<os_clipper::pixel> pix;
-	sc.npixels = clipper.getPixelCenters(pix);
-	std::vector<pencilBeam> skypixels(sc.npixels);
-	FOR(0, sc.npixels)
-	{
-		os_clipper::pixel &p = pix[i];
-		float coveredFraction = p.coveredArea / p.pixelArea;
-		skypixels[i] = pencilBeam(p.l, p.b, p.X, p.Y, p.projIdx, sqrt(p.pixelArea), coveredFraction);
-	}
-
 	// Load density model configurations, instantiate
 	// and configure the correct skygenHost kernels
 	std::vector<Config::filespec> models;
@@ -498,6 +560,22 @@ cuxTexture<float, 3> load_extinction_map(const std::string &fn, Radians &l0, Rad
 	fits_close_file(fptr, &status);
 	FITS_ERRCHECK("Error closing extinction map file.", status);
 
+	// sanity check the map -- extinction always has to increase in the DM direction
+	for(int x = 0; x != img.width(); x++)
+		for(int y = 0; y != img.height(); y++)
+		{
+			float Aprev = 0.;
+			for(int z = 0; z != img.depth(); z++)
+			{
+				float A = img(x, y, z);
+				if(Aprev > A)
+				{
+					MLOG(verb1) << "INVALID EXTINCTION MAP at (x,y,DM)=(" << x << "," << y << "," << z << ") : Ar=" << A << " < " << Aprev << "\n";
+				}
+				Aprev = A;
+			}
+		}
+
 	return cuxTexture<float, 3>(img, tc);
 }
 #endif
@@ -612,11 +690,13 @@ extern "C" void resample_texture(const std::string &outfn, const std::string &te
 /**
 	Load north and south extinction textures based on the configuration
 	found in econf.
+
+	Create a per-pencil-beam extinction maps for the loaded skypixels.
 */
-void os_skygen::load_extinction_maps(const std::string &econf)
+void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const skygenParams &sc, const std::string &econf)
 {
 	cuxTexture<float, 3> zeroExtinctionTex = load_constant_texture_3D(0., -2., 2., -2., 2., -2., 2.);
-	ext_south = ext_north = zeroExtinctionTex;
+	ext_south = ext_north = ext_beam = zeroExtinctionTex;
 
 	// zero extinction if extinction unspecified
 	if(econf.empty()) { return; }
@@ -678,6 +758,62 @@ void os_skygen::load_extinction_maps(const std::string &econf)
 	MLOG(verb2) << "Ext. scale factors: " << nscale << " " << sscale << "\n";
 	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "] [min, max = " << nmin << ", " << nmax << "]\n";
 	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "] [min, max = " << smin << ", " << smax << "]\n";
+
+	// prepare binned texture lookups for the pixels
+	// NOTE: assumes the extinction maps have already been loaded
+	if(!northfn.empty() && !southfn.empty())
+	{
+		ASSERT(ext_north.depth() == ext_south.depth());
+	}
+
+	// n(pencilBeams) x n(DM_pixels)
+	// We're packing this as a 3D texture, because CUDA can't take a 2D texture wider than 64k
+	// 2048 is the maximum dimension size for a 3D texture (which is why we're using it)
+	int xdim = sc.npixels / 2048;
+	if(sc.npixels % 2048) { xdim++; }
+	int ydim = std::min(sc.npixels, 2048);
+	ext_beam = cuxTexture<float, 3>(xdim, ydim, ext_north.depth(), texcoord_from_range(0, xdim, 0, xdim), texcoord_from_range(0, ydim, 0, ydim), ext_north.coords[2]);
+	
+	FOREACH(ext_beam) { *i = std::numeric_limits<float>::infinity(); }
+	FOR(0, sc.npixels)
+	{
+		pencilBeam &p = skypixels[i];
+		p.extIdx = i;
+		if(!northfn.empty())
+			find_extinction_minima(ext_beam, p, ext_north, sc.proj[0]);
+		if(!southfn.empty())
+			find_extinction_minima(ext_beam, p, ext_south, sc.proj[1]);
+
+		// some simple sanity checks
+		float bArPrev = 0.;
+		int xidx = p.extIdx / 2048;
+		int yidx = p.extIdx % 2048;
+//		std::cerr << deg(p.lon()) << " " << deg(p.lat()) << ": ";
+		for(int z = 0; z != ext_beam.depth(); z++)
+		{
+			float &bAr = ext_beam(xidx, yidx, z);
+//			std::cerr << bAr << " ";
+			assert(bArPrev <= bAr);
+			bArPrev = bAr;
+		}
+//		std::cerr << "\n";
+	}
+		
+#if 0	
+	FILE *fp = fopen("out.txt", "w");
+	//out.write((char*)&ext_binned(0, 0), ext_binned.width()*ext_binned.height()*sizeof(float));
+	for(int i = 0; i != ext_binned.height(); i++)
+	{
+		fprintf(fp, "%8d: ", i);
+		for(int j = 0; j != ext_binned.width(); j++)
+		{
+			fprintf(fp, "%.10f ", ext_binned(j, i));
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
+#endif
+
 #endif // #else !HAVE_LIBCFITSIO
 }
 
@@ -690,19 +826,20 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	// output file for sky densities
 	cfg.get(denMapPrefix, "skyCountsMapPrefix", "");
 
-	// load extinction volume maps
-	load_extinction_maps(cfg["extmaps"]);
-
 	// load sky pixelization and prepare the table for output
 	skygenParams sc;
 	float dx;
 	load_skyPixelizationConfig(dx, sc, cfg);
 
 	// load footprints and construct the clipper
-	const os_clipper &clipper = load_footprints(cfg.get("foot"), dx, pipe);
+	std::vector<pencilBeam> skypixels;
+	load_footprints(sc, skypixels, cfg.get("foot"), dx, pipe);
 
-	// load models
-	load_models(sc, cfg.get("model"), clipper);
+	// load extinction volume maps and prepare the textures
+	load_extinction_maps(skypixels, sc, cfg["extmaps"]);
+
+	// load the models
+	load_models(sc, cfg.get("model"), skypixels);
 
 	// prepare the table for output
 	t.use_column("lb");
@@ -713,6 +850,7 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 	t.use_column("XYZ");
 	t.use_column("comp");
 	t.use_column("DM");
+	t.use_column("hidden");
 
 	std::string
 		bandName = cfg.get("band"),
@@ -727,6 +865,7 @@ bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)
 
 DECLARE_TEXTURE(ext_north, float, 3, cudaReadModeElementType);
 DECLARE_TEXTURE(ext_south, float, 3, cudaReadModeElementType);
+DECLARE_TEXTURE(ext_beam, float, 3, cudaReadModeElementType);
 
 size_t os_skygen::run(otable &in, rng_t &rng)
 {
@@ -735,6 +874,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 
 	cuxTextureBinder tb_north(::ext_north, ext_north);
 	cuxTextureBinder tb_south(::ext_south, ext_south);
+	cuxTextureBinder tb_binned(::ext_beam, ext_beam);
 
 	double nstarsExpected = 0;
 	FOREACH(kernels)
@@ -790,9 +930,7 @@ size_t os_skygen::run(otable &in, rng_t &rng)
 		swatch.addTime(runtime);
 	}
 
-	double sigma = (starsGenerated - nstarsExpected) / sqrt(nstarsExpected);
-	char sigmas[50]; sprintf(sigmas, "%4.1f", sigma);
-	MLOG(verb1) << "Total sources: " << starsGenerated << " (" << sigmas << " sigma from expectation value).";
+	MLOG(verb1) << "Total : " << starsGenerated << " stars written out.\n";
 
 	return starsGenerated;
 }
@@ -865,7 +1003,7 @@ int os_clipper::getPixelCenters(std::vector<os_clipper::pixel> &pix) const
 size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	swatch.start();
-
+#if 1
 	// fetch prerequisites
 	cint_t::host_t pIdx     = in.col<int>("projIdx");
 	cfloat_t::host_t projXY = in.col<float>("projXY");
@@ -875,6 +1013,8 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	int nstars[2] = { 0, 0 };
 	for(size_t row=begin; row < end; row++)
 	{
+		if(hidden(row)) { continue; }
+
 		// clip everything outside the footprint polygon
 		int projIdx = pIdx(row);
 		nstars[projIdx]++;
@@ -882,13 +1022,6 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		Radians x, y;
  		x = projXY(row, 0);
  		y = projXY(row, 1);
-
-		// immediately reject if in the southern hemisphere (for this projection)
-		if(sqr(x) + sqr(y) > 2.)
-		{
-			hidden(row) = 1;
-			continue;
-		}
 
 		partitioned_skymap *skymap = hemispheres[projIdx].sky;
 		std::pair<int, int> XY;
@@ -903,13 +1036,32 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		gpc_vertex vtmp = { x, y };
 
 		bool infoot = in_polygon(vtmp, poly);
-		hidden(row) = !infoot;
+		if(!infoot) { hidden(row) = 1; }
 	}
 
 	DLOG(verb1) << "nstars north: " << nstars[0];
 	DLOG(verb1) << "nstars south: " << nstars[1];
-
+#endif
 	swatch.stop();
 
 	return nextlink->process(in, begin, end, rng);
+}
+
+#include "../src/gpulog/gpulog.h"
+#include "../src/gpulog/lprintf.h"
+extern gpulog::host_log hlog;
+
+extern "C" void flush_logs()
+{
+	copy(hlog, "dlog", gpulog::LOG_DEVCLEAR);
+	replay_printf(std::cerr, hlog);
+}
+
+void init_logs()
+{
+	// log memory allocation
+	int host_buffer_size, device_buffer_size;
+	host_buffer_size = device_buffer_size = 10*1024*1024;
+	hlog.alloc(host_buffer_size);
+	gpulog::alloc_device_log("dlog", device_buffer_size);
 }

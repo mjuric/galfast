@@ -45,16 +45,19 @@ KERNEL(
 	os_FeH_kernel(
 		otable_ks ks, os_FeH_data par, gpu_rng_t rng, 
 		cint_t::gpu_t comp,
+		cint_t::gpu_t hidden,
 		cfloat_t::gpu_t XYZ,
 		cfloat_t::gpu_t FeH),
 	os_FeH_kernel,
-	(ks, par, rng, comp, XYZ, FeH)
+	(ks, par, rng, comp, hidden, XYZ, FeH)
 )
 {
 	uint32_t tid = threadID();
 	rng.load(tid);
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		if(hidden(row)) { continue; }
+
 		int cmp = comp(row);
 		if(par.comp_thin.isset(cmp) || par.comp_thick.isset(cmp))
 		{

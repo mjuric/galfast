@@ -53,8 +53,9 @@ size_t os_fixedFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	//	- all stars are main sequence
 	cfloat_t &FeH   = in.col<float>("FeH");
 	cint_t  &comp   = in.col<int>("comp");
+	cint_t  &hidden = in.col<int>("hidden");
 
-	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), applyToComponents, fixedFeH, comp, FeH);
+	CALL_KERNEL(os_fixedFeH_kernel, otable_ks(begin, end), applyToComponents, fixedFeH, comp, hidden, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 

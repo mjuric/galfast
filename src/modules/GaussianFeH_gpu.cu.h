@@ -30,17 +30,19 @@ KERNEL(
 	ks, 3*4,
 	os_GaussianFeH_kernel(
 		otable_ks ks, bit_map applyToComponents, float mean, float sigma, gpu_rng_t rng,
-		cint_t::gpu_t comp,
+		cint_t::gpu_t comp, cint_t::gpu_t hidden,
 		cfloat_t::gpu_t XYZ,
 		cfloat_t::gpu_t FeH),
 	os_GaussianFeH_kernel,
-	(ks, applyToComponents, mean, sigma, rng, comp, XYZ, FeH)
+	(ks, applyToComponents, mean, sigma, rng, comp, hidden, XYZ, FeH)
 )
 {
 	uint32_t tid = threadID();
 	rng.load(tid);
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		if(hidden(row)) { continue; }
+
 		int cmp = comp(row);
 		if(!applyToComponents.isset(cmp)) { continue; }
 

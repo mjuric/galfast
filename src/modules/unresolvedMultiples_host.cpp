@@ -89,6 +89,7 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 	//	- galactocentric XYZ coordinates exist in input
 	//	- all stars are main sequence
 	cint_t   &comp  = in.col<int>("comp");
+	cint_t   &hidden = in.col<int>("hidden");
 	cfloat_t &M     = in.col<float>("absmag");
 	cfloat_t &Msys  = in.col<float>(absmagSys);
 	cint_t   &ncomp = in.col<int>(absmagSys+"Ncomp");
@@ -99,7 +100,7 @@ size_t os_unresolvedMultiples::process(otable &in, size_t begin, size_t end, rng
 			t2(::cumLF,	cumLF),
 			t3(::invCumLF,	invCumLF);
 
-		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), applyToComponents, rng, Msys.width(), M, Msys, ncomp, comp, algo);
+		CALL_KERNEL(os_unresolvedMultiples_kernel, otable_ks(begin, end), applyToComponents, rng, Msys.width(), M, Msys, ncomp, comp, hidden, algo);
 	}
 	
 	return nextlink->process(in, begin, end, rng);

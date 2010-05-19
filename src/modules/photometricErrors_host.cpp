@@ -112,6 +112,7 @@ extern "C" opipeline_stage *create_module_modelphotoerrors() { return new os_mod
 size_t os_photometricErrors::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	// mix-in gaussian error, with sigma drawn from preloaded splines
+	cint_t &hidden = in.col<int>("hidden");
 	FOREACH(columnsToTransform)
 	{
 		cfloat_t::host_t magObs  = in.col<float>(i->obsBandset);
@@ -120,6 +121,7 @@ size_t os_photometricErrors::process(otable &in, size_t begin, size_t end, rng_t
 
 		for(size_t row=begin; row <= end; row++)
 		{
+			if(hidden(row)) { continue; }
 			float mag = magTrue(row, bandIdx);
 			magObs(row, bandIdx) = mag + rng.gaussian(i->sigma(mag));
 		}

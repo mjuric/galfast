@@ -63,7 +63,7 @@ namespace Bond2010
 //
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_Bond2010_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
+	DECLARE_KERNEL(os_Bond2010_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cint_t::gpu_t hidden, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
 
 #else // #if !__CUDACC__ && !BUILD_FOR_CPU
 
@@ -166,10 +166,11 @@ namespace Bond2010
 		os_Bond2010_kernel(
 			otable_ks ks, gpu_rng_t rng, 
 			cint_t::gpu_t comp,
+			cint_t::gpu_t hidden,
 			cfloat_t::gpu_t XYZ,
 			cfloat_t::gpu_t vcyl),
 		os_Bond2010_kernel,
-		(ks, rng, comp, XYZ, vcyl)
+		(ks, rng, comp, hidden, XYZ, vcyl)
 	)
 	{
 		using namespace Bond2010;
@@ -178,6 +179,8 @@ namespace Bond2010
 		rng.load(threadID());
 		for(int row=ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			// fetch prerequisites
 			const int cmp = comp(row);
 			

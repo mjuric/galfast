@@ -34,7 +34,7 @@ struct ALIGN(16) os_photometry_data
 
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp));
+	DECLARE_KERNEL(os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp, gcint_t hidden));
 
 	// Textures with "isochrones" (note that we're assuming a
 	// single-age population here; no actual dependence on age)

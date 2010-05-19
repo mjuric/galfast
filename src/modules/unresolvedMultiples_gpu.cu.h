@@ -37,7 +37,7 @@ namespace multiplesAlgorithms
 
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, bit_map applyToComponents, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, multiplesAlgorithms::algo algo));
+	DECLARE_KERNEL(os_unresolvedMultiples_kernel(otable_ks ks, bit_map applyToComponents, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, cint_t::gpu_t hidden, multiplesAlgorithms::algo algo));
 
 #else
 
@@ -79,9 +79,9 @@ namespace multiplesAlgorithms
 
 	KERNEL(
 		ks, 3*4,
-		os_unresolvedMultiples_kernel(otable_ks ks, bit_map applyToComponents, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, multiplesAlgorithms::algo algo),
+		os_unresolvedMultiples_kernel(otable_ks ks, bit_map applyToComponents, gpu_rng_t rng, int nabsmag, cfloat_t::gpu_t M, cfloat_t::gpu_t Msys, cint_t::gpu_t ncomp, cint_t::gpu_t comp, cint_t::gpu_t hidden, multiplesAlgorithms::algo algo),
 		os_unresolvedMultiples_kernel,
-		(ks, applyToComponents, rng, nabsmag, M, Msys, ncomp, comp, algo)
+		(ks, applyToComponents, rng, nabsmag, M, Msys, ncomp, comp, hidden, algo)
 	)
 	{
 		/*
@@ -92,6 +92,8 @@ namespace multiplesAlgorithms
 		rng.load(threadID());
 		for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			int cmp = comp(row);
 			if(!applyToComponents.isset(cmp)) { continue; }
 

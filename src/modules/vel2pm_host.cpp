@@ -67,8 +67,9 @@ size_t os_vel2pm::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cfloat_t  &XYZ  = in.col<float>("XYZ");
 	cfloat_t  &vcyl = in.col<float>("vcyl");
 	cfloat_t  &pmlb = in.col<float>(output_col_name);
+	cint_t  &hidden = in.col<int>("hidden");
 
-	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl,pmlb);
+	CALL_KERNEL(os_vel2pm_kernel, otable_ks(begin, end), *this, rng, lb0, XYZ, vcyl, pmlb, hidden);
 	return nextlink->process(in, begin, end, rng);
 }
 

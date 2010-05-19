@@ -54,11 +54,12 @@ extern "C" opipeline_stage *create_module_gal2other() { return new os_gal2other(
 size_t os_gal2other::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	cdouble_t &lb   = in.col<double>("lb");
+	cint_t &hidden  = in.col<int>("hidden");
 
 	if(coordsys == EQU)
 	{
 		cdouble_t &out = in.col<double>("radec");
-		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, lb, out);
+		CALL_KERNEL(os_gal2other_kernel, otable_ks(begin, end), coordsys, hidden, lb, out);
 	}
 
 	return nextlink->process(in, begin, end, rng);

@@ -66,7 +66,7 @@ namespace kinTMIII {
 //
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
+	DECLARE_KERNEL(os_kinTMIII_kernel(otable_ks ks, gpu_rng_t rng, cint_t::gpu_t comp, cint_t::gpu_t hidden, cfloat_t::gpu_t XYZ, cfloat_t::gpu_t vcyl));
 
 #else // #if !__CUDACC__ && !BUILD_FOR_CPU
 
@@ -172,11 +172,11 @@ namespace kinTMIII
 		ks, 3*4,
 		os_kinTMIII_kernel(
 			otable_ks ks, gpu_rng_t rng, 
-			cint_t::gpu_t comp,
+			cint_t::gpu_t comp, cint_t::gpu_t hidden,
 			cfloat_t::gpu_t XYZ,
 			cfloat_t::gpu_t vcyl),
 		os_kinTMIII_kernel,
-		(ks, rng, comp, XYZ, vcyl)
+		(ks, rng, comp, hidden, XYZ, vcyl)
 	)
 	{
 		using namespace kinTMIII;
@@ -208,6 +208,8 @@ namespace kinTMIII
 		uint32_t tid = threadID();
 		for(int row=ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			// fetch prerequisites
 			const int cmp = comp(row);
 			float X = par.Rg - XYZ(row, 0);

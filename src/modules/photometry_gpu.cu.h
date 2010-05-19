@@ -86,9 +86,9 @@ unsigned int __brev(unsigned int a)
 
 KERNEL(
 	ks, 0,
-	os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp),
+	os_photometry_kernel(otable_ks ks, bit_map applyToComponents, gcfloat_t Am, gcint_t flags, gcfloat_t DM, gcfloat_t Mr, int nabsmag, gcfloat_t mags, gcfloat_t FeH, gcint_t comp, gcint_t hidden),
 	os_photometry_kernel,
-	(ks, applyToComponents, Am, flags, DM, Mr, nabsmag, mags, FeH, comp)
+	(ks, applyToComponents, Am, flags, DM, Mr, nabsmag, mags, FeH, comp, hidden)
 )
 {
 	os_photometry_data &lt = os_photometry_params;
@@ -96,6 +96,8 @@ KERNEL(
 
 	for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 	{
+		if(hidden(row)) { continue; }
+
 		// should we process this star (based on the galactic model component it belongs to)?
 		int cmp = comp(row);
 		if(!applyToComponents.isset(cmp)) { continue; }

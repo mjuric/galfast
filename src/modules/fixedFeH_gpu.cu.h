@@ -27,19 +27,21 @@
 
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, bit_map applyToComponents, float fixedFeH, cint_t::gpu_t comp, cfloat_t::gpu_t FeH));
+	DECLARE_KERNEL(os_fixedFeH_kernel(otable_ks ks, bit_map applyToComponents, float fixedFeH, cint_t::gpu_t comp, cint_t::gpu_t hidden, cfloat_t::gpu_t FeH));
 
 #else
 
 	KERNEL(
 		ks, 0,
-		os_fixedFeH_kernel(otable_ks ks, bit_map applyToComponents, float fixedFeH, cint_t::gpu_t comp, cfloat_t::gpu_t FeH),
+		os_fixedFeH_kernel(otable_ks ks, bit_map applyToComponents, float fixedFeH, cint_t::gpu_t comp, cint_t::gpu_t hidden, cfloat_t::gpu_t FeH),
 		os_fixedFeH_kernel,
-		(ks, applyToComponents, fixedFeH, comp, FeH)
+		(ks, applyToComponents, fixedFeH, comp, hidden, FeH)
 	)
 	{
 		for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			int cmp = comp(row);
 			if(!applyToComponents.isset(cmp)) { continue; }
 

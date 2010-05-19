@@ -32,7 +32,7 @@
 //
 #if !__CUDACC__ && !BUILD_FOR_CPU
 
-	DECLARE_KERNEL(os_gal2other_kernel(otable_ks ks, int coordsys, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out));
+	DECLARE_KERNEL(os_gal2other_kernel(otable_ks ks, int coordsys, cint_t::gpu_t hidden, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out));
 
 #else // #if !__CUDACC__ && !BUILD_FOR_CPU
 
@@ -61,15 +61,17 @@
 
 	KERNEL(
 		ks, 0,
-		os_gal2other_kernel(otable_ks ks, int coordsys, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out),
+		os_gal2other_kernel(otable_ks ks, int coordsys, cint_t::gpu_t hidden, cdouble_t::gpu_t lb0, cdouble_t::gpu_t out),
 		os_gal2other_kernel,
-		(ks, coordsys, lb0, out)
+		(ks, coordsys, hidden, lb0, out)
 	)
 	{
 		using namespace peyton;	// for mathematical constants
 
 		for(uint32_t row = ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			double2 lb, ret;
 
 			// convert to radians

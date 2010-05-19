@@ -49,7 +49,7 @@ public:
 extern "C" opipeline_stage *create_module_gaussianfeh() { return new os_GaussianFeH(); }	// Factory; called by opipeline_stage::create()
 
 DECLARE_KERNEL(os_GaussianFeH_kernel(otable_ks ks, bit_map applyToComponents, float mean, float sigma, gpu_rng_t rng,
-		cint_t::gpu_t comp,
+		cint_t::gpu_t comp, cint_t::gpu_t hidden,
 		cfloat_t::gpu_t XYZ,
 		cfloat_t::gpu_t FeH));
 
@@ -62,10 +62,11 @@ size_t os_GaussianFeH::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	// fetch prerequisites
 	cint_t   &comp  = in.col<int>("comp");
+	cint_t   &hidden= in.col<int>("hidden");
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &FeH   = in.col<float>("FeH");
 
-	CALL_KERNEL(os_GaussianFeH_kernel, otable_ks(begin, end), applyToComponents, mean, sigma, rng, comp, XYZ, FeH);
+	CALL_KERNEL(os_GaussianFeH_kernel, otable_ks(begin, end), applyToComponents, mean, sigma, rng, comp, hidden, XYZ, FeH);
 	return nextlink->process(in, begin, end, rng);
 }
 

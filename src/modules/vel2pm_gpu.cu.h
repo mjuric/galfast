@@ -45,7 +45,8 @@ struct os_vel2pm_data
 			cdouble_t::gpu_t lb0,
 			cfloat_t::gpu_t XYZ,
 			cfloat_t::gpu_t vcyl,
-			cfloat_t::gpu_t pmlb
+			cfloat_t::gpu_t pmlb,
+			cint_t::gpu_t hidden
 		)
 	);
 
@@ -256,14 +257,17 @@ struct os_vel2pm_data
 			cdouble_t::gpu_t lb0,
 			cfloat_t::gpu_t XYZ,
 			cfloat_t::gpu_t vcyl,
-			cfloat_t::gpu_t pmout),
+			cfloat_t::gpu_t pmout,
+			cint_t::gpu_t hidden),
 		os_vel2pm_kernel,
-		(ks, par, rng, lb0, XYZ, vcyl, pmout)
+		(ks, par, rng, lb0, XYZ, vcyl, pmout, hidden)
 	)
 	{
 
 		for(uint32_t row=ks.row_begin(); row < ks.row_end(); row++)
 		{
+			if(hidden(row)) { continue; }
+
 			// fetch prerequisites
 			// NOTE: Single precision should be sufficient here for (l,b)
 			float l = radf(lb0(row, 0));

@@ -75,6 +75,7 @@ size_t os_Bond2010::process(otable &in, size_t begin, size_t end, rng_t &rng)
 
 	// fetch prerequisites
 	cint_t   &comp  = in.col<int>("comp");
+	cint_t   &hidden= in.col<int>("hidden");
 	cfloat_t &XYZ   = in.col<float>("XYZ");
 	cfloat_t &vcyl   = in.col<float>("vcyl");
 
@@ -84,7 +85,7 @@ size_t os_Bond2010::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	cuxUploadConst("os_Bond2010_par", static_cast<os_Bond2010_data&>(*this));	// for GPU execution
 	os_Bond2010_par = static_cast<os_Bond2010_data&>(*this);			// for CPU execution
 
-	CALL_KERNEL(os_Bond2010_kernel, otable_ks(begin, end), rng, comp, XYZ, vcyl);
+	CALL_KERNEL(os_Bond2010_kernel, otable_ks(begin, end), rng, comp, hidden, XYZ, vcyl);
 	return nextlink->process(in, begin, end, rng);
 }
 

@@ -363,6 +363,7 @@ extern os_photometry_data os_photometry_params;
 size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 {
 	cint_t &comp     = in.col<int>("comp");
+	cint_t &hidden   = in.col<int>("hidden");
 	cint_t &flags    = in.col<int>(photoFlagsName);
 	cfloat_t &DM     = in.col<float>("DM");
 	cfloat_t &mags   = in.col<float>(bandset2);
@@ -387,7 +388,7 @@ size_t os_photometry::process(otable &in, size_t begin, size_t end, rng_t &rng)
 		cuxUploadConst("os_photometry_params", static_cast<os_photometry_data&>(*this));	// for GPU execution
 		os_photometry_params = static_cast<os_photometry_data&>(*this);				// for CPU execution
 
-		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), applyToComponents, Am, flags, DM, Mr, Mr.width(), mags, FeH, comp);
+		CALL_KERNEL(os_photometry_kernel, otable_ks(begin, end, -1, sizeof(float)*ncolors), applyToComponents, Am, flags, DM, Mr, Mr.width(), mags, FeH, comp, hidden);
 	}
 
 	return nextlink->process(in, begin, end, rng);

@@ -1047,8 +1047,8 @@ size_t os_clipper::process(otable &in, size_t begin, size_t end, rng_t &rng)
 	return nextlink->process(in, begin, end, rng);
 }
 
-#include "../src/gpulog/gpulog.h"
-#include "../src/gpulog/lprintf.h"
+#include "../gpulog/gpulog.h"
+#include "../gpulog/lprintf.h"
 extern gpulog::host_log hlog;
 
 extern "C" void flush_logs()

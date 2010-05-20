@@ -547,6 +547,13 @@ std::ostream& otable::serialize_header(std::ostream &out)
 		(*i)->serialize_def(out);
 		out << " ";
 	}
+
+	// serialize version information
+	if(!galfast_version.empty())
+	{
+		out << "\n# generated with galfast version " << galfast_version;
+	}
+
 	return out;
 }
 
@@ -703,8 +710,10 @@ otable::columndef &otable::use_column_by_cloning(const std::string &newColumnNam
 	return *col;
 }
 
-void otable::init()
+void otable::init(const std::string &galfast_version)
 {
+	this->galfast_version = galfast_version;
+
 	// definition of built-in classes and column defaults
 	parse(
 	"(class) default      {fmt=% 7.3f;}" 			// NOTE: This class must come be defined before any columns are ever instantiated

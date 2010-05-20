@@ -194,6 +194,7 @@ protected:
 		}
 	};
 
+	std::string galfast_version;
 public:
 	struct columndef : public kv
 	{
@@ -383,7 +384,7 @@ public:
 	struct parse_callback { virtual bool operator()(kv *kvobj) = 0; };
 	
 protected:
-	void init();
+	void init(const std::string &galfast_version);
 	kv *parse(const std::string &defs, parse_callback *cback = NULL);
 
 	void getColumnsForOutput(std::vector<const columndef*> &cols) const;	// aux helper
@@ -421,12 +422,12 @@ public:
 	}
 //	bool del_column(const std::string &name);
 
-	otable(const size_t len)
+	otable(const size_t len, const std::string &galfast_version_)
 	{
 		nrows_capacity = len;
 		nrows = 0;
 
-		init();
+		init(galfast_version_);
 	}
 
 	struct mask_functor { virtual bool shouldOutput(int row) const = 0; };

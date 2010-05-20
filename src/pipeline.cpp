@@ -20,6 +20,7 @@
 
 #include "config.h"
 
+#include "version.h"
 #include "analysis.h"
 #include "io.h"
 #include "pipeline.h"
@@ -1248,7 +1249,12 @@ void generate_catalog(int seed, size_t maxstars, size_t nstars, const std::set<C
 	if(kb) { Kbatch = (int)atof(kb.c_str()); } // atof instead of atoi to allow shorthands such as 1e5
 	if(kb) { MLOG(verb1) << "Batch size: " << Kbatch << " objects"; }
 	DLOG(verb1) << "Processing in batches of " << Kbatch << " objects";
-	otable t(Kbatch);
+
+	std::string ver;
+	EnvVar nover("NOVERSION");
+	if(!nover || atoi(nover.c_str()) == 0) { ver = VERSION_STRING; }
+	else { MLOG(verb1) << "WARNING: Not recording software version in output files."; }
+	otable t(Kbatch, ver);
 
 	// load all module config files and detect and set aside
 	// models and footprints

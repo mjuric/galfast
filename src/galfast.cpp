@@ -19,6 +19,7 @@
  ***************************************************************************/
 
 #include "config.h"
+#include "version.h"
 
 #include "gpu.h"
 #include "io.h"
@@ -45,7 +46,7 @@ int main(int argc, char **argv)
 try
 {
 	std::string argv0 = argv[0];
-	VERSION_DATETIME(version, "$Id: simulate.cpp,v 1.19 2007/04/15 12:09:52 mjuric Exp $");
+	VERSION_DATETIME(version, VERSION_STRING);
 	std::string progdesc = "galfast.x, a mock star catalog simulator.";
 
 	std::string cmd, input, output;

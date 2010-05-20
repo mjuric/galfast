@@ -1,6 +1,21 @@
 bin_PROGRAMS = galfast.x
 EXTRA_DIST = ri_prior.txt
 
+BUILT_SOURCES = version.stamp
+DISTCLEANFILES = version.h version.h.tmp
+
+## Generate a version string from git hashes
+version.stamp:
+	@ echo '#ifndef version_h__' >  version.h.tmp
+	@ echo '#define version_h__' >>  version.h.tmp
+	@ echo '#define VERSION_BASE "'`git describe`'"' >> version.h.tmp
+	@ echo '#define LINES_MODIFIED_SINCE_CHECKOUT '`git diff | wc --lines` >> version.h.tmp
+	@ echo '#define DIFF_SHA1 "'`git diff | sha1sum | cut -b 1-8`'"' >> version.h.tmp
+	@ echo 'static const char *VERSION_STRING = LINES_MODIFIED_SINCE_CHECKOUT ? VERSION_BASE "-diffsha=" DIFF_SHA1 : VERSION_BASE;' >> version.h.tmp
+	@ echo '#endif' >>  version.h.tmp
+	@ test -f version.h || touch version.h
+	@ cmp -s version.h.tmp version.h || mv version.h.tmp version.h
+
 ##--compiler-options
 ## SUFFIXES = .cu
 if HAVE_CUDA

@@ -21,10 +21,13 @@
 #ifndef cuda_cux__
 #define cuda_cux__
 
-#include <assert.h>
+#include <cassert>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <algorithm>
+
+#include <astro/assert.h>
 
 #include "cux_lowlevel.h"
 
@@ -143,7 +146,7 @@ template<typename T>
 #elif BUILD_FOR_CPU
 		memcpy(&dest, &source, size);
 #else
-		assert(0);
+		ASSERT(0);
 		//#error cuxUploadConst can be used only in .cu files, or when BUILD_FOR_CPU is defined
 #endif
 	}
@@ -243,7 +246,7 @@ template<typename T, int dim = 1, int align = 128>
 			if(!this->ptr)
 			{
 				if(dim == 1) { alloc(lastdim); }	// auto-allocation allowed only for 1D arrays (convenience)
-				else { assert(this->ptr); }
+				else { ASSERT(this->ptr); }
 			}
 
 			size_t size = memsize(lastdim);
@@ -255,7 +258,7 @@ template<typename T, int dim = 1, int align = 128>
 			if(!this->ptr)
 			{
 				if(dim == 1) { alloc(lastdim); }	// auto-allocation allowed only for 1D arrays (convenience)
-				else { assert(this->ptr); }
+				else { ASSERT(this->ptr); }
 			}
 
 			size_t size = memsize(lastdim);
@@ -269,7 +272,7 @@ template<typename T, int dim = 1, int align = 128>
 		}
 		void alloc(size_t nx, size_t ny = 1, size_t nz = 1)
 		{
-			assert(dim <= 4); // not implemented for dim > 4
+			ASSERT(dim <= 4); // not implemented for dim > 4
 
 			if(dim >  1) { this->extent[0] = roundUpModulo(nx*sizeof(T), align); }
 			if(dim >  2) { this->extent[1] = ny; }
@@ -512,22 +515,23 @@ public:
 	// host data accessors (note: use hptr<> interface if maximum speed is needed)
 	T& operator()(const uint32_t x, const uint32_t y, const uint32_t z) const	// 3D accessor (valid only if dim = 3)
 	{
-		assert(x < width());
-		assert(y < height());
-		assert(z < depth());
+		ASSERT(x < width())  { fprintf(stderr, "x=%u, width()=%u\n", x, width()); }
+		ASSERT(y < height()) { fprintf(stderr, "y=%u, height()=%u\n", y, height()); }
+		ASSERT(z < depth())  { fprintf(stderr, "z=%u, depth()=%u\n", z, depth()); }
 		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 		return (*(arrayPtr<T, 3> *)(&m_impl->m_data))(x, y, z);
 	}
 	T& operator()(const uint32_t x, const uint32_t y) const	// 2D accessor (valid only if dim >= 2)
 	{
-		assert(x < width());
-		assert(y < height());
+		ASSERT(x < width())  { fprintf(stderr, "x=%u, width()=%u\n", x, width()); }
+		ASSERT(y < height()) { fprintf(stderr, "y=%u, height()=%u\n", y, height()); }
 		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 		return (*(arrayPtr<T, 2> *)(&m_impl->m_data))(x, y);
 	}
 	T& operator()(const uint32_t x) const			// 1D accessor (valid only if dim >= 2)
 	{
-		assert(x < width());
+		ASSERT(x < width()) { fprintf(stderr, "x=%u, width()=%u\n", x, width()); }
+
 		if(m_impl->onDevice || !m_impl->m_data.ptr) { syncToHost(); }
 		return (*(arrayPtr<T, 1> *)(&m_impl->m_data))(x);
 	}
@@ -667,7 +671,7 @@ struct cuxTexture : public cuxSmartPtr<T>
 	}
 	void set(const cuxSmartPtr<T>& a, const float2 tcx, const float2 tcy)
 	{
-		assert(dim == 2);
+		ASSERT(dim == 2) { fprintf(stderr, "dim=%d\n", dim); }
 
 		*this = a;
 		coords[0] = tcx;
@@ -675,7 +679,7 @@ struct cuxTexture : public cuxSmartPtr<T>
 	}
 	void set(const cuxSmartPtr<T>& a, const float2 tcx, const float2 tcy, const float2 tcz)
 	{
-		assert(dim == 3);
+		ASSERT(dim == 3) { fprintf(stderr, "dim=%d\n", dim); }
 
 		*this = a;
 		coords[0] = tcx;
@@ -729,8 +733,6 @@ template<typename T, int dim, enum cudaTextureReadMode mode>
 	struct cuxTextureReference : public cuxTextureReferenceInterface
 	{
 	public:
-/*		cuxSmartPtr<T>	data;
-		cuxTexCoords<dim> tc;*/
 		cuxTexture<T, dim> tex;		// the texture from which we're going to sample
 		textureReference &texref;	// the CUDA texture reference to which the current texture will be bound
 		const char *tcSymbolName;	// the symbol name of the __constant__ variable that holds the texture

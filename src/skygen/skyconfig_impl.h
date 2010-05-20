@@ -465,6 +465,10 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 		generated_all = this->stars_generated < this->stopstars;
 
 		{
+			stopwatch sort_sw;
+			sort_sw.reset();
+			sort_sw.start();
+
 			//
 			// sort the generated stars by l,b,DM,M
 			//
@@ -499,15 +503,24 @@ size_t skygenHost<T>::drawSources(otable &in, osink *nextlink, float &runtime)
 				#undef SWAP
 				#undef SWAP1
 			}
+
+			// find the first star that is hidden, and truncate the table there
+			int *h0 = std::upper_bound(sc.hidden.ptr, sc.hidden.ptr + in.size(), 0);
+			size_t size = h0 - sc.hidden.ptr;
+			DLOG(verb1) << "Truncating table to " << size << " elements (others are hidden).";
+			in.set_size(size);
+
+			sort_sw.stop();
+			DLOG(verb1) << "Sort time: " << sort_sw.getTime();
 		}
 
 		DLOG(verb1) << "Skygen generated " << this->stars_generated << " stars ";
 		//DLOG(verb1) << "Kernel runtime: " << swatch.getAverageTime();
 
 		swatch.stop();
+		totalGenerated += this->stars_generated;
 		if(in.size())
 		{
-			totalGenerated += in.size();
 			totalStored += nextlink->process(in, 0, in.size(), *cpurng);
 		}
 		swatch.start();

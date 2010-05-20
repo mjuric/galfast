@@ -83,6 +83,9 @@ void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const in
 #define cuxErrCheck(expr) \
 	cuxErrCheck_impl(expr, __PRETTY_FUNCTION__, __FILE__, __LINE__)
 
+void cuxMallocErrCheck_impl(cudaError err, size_t msize, const char *fun, const char *file, const int line);
+#define cuxMallocErrCheck(expr, msize) \
+	cuxMallocErrCheck_impl(expr, msize, __PRETTY_FUNCTION__, __FILE__, __LINE__)
 
 /**
 	Compute the size, in bytes, of an aligned (strided) 1/2/3D array.
@@ -110,7 +113,7 @@ template<typename T>
 		size_t size = arrayMemSize<T>(nx, ny, nz, align);
 
 		T *devptr;
-		cuxErrCheck( cudaMalloc((void**)&devptr, size) );
+		cuxMallocErrCheck( cudaMalloc((void**)&devptr, size), size );
 		return devptr;
 	}
 

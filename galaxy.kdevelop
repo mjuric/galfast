@@ -22,7 +22,7 @@
   <kdevautoproject>
     <general>
       <activetarget>src/galfast.x</activetarget>
-      <useconfiguration>optimized</useconfiguration>
+      <useconfiguration>debug</useconfiguration>
     </general>
     <run>
       <mainprogram>/home/mjuric/projects/galaxy/debug/src/galfast.x</mainprogram>

@@ -78,7 +78,7 @@ namespace prngs
 			this->nstreams = nstreams;
 			if(on_gpu)
 			{
-				cuxErrCheck( cudaMalloc((void**)&gstate, sizeof(uint32_t)*nstreams*statewidth) );
+				gstate = cuxNew<uint32_t>(nstreams*statewidth);
 				cuxErrCheck( cudaMemcpy(gstate, states, sizeof(uint32_t)*nstreams*statewidth, cudaMemcpyHostToDevice) );
 			} else {
 				gstate = new uint32_t[nstreams*statewidth];

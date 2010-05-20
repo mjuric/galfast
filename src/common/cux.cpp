@@ -152,42 +152,68 @@ void cuxSmartPtr_impl_t::gc()
 	}
 }
 
-void *cuxSmartPtr_impl_t::syncTo(bool device)
+unsigned cuxGetFreeMem(unsigned *totalptr = NULL)
 {
-	if(onDevice != device)
+#if !CUDA_DEVEMU
+	// Memory info
+	unsigned free = 0, total = 0;
+	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
+	if(totalptr) *totalptr = total;
+	return free;
+#else
+	if(totalptr) *totalptr = 0;
+	return 0;
+#endif
+}
+
+void cuxMallocErrCheck_impl(cudaError err, size_t msize, const char *fun, const char *file, const int line)
+{
+	VERIFY(err == cudaSuccess)
 	{
-		std::swap(slave, m_data.ptr);
+		MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
+		MLOG(verb1) << "CUDA ERROR: Attempted to allocate " << msize / (1<<20) << "MB, " << cuxGetFreeMem() / (1<<20) << "MB free.";
+		MLOG(verb1) << "CUDA ERROR: In " << fun << " (" << file << ":" << line << ")\n";
+	}
+}
+
+#define GC_AND_RETRY_IF_FAIL(x, msize) \
+	{ \
+		cudaError err = (x); \
+		if(err == cudaErrorMemoryAllocation) \
+		{ \
+			global_gc(); \
+			err = (x); \
+		} \
+		cuxMallocErrCheck(err, msize); \
 	}
 
-	// Allocate m_data.ptr if needed.
-	if(!m_data.ptr)
+void *cuxSmartPtr_impl_t::syncTo(bool device)
+{
+	if(onDevice == device && m_data.ptr) { return m_data.ptr; }
+
+	// Allocate slave (future master)
+	if(!slave)
 	{
-		if(device)
+		if(device)	// syncing to GPU device
 		{
-			//cuxErrCheck( cudaMalloc((void**)&m_data.ptr, memsize()) );
-			cudaError err = cudaMalloc((void**)&m_data.ptr, memsize());
-			if(err == cudaErrorMemoryAllocation)
-			{
-				global_gc();
-				err = cudaMalloc((void**)&m_data.ptr, memsize());
-			}
-			cuxErrCheck(err);
+			GC_AND_RETRY_IF_FAIL( cudaMalloc((void**)&slave, memsize()), memsize() );
 		}
-		else
+		else		// syncing to host
 		{
-			m_data.ptr = new char[memsize()];
+			slave = new char[memsize()];
 			//memset(m_data.ptr, 0xff, memsize());	// debugging
 		}
 	}
 
-	// copy slave -> m_data.ptr (if there's something to copy)
-	if(onDevice != device && slave)
+	std::swap(m_data.ptr, slave);
+	onDevice = device;
+
+	if(slave)
 	{
-		cudaMemcpyKind dir = device ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost;
+		// copy slave -> m_data.ptr (if there's something to copy)
+		cudaMemcpyKind dir = onDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost;
 		cuxErrCheck( cudaMemcpy(m_data.ptr, slave, memsize(), dir) );
 	}
-
-	onDevice = device;
 
 	// assume the sync dirtied up the textures
 	cleanCudaArray = false;
@@ -196,17 +222,6 @@ void *cuxSmartPtr_impl_t::syncTo(bool device)
 
 	return m_data.ptr;
 }
-
-#define GC_AND_RETRY_IF_FAIL(x) \
-	{ \
-		cudaError err = (x); \
-		if(err == cudaErrorMemoryAllocation) \
-		{ \
-			global_gc(); \
-			err = (x); \
-		} \
-		cuxErrCheck(err); \
-	}
 
 cudaArray *cuxSmartPtr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 {
@@ -228,12 +243,12 @@ cudaArray *cuxSmartPtr_impl_t::getCUDAArray(cudaChannelFormatDesc &channelDesc)
 			if(ex.depth > 1)
 			{
 				// 3D arrays
-				GC_AND_RETRY_IF_FAIL( cudaMalloc3DArray(&cuArray, &channelDesc, ex) );
+				GC_AND_RETRY_IF_FAIL( cudaMalloc3DArray(&cuArray, &channelDesc, ex), memsize() );
 			}
 			else
 			{
 				// 2D and 1D arrays
-				GC_AND_RETRY_IF_FAIL( cudaMallocArray(&cuArray, &channelDesc, ex.width, ex.height) );
+				GC_AND_RETRY_IF_FAIL( cudaMallocArray(&cuArray, &channelDesc, ex.width, ex.height), memsize() );
 			}
 		}
 
@@ -654,21 +669,20 @@ const char *cpuinfo()
 
 void abort_on_cuda_error(cudaError err)
 {
-	if(err == cudaSuccess) { return; }
-
-	MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
-	//abort();
-	exit(-100);
+	VERIFY(err == cudaSuccess)
+	{
+		MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
+	}
 }
 
 void cuxErrCheck_impl(cudaError err, const char *fun, const char *file, const int line)
 {
-	if(err != cudaSuccess)
+	VERIFY(err == cudaSuccess)
 	{
+		MLOG(verb1) << "CUDA ERROR: " << cudaGetErrorString(err);
 		MLOG(verb1) << "CUDA ERROR: In " << fun << " (" << file << ":" << line << ")\n";
-		abort_on_cuda_error(err);
-//		throw cuxException(err);
 	}
+//		throw cuxException(err);
 }
 
 #if HAVE_CUDA
@@ -717,8 +731,8 @@ bool cux_init()
 #if !CUDA_DEVEMU
 	// ensure a CUDA context is created and fetch the active
 	// device id
-	void *tmp;
-	cuxErrCheck( cudaMalloc(&tmp, 1024) );
+	char *tmp;
+	tmp = cuxNew<char>(1024);
 	cuxErrCheck( cudaFree(tmp) );
 	cuxErrCheck( cudaGetDevice(&dev) );
 #endif

@@ -119,7 +119,7 @@ size_t os_photometricErrors::process(otable &in, size_t begin, size_t end, rng_t
 		cfloat_t::host_t magTrue = in.col<float>(i->trueBandset);
 		int bandIdx = i->bandIdx;
 
-		for(size_t row=begin; row <= end; row++)
+		for(size_t row=begin; row < end; row++)
 		{
 			if(hidden(row)) { continue; }
 			float mag = magTrue(row, bandIdx);

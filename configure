@@ -16,7 +16,12 @@ tee -a $CONFIGLOG <<-EOF
 	   --prefix=<prefix>		# will install the code into <prefix>
 	   --optimized			# configure the 'Release' build
 	   --debug			# configure the 'Debug' build
+	   --env=<VAR=VALUE>		# set VAR=VALUE environment variable
+	                                # before running CMAKE
+	   --with-cuda=<cuda_root>      # use CUDA toolkit from <cuda_root>
 	   --with-boost=<boost_root>	# use boost from <boost_root> directory
+	   --with-libpeyton=<lp_root>   # use libpeyton from <lp_root> directory
+	   --devemu			# target CUDA code for device emulation
 
 	If ran from the top level source directory, it will configure the build
 	directory in build/optimized/debug (depending on whether --optimized or
@@ -78,6 +83,7 @@ configlog "$@"
 
 # Quick check for CMake
 CMAKE=${CMAKE:-cmake}
+ENV=${ENV:-env}
 which $CMAKE 2>&1 > /dev/null || {
 	CML=`dirname $0`"/CMakeLists.txt"
 	xecho "No usable CMake found (tried looking for executable \`$CMAKE')"
@@ -97,7 +103,7 @@ BUILDDIR='build'
 #
 # Project-specific command-line argument parsing
 #
-TEMP=`getopt -o hp: -l help,prefix:,debug,optimized,with-boost: -- "$@"` || { xecho "Try $0 --help"; exit $?; }
+TEMP=`getopt -o hp: -l help,prefix:,debug,optimized,devemu,env:,with-cuda:,with-boost:,with-libpeyton: -- "$@"` || { xecho "Try $0 --help"; exit $?; }
 eval set -- "$TEMP"
 while true ; do
 	case "$1" in
@@ -105,6 +111,14 @@ while true ; do
 			xecho "=== configure: Setting install path to '$2'"
 			CMAKE="$CMAKE -DCMAKE_INSTALL_PREFIX='$2'"
 			shift 2 ;;
+		--env)
+			xecho "=== configure: Setting environment variable '$2'"
+			ENV="$ENV '$2'"
+			shift 2 ;;
+		--devemu)
+			xecho "=== configure: Targeting CUDA code for device emulation"
+			CMAKE="$CMAKE -DCUDA_BUILD_EMULATION=ON"
+			shift 1 ;;
 		--debug)
 			xecho "=== configure: Setting build type to 'Debug'"
 			BUILDDIR='debug'
@@ -118,6 +132,14 @@ while true ; do
 		--with-boost)
 			xecho "=== configure: Using Boost from '$2'"
 			CMAKE="$CMAKE -DBOOST_ROOT='$2'"
+			shift 2 ;;
+		--with-cuda)
+			xecho "=== configure: Using CUDA Toolkit from '$2'"
+			CMAKE="$CMAKE -DCUDA_TOOLKIT_ROOT_DIR='$2'"
+			shift 2 ;;
+		--with-libpeyton)
+			xecho "=== configure: Using libpeyton from '$2'"
+			CMAKE="$CMAKE -Dlibpeyton_ROOT='$2'"
 			shift 2 ;;
 		-h|--help)
 			usage;
@@ -154,7 +176,7 @@ test -f CMakeCache.txt && rm -f CMakeCache.txt
 
 # Run cmake
 xecho "=== Invoking CMake to configure the source"
-eval $CMAKE | tee -a $CONFIGLOG;
+eval $ENV $CMAKE | tee -a $CONFIGLOG;
 test "x${PIPESTATUS[0]}" == "x0" && {
 	if [ "$BDSET" == "1" ]; then
 		# Generate a stub makefile that will hand-off compilation to the real makefile

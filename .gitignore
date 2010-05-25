@@ -1,25 +1,26 @@
+# Files that will not show up in git status listings
+#
+*.[oa]
 *~
-*.x
-Makefile.in
-aclocal.m4
-autom4te.cache/*
-debug/*
-optimized/*
-config.h.in
-configure
-Doxyfile
-galaxy.kdevelop.pcs
-galaxy.kdevses
+# For Joe editor lovers
 DEADJOE
-config.log
-*.o
-*.a
-*.ptx
-Makefile
-.deps
-config.h
-config.status
-libtool
-stamp-h1
-*.linkinfo
+# For kdevelop
+*.pcs
+*.kdevses
+# For SM users
+.smhist
+# Executables
+*.x
+# Other stuff
+Doxyfile
 workspace/*
+# CMake build system directories/files
+/Makefile
+/optimized
+/debug
+/build
+/.cpackignore
+/.version
+/.version.fn
+/Debug
+/Release

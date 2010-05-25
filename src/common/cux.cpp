@@ -18,7 +18,7 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#include "config.h"
+#include "galfast_config.h"
 
 #include <iostream>
 #include <fstream>
@@ -70,7 +70,7 @@ cuxSmartPtr_impl_t::cuxSmartPtr_impl_t(size_t es, size_t pitch, size_t width, si
 
 	// reference counting and garbage collection
 	refcnt = 1;
-	all_cuxSmartPtrs.insert(this);
+	all_cuxSmartPtrs().insert(this);
 
 	// NOTE: storage is lazily allocated the first time this pointer
 	// is accessed through syncTo* methods
@@ -98,7 +98,7 @@ cuxSmartPtr_impl_t::~cuxSmartPtr_impl_t()
 		cuxErrCheck( cudaFree(m_data.ptr) );
 	}
 
-	all_cuxSmartPtrs.erase(this);
+	all_cuxSmartPtrs().erase(this);
 }
 
 cuxSmartPtr_impl_t::allocated_pointers::~allocated_pointers()
@@ -117,10 +117,19 @@ cuxSmartPtr_impl_t::allocated_pointers::~allocated_pointers()
 	}
 }
 
-cuxSmartPtr_impl_t::allocated_pointers cuxSmartPtr_impl_t::all_cuxSmartPtrs;
+cuxSmartPtr_impl_t::allocated_pointers &cuxSmartPtr_impl_t::all_cuxSmartPtrs()
+{
+	static allocated_pointers *ptrs = NULL;
+	if(ptrs == NULL)
+	{
+		ptrs = new allocated_pointers();
+	}
+	return *ptrs;
+}
+
 void cuxSmartPtr_impl_t::global_gc()
 {
-	FOREACH(all_cuxSmartPtrs)
+	FOREACH(all_cuxSmartPtrs())
 	{
 		(*i)->gc();
 	}

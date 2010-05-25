@@ -18,8 +18,8 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#include "config.h"
-#include "version.h"
+#include "galfast_config.h"
+#include "galfast_version.h"
 
 #include "gpu.h"
 #include "io.h"

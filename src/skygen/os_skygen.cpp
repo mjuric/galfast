@@ -18,7 +18,7 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#include "config.h"
+#include "galfast_config.h"
 
 #include "skygen.h"
 #include "analysis.h"
@@ -429,7 +429,6 @@ void os_skygen::load_skyPixelizationConfig(float &dx, skygenParams &sc, const Co
 	sc.m0 += 0.5*sc.dm;
 }
 
-#if HAVE_LIBCFITSIO
 #include "fitsio2.h"
 
 void FITS_ERRCHECK(const std::string &h, int s)
@@ -578,7 +577,6 @@ cuxTexture<float, 3> load_extinction_map(const std::string &fn, Radians &l0, Rad
 
 	return cuxTexture<float, 3>(img, tc);
 }
-#endif
 
 cuxSmartPtr<float4> resample_extinction_texture(cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], ::lambert *proj);
 void resample_and_output_texture(const std::string &outfn, cuxTexture<float, 3> &tex, float2 crange[3], int npix[3], ::lambert *proj)

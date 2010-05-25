@@ -18,9 +18,9 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#include "config.h"
+#include "galfast_config.h"
+#include "galfast_version.h"
 
-#include "version.h"
 #include "analysis.h"
 #include "io.h"
 #include "pipeline.h"
@@ -468,7 +468,7 @@ size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
 {
 	swatch.start();
 
-#if HAVE_BOOST_THREAD
+#if 1
 	// launch NCORE threads to do the binning
 	typedef boost::shared_ptr<mt_binner> mtbp_t;
 	std::vector<mtbp_t> kernels(4);
@@ -653,7 +653,6 @@ os_countsMap::~os_countsMap()
 	}
 }
 
-#if HAVE_LIBCFITSIO
 #include "fitsio2.h"
 
 // in/out ends of the chain
@@ -926,7 +925,6 @@ os_fitsout::~os_fitsout()
 		fits_close_file(fptr, &status);
 	}
 }
-#endif
 
 /////////////////////////////
 
@@ -993,9 +991,7 @@ boost::shared_ptr<opipeline_stage> opipeline_stage::create(const std::string &na
 	if(name == "textin") { s.reset(new os_textin); }
 //	else if(name == "skygen") { s.reset(new os_skygen); }
 	else if(name == "textout") { s.reset(new os_textout); }
-#if HAVE_LIBCFITSIO
 	else if(name == "fitsout") { s.reset(new os_fitsout); }
-#endif
 //	else if(name == "modelPhotoErrors") { s.reset(new os_modelPhotoErrors); }
 //	else if(name == "unresolvedMultiples") { s.reset(new os_unresolvedMultiples); }
 //	else if(name == "FeH") { s.reset(new os_FeH); }

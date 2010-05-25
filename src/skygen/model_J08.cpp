@@ -19,7 +19,7 @@
  ***************************************************************************/
 
 #if 0
-#include "config.h"
+#include "galfast_config.h"
 
 #include "model_J08.h"
 #include "skyconfig_impl.h"

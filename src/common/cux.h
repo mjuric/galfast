@@ -386,7 +386,7 @@ private:
 	{
 		~allocated_pointers();
 	};
-	static allocated_pointers all_cuxSmartPtrs;
+	static allocated_pointers &all_cuxSmartPtrs();
 	static void global_gc();
 
 private:

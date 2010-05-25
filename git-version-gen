@@ -1,0 +1,95 @@
+#!/bin/bash
+#
+# Extract version information from git, or the version file
+# if git is not available
+#
+#    Usage: git-version-gen <version.h> <.version>
+#
+# We assume annotated tags will be of the form:
+#	vMAJOR.MINOR.PATCHLEVEL
+# so git-describe will output something like:
+#	v0.9.0-4-g2e1f1b2
+# that we'll interpret as:
+#	vMAJOR.MINOR.PATCHLEVEL-REL-HASH
+#
+# The parsed version will be stored in <.version> file as a list:
+# 	MAJOR MINOR PL REL HASH DIRTYFLAG
+# If git is not available, and the info is read from .version,
+# DIRTYFLAG will be forced to 1.
+#
+# Given the above information, VERSION_STRING will be constructed
+# as follows:
+#
+#   $MAJOR.$MINOR.$PL-$REL.$HASH.dirty.$DIFFSHA
+#
+# HACK: Stores the full version string to .version.fn (for loading
+# by CMake)
+#
+
+mkdir -p `dirname $1` || exit -1
+ID=`basename $1 | md5sum | cut -f 1 -d ' '`
+
+if which git 2>&1 > /dev/null && git rev-parse --git-dir > /dev/null 2>&1; then
+	# Derive version info from git, and store it to .version
+	VERSION=`git describe`
+
+	# Parse vMAJ[.MIN][.PL][-REL[-HASH]] format -- the horrific perl script below
+	# returns a list consisting of (MAJ MIN PL REL HASH) if it succeeds to parse it, with MIN and PL set to zero if they're not present
+	VLIST=(`echo "$VERSION" | perl -e '$_=<>; ($maj,$min,$pl,$rel,$has) = ($_ =~ /^v(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(\d+)(?:-g([0-9a-f]+))?)?$/); if($maj) {$min+=0; $pl+=0}; print "$maj $min $pl $rel $has"'`)
+	if [ ${#VLIST[*]} -eq 0 ]; then
+		# Fall back to TAG-REL-HASH format
+		# We'll set the version to 0.0.0-REL-HASH
+		VLIST=(`echo "$VERSION" | perl -e '$_=<>; ($tag,$rel,$has) = ($_ =~ /^(\w+)(?:-(\d+)(?:-g([0-9a-f]+))?)?$/); print "$tag $rel $has"'`)
+		VLIST=(0 0 0 ${VLIST[1]} ${VLIST[2]})
+	fi
+
+	DIFFSHA=`git diff | sha1sum | cut -b 1-8`
+	if [ "$DIFFSHA" == "da39a3ee" ]; then  # first 8 characters of an empty string hash
+		VLIST[5]=0
+	else
+		VLIST[5]=1
+		VLIST[6]="$DIFFSHA"
+	fi
+
+	STOREVLIST=1
+else
+	# Derive version info from .version file, appending
+	# the name of the current user
+	VLIST=( `cat "$2"` )
+	# Force the dirty tag when built out-of-repo
+	VLIST[5]=1
+fi
+
+MAJ=${VLIST[0]:-0}
+MIN=${VLIST[1]:-0}
+PL=${VLIST[2]:-0}
+REL=${VLIST[3]:-0}
+HASH=${VLIST[4]:-00000000}
+DIRTY=${VLIST[5]:-1}
+
+if [ "$STOREVLIST" == "1" ]; then
+	echo -n "$MAJ $MIN $PL $REL $HASH $DIRTY" > $2
+fi
+
+# Construct version string
+VERSION="$MAJ.$MIN.$PL"
+test "x$REL" != "x" && VERSION="$VERSION-$REL"
+test "$HASH" != "00000000" && VERSION="${VERSION}.$HASH"
+test "$DIRTY" != "0" && VERSION="${VERSION}.dirty"
+test "$DIRTY" != "0" -a "x$DIFFSHA" != "x" && VERSION="${VERSION}-$DIFFSHA"
+
+echo -n "$VERSION" > $2.fn
+
+# Generate version.h
+echo "#ifndef version_h__$ID" >  $1.tmp
+echo "#define version_h__$ID" >>  $1.tmp
+echo >> $1.tmp
+echo "#define VERSION_STRING \"$VERSION\"" >> $1.tmp
+test "$DIRTY" != "0" -a "x$DIFFSHA" != "x" && echo "#define SOURCE_DIRTY \"$DIFFSHA\"" >> $1.tmp
+echo >> $1.tmp
+echo "#endif // version_h__$ID" >>  $1.tmp
+
+# Replace the old version.h with the new one, if it changed
+test -f $1 || touch $1
+cmp -s $1.tmp $1 || mv $1.tmp $1
+rm -f $1.tmp

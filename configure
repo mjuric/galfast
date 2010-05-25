@@ -1,0 +1,176 @@
+#!/bin/bash
+#
+# A configure stub for people used to that syntax
+# Do ./configure --help for usage instructions
+#
+
+usage()
+{
+tee -a $CONFIGLOG <<-EOF
+	Configure and prepare the source code for building.
+
+	Usage:
+	   $0 [flags] [CMAKE_VAR1=VALUE [CMAKE_VAR2=VALUE2 [...]]]
+
+	Available flags:
+	   --prefix=<prefix>		# will install the code into <prefix>
+	   --optimized			# configure the 'Release' build
+	   --debug			# configure the 'Debug' build
+	   --with-boost=<boost_root>	# use boost from <boost_root> directory
+
+	If ran from the top level source directory, it will configure the build
+	directory in build/optimized/debug (depending on whether --optimized or
+	--debug flags were present), as well as generate a simple Makefile to
+	allowing the user to build the code directly from the top-level directory.
+
+	Otherwise, it will configure the source in the current directory (assuming
+	it's meant to be the build directory).
+
+	This build system uses CMake. If your CMake executable is in
+	nonstandard location, you may specify it via the CMAKE environment
+	variable.
+	
+	                                   Written by Mario Juric <mjuric@ias.edu>
+
+EOF
+}
+
+xecho()
+{
+	echo "$@" | tee -a $CONFIGLOG
+}
+
+configlog()
+{
+	cat > $CONFIGLOG <<-EOF
+		This file contains any messages produced by CMake while
+		running configure, to aid debugging if configure makes a mistake.
+
+		It was created by configure, an Autoconf-like script for CMake
+		written by Mario Juric <mjuric@ias.edu>. Invocation command line
+		was:
+
+		\$ $0 $@
+
+		## --------- ##
+		## Platform. ##
+		## --------- ##
+
+		hostname = `(hostname || uname -n) 2>/dev/null | sed 1q`
+		uname -m = `(uname -m) 2>/dev/null || echo unknown`
+		uname -r = `(uname -r) 2>/dev/null || echo unknown`
+		uname -s = `(uname -s) 2>/dev/null || echo unknown`
+		uname -v = `(uname -v) 2>/dev/null || echo unknown`
+
+		/usr/bin/uname -p = `(/usr/bin/uname -p) 2>/dev/null || echo unknown`
+		/bin/uname -X     = `(/bin/uname -X) 2>/dev/null     || echo unknown`
+		
+		## ------------------ ##
+		## Configuration log. ##
+		## ------------------ ##
+
+	EOF
+}
+
+# Store invocation information
+CONFIGLOG="`pwd`/config.log"
+configlog "$@"
+
+# Quick check for CMake
+CMAKE=${CMAKE:-cmake}
+which $CMAKE 2>&1 > /dev/null || {
+	CML=`dirname $0`"/CMakeLists.txt"
+	xecho "No usable CMake found (tried looking for executable \`$CMAKE')"
+	test -f "$CML" && {
+		CMV=`grep -i cmake_minimum_required "$CML" | perl -e '$_=<>; ($v) = /^cmake_minimum_required\s*\(\s*version\s+([0-9.]+)\s*\)/i; print $v'`;
+		test "x$CMV" != "x" && xecho "CMake $CMV or greater is needed to build this code.";
+	} || {
+		xecho "CMake is needed to build this code.";
+	}
+	xecho "If your CMake executable is in nonstandard location, you may specify"
+	xecho "it via the CMAKE environment variable." 
+	exit -1;
+}
+
+BUILDDIR='build'
+
+#
+# Project-specific command-line argument parsing
+#
+TEMP=`getopt -o hp: -l help,prefix:,debug,optimized,with-boost: -- "$@"` || { xecho "Try $0 --help"; exit $?; }
+eval set -- "$TEMP"
+while true ; do
+	case "$1" in
+		-p|--prefix)
+			xecho "=== configure: Setting install path to '$2'"
+			CMAKE="$CMAKE -DCMAKE_INSTALL_PREFIX='$2'"
+			shift 2 ;;
+		--debug)
+			xecho "=== configure: Setting build type to 'Debug'"
+			BUILDDIR='debug'
+			CMAKE="$CMAKE -DCMAKE_BUILD_TYPE='Debug'"
+			shift 1 ;;
+		--optimized)
+			xecho "=== configure: Setting build type to 'Release'"
+			BUILDDIR='optimized'
+			CMAKE="$CMAKE -DCMAKE_BUILD_TYPE='Release'"
+			shift 1 ;;
+		--with-boost)
+			xecho "=== configure: Using Boost from '$2'"
+			CMAKE="$CMAKE -DBOOST_ROOT='$2'"
+			shift 2 ;;
+		-h|--help)
+			usage;
+			exit 0 ;;
+		--) shift ; break ;;
+		*) xecho "Internal error!" ; exit 1 ;;
+	esac
+done
+
+# Figure out the build dir -- if we're in the same directory as the
+# configure script, make a subdirectory based on the choice of BUILD_TYPE
+test -x ./configure && {
+	mkdir -p "$BUILDDIR" && cd "$BUILDDIR" && SOURCEDIR=".." || {
+		xecho "Error creating build directory."; exit -1;
+	}
+
+	# A flag meaning we're configuring from in-source
+	BDSET=1
+
+	xecho "=== configure: Build directory is '$BUILDDIR'"
+} || {
+	BUILDDIR="."
+	SOURCEDIR=`dirname $0`
+}
+
+# Assume all extra arguments are CMAKE variable definitions
+for arg do
+	CMAKE="$CMAKE '-D$arg'"
+done
+CMAKE="$CMAKE $SOURCEDIR"
+
+# Delete old CMakeCache.txt if it exists
+test -f CMakeCache.txt && rm -f CMakeCache.txt
+
+# Run cmake
+xecho "=== Invoking CMake to configure the source"
+eval $CMAKE | tee -a $CONFIGLOG;
+test "x${PIPESTATUS[0]}" == "x0" && {
+	if [ "$BDSET" == "1" ]; then
+		# Generate a stub makefile that will hand-off compilation to the real makefile
+		# This happens only when configure is run in-source
+		cat > ../Makefile <<EOT
+all:
+
+tidy:
+	@ rm -rf $BUILDDIR
+
+%:
+	@ test -f $BUILDDIR/Makefile || { echo "$BUILDDIR directory not configured. Run configure first." && false; }
+	@ cd $BUILDDIR && \$(MAKE) \$@
+EOT
+	fi;
+	xecho "=== configure: Source configured in directory '$BUILDDIR'. Run \`make' to compile."
+} || {
+	xecho "=== configure: Error configuring source."
+}

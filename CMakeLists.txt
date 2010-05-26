@@ -49,6 +49,12 @@ include_directories(${BZip2_INCLUDE_DIR})
 ### CUDA
 find_package(CUDA 2.3 REQUIRED)
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -arch=sm_13)
+
+if( NOT "x${GCC_ROOT}" STREQUAL "x" )
+	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} "-ccbin=${GCC_ROOT}/bin")
+	message(STATUS "Note: CUDA will use host compiler from ${GCC_ROOT}")
+endif( NOT "x${GCC_ROOT}" STREQUAL "x" )
+
 if( "x${CUDA_BUILD_EMULATION}" STREQUAL xON )
 	set(CUDA_DEVEMU 1)
 	message(STATUS "Note: Targeting CUDA code for device emulation")

@@ -18,6 +18,7 @@ tee -a $CONFIGLOG <<-EOF
 	   --debug			# configure the 'Debug' build
 	   --env=<VAR=VALUE>		# set VAR=VALUE environment variable
 	                                # before running CMAKE
+	   --with-gcc=<gcc_root>        # use gcc from <gcc_root> directory
 	   --with-cuda=<cuda_root>      # use CUDA toolkit from <cuda_root>
 	   --with-boost=<boost_root>	# use boost from <boost_root> directory
 	   --with-libpeyton=<lp_root>   # use libpeyton from <lp_root> directory
@@ -42,7 +43,12 @@ EOF
 
 xecho()
 {
-	echo "$@" | tee -a $CONFIGLOG
+	echo "== $@" | tee -a $CONFIGLOG
+}
+
+oecho()
+{
+	echo "** $@" >> $CONFIGLOG
 }
 
 configlog()
@@ -67,8 +73,9 @@ configlog()
 		uname -s = `(uname -s) 2>/dev/null || echo unknown`
 		uname -v = `(uname -v) 2>/dev/null || echo unknown`
 
-		/usr/bin/uname -p = `(/usr/bin/uname -p) 2>/dev/null || echo unknown`
-		/bin/uname -X     = `(/bin/uname -X) 2>/dev/null     || echo unknown`
+		CMAKE             = $CMAKE
+		which \$CMAKE      = `(which "$CMAKE") 2>/dev/null       || echo not found`
+		\$CMAKE --version  = `("$CMAKE" --version) 2>/dev/null       || echo not found`
 		
 		## ------------------ ##
 		## Configuration log. ##
@@ -77,13 +84,15 @@ configlog()
 	EOF
 }
 
+# Defaults
+CMAKE=${CMAKE:-cmake}
+ENV=${ENV:-env}
+
 # Store invocation information
 CONFIGLOG="`pwd`/config.log"
 configlog "$@"
 
 # Quick check for CMake
-CMAKE=${CMAKE:-cmake}
-ENV=${ENV:-env}
 which $CMAKE 2>&1 > /dev/null || {
 	CML=`dirname $0`"/CMakeLists.txt"
 	xecho "No usable CMake found (tried looking for executable \`$CMAKE')"
@@ -103,42 +112,49 @@ BUILDDIR='build'
 #
 # Project-specific command-line argument parsing
 #
-TEMP=`getopt -o hp: -l help,prefix:,debug,optimized,devemu,env:,with-cuda:,with-boost:,with-libpeyton: -- "$@"` || { xecho "Try $0 --help"; exit $?; }
+TEMP=`getopt -o hp: -l help,prefix:,debug,optimized,devemu,env:,with-gcc:,with-cuda:,with-boost:,with-libpeyton: -- "$@"` || { xecho "Try $0 --help"; exit $?; }
 eval set -- "$TEMP"
 while true ; do
 	case "$1" in
 		-p|--prefix)
-			xecho "=== configure: Setting install path to '$2'"
+			xecho "Setting install path to '$2'"
 			CMAKE="$CMAKE -DCMAKE_INSTALL_PREFIX='$2'"
 			shift 2 ;;
 		--env)
-			xecho "=== configure: Setting environment variable '$2'"
+			xecho "Setting environment variable '$2'"
 			ENV="$ENV '$2'"
 			shift 2 ;;
 		--devemu)
-			xecho "=== configure: Targeting CUDA code for device emulation"
+			xecho "Targeting CUDA code for device emulation"
 			CMAKE="$CMAKE -DCUDA_BUILD_EMULATION=ON"
 			shift 1 ;;
 		--debug)
-			xecho "=== configure: Setting build type to 'Debug'"
+			xecho "Setting build type to 'Debug'"
 			BUILDDIR='debug'
 			CMAKE="$CMAKE -DCMAKE_BUILD_TYPE='Debug'"
 			shift 1 ;;
 		--optimized)
-			xecho "=== configure: Setting build type to 'Release'"
+			xecho "Setting build type to 'Release'"
 			BUILDDIR='optimized'
 			CMAKE="$CMAKE -DCMAKE_BUILD_TYPE='Release'"
 			shift 1 ;;
 		--with-boost)
-			xecho "=== configure: Using Boost from '$2'"
+			xecho "Using Boost from '$2'"
 			CMAKE="$CMAKE -DBOOST_ROOT='$2'"
 			shift 2 ;;
 		--with-cuda)
-			xecho "=== configure: Using CUDA Toolkit from '$2'"
+			xecho "Using CUDA Toolkit from '$2'"
 			CMAKE="$CMAKE -DCUDA_TOOLKIT_ROOT_DIR='$2'"
 			shift 2 ;;
+		--with-gcc)
+			xecho "Using gcc suite from '$2'"
+			CMAKE="$CMAKE -DCMAKE_CXX_COMPILER='$2/bin/g++'"
+			CMAKE="$CMAKE -DCMAKE_C_COMPILER='$2/bin/gcc'"
+			CMAKE="$CMAKE -DGCC_ROOT='$2'"
+			ENV="$ENV LDFLAGS='-L$2/lib -L$2/lib64'"
+			shift 2 ;;
 		--with-libpeyton)
-			xecho "=== configure: Using libpeyton from '$2'"
+			xecho "Using libpeyton from '$2'"
 			CMAKE="$CMAKE -Dlibpeyton_ROOT='$2'"
 			shift 2 ;;
 		-h|--help)
@@ -159,7 +175,7 @@ test -x ./configure && {
 	# A flag meaning we're configuring from in-source
 	BDSET=1
 
-	xecho "=== configure: Build directory is '$BUILDDIR'"
+	xecho "Build directory is '$BUILDDIR'"
 } || {
 	BUILDDIR="."
 	SOURCEDIR=`dirname $0`
@@ -175,7 +191,8 @@ CMAKE="$CMAKE $SOURCEDIR"
 test -f CMakeCache.txt && rm -f CMakeCache.txt
 
 # Run cmake
-xecho "=== Invoking CMake to configure the source"
+xecho "Invoking CMake to configure the source"
+oecho "$ENV $CMAKE"
 eval $ENV $CMAKE | tee -a $CONFIGLOG;
 test "x${PIPESTATUS[0]}" == "x0" && {
 	if [ "$BDSET" == "1" ]; then
@@ -192,7 +209,7 @@ tidy:
 	@ cd $BUILDDIR && \$(MAKE) \$@
 EOT
 	fi;
-	xecho "=== configure: Source configured in directory '$BUILDDIR'. Run \`make' to compile."
+	xecho "Source configured in directory '$BUILDDIR'. Run \`make' to compile."
 } || {
-	xecho "=== configure: Error configuring source."
+	xecho "Error configuring source."
 }

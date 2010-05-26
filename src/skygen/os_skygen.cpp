@@ -699,9 +699,6 @@ void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const s
 	// zero extinction if extinction unspecified
 	if(econf.empty()) { return; }
 
-#if !HAVE_LIBCFITSIO
-	THROW(EAny, "Cannot load extinction maps; recompile with FITS I/O support.");
-#else
 	// load the extinction configuration
 	Config cfg(econf);
 	std::string northfn, southfn;
@@ -811,8 +808,6 @@ void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const s
 	}
 	fclose(fp);
 #endif
-
-#endif // #else !HAVE_LIBCFITSIO
 }
 
 bool os_skygen::construct(const Config &cfg, otable &t, opipeline &pipe)

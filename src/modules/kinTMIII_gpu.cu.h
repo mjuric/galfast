@@ -75,7 +75,7 @@ namespace kinTMIII {
 
 namespace kinTMIII 
 {
-	void __device__ trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
+	void __device__ inline trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
 	{		
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!	
 		float b10=s12;      float b11=sqrf(s22); 
@@ -105,7 +105,7 @@ namespace kinTMIII
 		return val[0] + val[1]*powf(fabs(Z), val[2]) + val[3]*powf(Rsquared, 0.5*val[4]);
 	}
 
-	__device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, farray5 ellip[6],K_IO gpu_rng_t &rng)
+	__device__ inline void add_dispersion(K_IO float v[3], float Rsquared, float Z, farray5 ellip[6],K_IO gpu_rng_t &rng)
 	{
 		// compute velocity dispersions at this position, and draw from trivariate gaussian
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
@@ -116,14 +116,14 @@ namespace kinTMIII
 		trivar_gaussK_draw(v, sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5], rng);
 	}
 
-	__device__ void compute_means(K_OUT float v[3], float Rsquared, float Z, farray5 means[3])
+	__device__ inline void compute_means(K_OUT float v[3], float Rsquared, float Z, farray5 means[3])
 	{
 		// returns means in v[3]
 		for (int i=0;i<3;i++) 	
 			v[i] = modfun(Rsquared, Z, means[i]);	
 	}
 
-	__device__ void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng,
+	__device__ inline void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng,
 				os_kinTMIII_data& par, farray5 diskMeans[3], farray5 diskEllip[6] )
 	{
 		// set up which gaussian are we drawing from
@@ -148,19 +148,19 @@ namespace kinTMIII
 		add_dispersion(v, Rsquared, Z, diskEllip, rng);
 	}
 
-	__device__ void get_halo_kinematics(K_OUT float v[3], float Rsquared, float Z, K_IO gpu_rng_t &rng, farray5 haloMeans[3], farray5 haloEllip[6])
+	__device__ inline void get_halo_kinematics(K_OUT float v[3], float Rsquared, float Z, K_IO gpu_rng_t &rng, farray5 haloMeans[3], farray5 haloEllip[6])
 	{
 		compute_means(v, Rsquared, Z, haloMeans);
 		add_dispersion(v, Rsquared, Z, haloEllip, rng);
 	}
 
-	__device__ void iarray_to_farray(farray5& fa, iarray5& ia)
+	__device__ inline void iarray_to_farray(farray5& fa, iarray5& ia)
 	{
 		for (int i=0;i<5;i++)
 			fa[i]=ia[i]/100.0f;
 	}
 
-	__device__ void i8array_to_farray(farray5& fa, i8array5& ia)
+	__device__ inline void i8array_to_farray(farray5& fa, i8array5& ia)
 	{
 		for (int i=0;i<5;i++)
 			fa[i]=ia[i]*10.0f;

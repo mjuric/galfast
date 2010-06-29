@@ -254,13 +254,11 @@ try
 	{
 		THROW(ENotImplemented, "Should not get to here. I'm really confused. Aborting.");
 	}
-	abort();
 	return 0;
 }
 catch(EAny &e)
 {
 	e.print();
-	abort();
 	return -1;
 }
 }

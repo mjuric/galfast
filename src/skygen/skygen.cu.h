@@ -196,7 +196,7 @@ cuxSmartPtr<float4> CPUGPU(resample_extinction_texture)(cuxTexture<float, 3> &te
 
 // Get the extinction at projected coordinates (X,Y), for hemisphere specified
 // by projIdx
-__device__ float sampleExtinction(int projIdx, float X, float Y, float DM)
+__device__ inline float sampleExtinction(int projIdx, float X, float Y, float DM)
 {
 	float Am;
 
@@ -228,7 +228,7 @@ __device__ float3 skygenGPU<T>::compute_pos(float &D, float &Am, float M, const 
 	return pix.xyz(D);
 }
 
-__device__ int ijToDiagIndex(int i, int j, const int x, const int y)
+__device__ inline int ijToDiagIndex(int i, int j, const int x, const int y)
 {
 	int idx;
 
@@ -254,7 +254,7 @@ __device__ int ijToDiagIndex(int i, int j, const int x, const int y)
 	Given a 'diagonal' linear index in (X,Y,M,m) space, decompose it into ilb, iM, im
 	and k indices that can be used to compute physical coordinates.
 */
-__device__ bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, const int y)
+__device__ inline bool diagIndexToIJ(int &ilb, int &i, int &j, int &k, const int x, const int y)
 {
 	int kmax = x*y;
 	if(k >= kmax)

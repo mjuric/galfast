@@ -37,7 +37,7 @@ DEFINE_TEXTURE(cflags1, float4, 2, cudaReadModeElementType, false, cudaFilterMod
 DEFINE_TEXTURE(cflags2, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 DEFINE_TEXTURE(cflags3, float4, 2, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
-__device__ uint setFlag(float f, uint cidx)
+__device__ inline uint setFlag(float f, uint cidx)
 {
 	uint flag = f != 0.f;
 	flag <<= cidx;
@@ -45,7 +45,7 @@ __device__ uint setFlag(float f, uint cidx)
 	return flag;
 }
 
-__device__ void fill(float *colors, uint &cidx, uint &flags, const float4 clr, const float4 f, const uint ncolors)
+__device__ inline void fill(float *colors, uint &cidx, uint &flags, const float4 clr, const float4 f, const uint ncolors)
 {
 	colors[cidx] = clr.x; flags |= setFlag(f.x, cidx); cidx++; if(cidx == ncolors) { return; }
 	colors[cidx] = clr.y; flags |= setFlag(f.y, cidx); cidx++; if(cidx == ncolors) { return; }
@@ -53,7 +53,7 @@ __device__ void fill(float *colors, uint &cidx, uint &flags, const float4 clr, c
 	colors[cidx] = clr.w; flags |= setFlag(f.w, cidx); cidx++; 
 }
 
-__device__ uint sampleColors(float *colors, float FeH, float Mr, uint ncolors)
+__device__ inline uint sampleColors(float *colors, float FeH, float Mr, uint ncolors)
 {
 	float4 clr;
 	float4 f;

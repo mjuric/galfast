@@ -253,7 +253,7 @@ struct ALIGN(16) runtime_state
 		this->cont(tid) = 1;
 	}
 	
-	bool continuing(int tid) const { return this->cont(tid); }
+	__device__ bool continuing(int tid) const { return this->cont(tid); }
 };
 
 //

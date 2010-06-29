@@ -45,7 +45,7 @@ namespace multiplesAlgorithms
 	DEFINE_TEXTURE(   cumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 	DEFINE_TEXTURE(invCumLF, float, 1, cudaReadModeElementType, false, cudaFilterModeLinear, cudaAddressModeClamp);
 
-	__device__ bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
+	__device__ inline bool draw_companion(float &M2, float M1, multiplesAlgorithms::algo algo, gpu_rng_t &rng)
 	{
 		// draw the probability that this star has a secondary
 		float psec, u;

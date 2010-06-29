@@ -78,7 +78,7 @@ namespace Bond2010
 		NOTE: WARNING: CAVEAT: Tensor components s11, s22, and s33 are SQUARE ROOTS
 				OF VARIANCES (sigma) and not the variances (sigma^2)!!
 	*/
-	void __device__ trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
+	void __device__ inline trivar_gaussK_draw(float y[3], float s11, float s12, float s13, float s22, float s23, float s33, gpu_rng_t &rng)
 	{		
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!	
 		float b10=s12;      float b11=sqrf(s22); 
@@ -109,7 +109,7 @@ namespace Bond2010
 		return val[0] + val[1]*powf(fabs(Z), val[2]) + val[3]*powf(Rsquared, 0.5*val[4]);
 	}
 
-	__device__ void add_dispersion(K_IO float v[3], float Rsquared, float Z, const farray5 ellip[6], K_IO gpu_rng_t &rng)
+	__device__ inline void add_dispersion(K_IO float v[3], float Rsquared, float Z, const farray5 ellip[6], K_IO gpu_rng_t &rng)
 	{
 		// compute velocity dispersions at this position, and draw from trivariate gaussian
 		// NOTE: ADDS THE RESULT TO v, DOES NOT ZERO v BEFORE !!
@@ -120,14 +120,14 @@ namespace Bond2010
 		trivar_gaussK_draw(v, sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5], rng);
 	}
 
-	__device__ void compute_means(K_OUT float v[3], float Rsquared, float Z, const farray5 means[3])
+	__device__ inline void compute_means(K_OUT float v[3], float Rsquared, float Z, const farray5 means[3])
 	{
 		// returns means in v[3]
 		for (int i=0;i<3;i++) 	
 			v[i] = modfun(Rsquared, Z, means[i]);	
 	}
 
-	__device__ void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng, const os_Bond2010_data& par)
+	__device__ inline void get_disk_kinematics(K_OUT float v[3], float Rsquared, float Z, gpu_rng_t &rng, const os_Bond2010_data& par)
 	{
 		// select the gaussian
 		float p = rng.uniform();
@@ -139,7 +139,7 @@ namespace Bond2010
 		add_dispersion(v, Rsquared, Z, disk.ss, rng);
 	}
 
-	__device__ void get_halo_kinematics(K_OUT float v[3], float Rcyl_squared, float Z, K_IO gpu_rng_t &rng, const os_Bond2010_data& par)
+	__device__ inline void get_halo_kinematics(K_OUT float v[3], float Rcyl_squared, float Z, K_IO gpu_rng_t &rng, const os_Bond2010_data& par)
 	{
 		// These are all in _SPHERICAL_ coordinate system, while the output velocity is expected in _CYLINDRICAL_ coordinates
 		// v[0,1,2] = v_r, v_theta, v_phi

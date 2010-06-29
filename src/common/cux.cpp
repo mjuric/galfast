@@ -808,7 +808,7 @@ namespace nv
 		const char *name;
 		cudaError_t err;
 
-		kernel(const char *kernel_name_, size_t nthreads_, size_t sharedMem_ = 0, cudaStream_t stream_ = -1)
+		kernel(const char *kernel_name_, size_t nthreads_, size_t sharedMem_ = 0, cudaStream_t stream_ = (cudaStream_t)(-1) )
 		: name(kernel_name_), nthreads(nthreads_), sharedMem(sharedMem_), stream(stream_)
 		{
 			int dev;

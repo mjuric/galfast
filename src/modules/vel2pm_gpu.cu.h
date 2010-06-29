@@ -59,7 +59,7 @@ struct os_vel2pm_data
 	__device__ inline float  radf(float deg) { return 0.017453292519943295769f * deg; } // convert deg to rad
 
 	/* convert cartesian to celestial coordinates */
-	__device__ void xyz2lbr(peyton::Radians &l, peyton::Radians &b, float &r, float x, float y, float z)
+	__device__ inline void xyz2lbr(peyton::Radians &l, peyton::Radians &b, float &r, float x, float y, float z)
 	{
 		using namespace peyton;	// for mathematical constants
 
@@ -70,7 +70,7 @@ struct os_vel2pm_data
 	}
 
 	/* convert celestial to cartesian coordinates */
-	__device__ void lbr2xyz(float &x, float &y, float &z, peyton::Radians l, peyton::Radians b, float r)
+	__device__ inline void lbr2xyz(float &x, float &y, float &z, peyton::Radians l, peyton::Radians b, float r)
 	{
 		x = r*cos(l)*cos(b);
 		y = r*sin(l)*cos(b);
@@ -78,7 +78,7 @@ struct os_vel2pm_data
 	}
 
 	// convert cartesian _Galactic_ (not galactocentric!!) velocities to vl,vr,vb wrt. the observer (velocity units are unimportant)
-	__device__ void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
+	__device__ inline void vel_xyz2lbr(float &vl, float &vb, float &vr, const float vx, const float vy, const float vz, const float l, const float b)
 	{
 		float cl, sl, cb, sb;
 		cl = cosf(l);
@@ -94,7 +94,7 @@ struct os_vel2pm_data
 	}
 
 	// convert vl,vr,vb velocities wrt. the observer to cartesian _Galactic_ (not galactocentric!!) velocities (velocity units are unimportant)
-	__device__ void vel_lbr2xyz(float &vx, float &vy, float &vz, const float vl, const float vb, const float vr, const float l, const float b)
+	__device__ inline void vel_lbr2xyz(float &vx, float &vy, float &vz, const float vl, const float vb, const float vr, const float l, const float b)
 	{
 		float cl, sl, cb, sb;
 		cl = cosf(l);
@@ -131,7 +131,7 @@ struct os_vel2pm_data
 		Input:		l,b in radians; vl,vb (units not important)
 		Output:		vlout, vbout in destination coordinate system
 	*/
-	__device__ void transform_pm(float &vlout, float &vbout, float l, float b, float vl, float vb,
+	__device__ inline void transform_pm(float &vlout, float &vbout, float l, float b, float vl, float vb,
 		const double ce, const double se, const double l0)
 	{
 		double cb = cos(b);
@@ -163,7 +163,7 @@ struct os_vel2pm_data
 		}
 	}
 
-	__device__ void transform_pmf(float &vlout, float &vbout, float l, float b, float vl, float vb,
+	__device__ inline void transform_pmf(float &vlout, float &vbout, float l, float b, float vl, float vb,
 		const float ce, const float se, const float l0)
 	{
 		float cb = cosf(b);
@@ -189,19 +189,19 @@ struct os_vel2pm_data
 		Input:		l,b in radians; vl,vb (units not important)
 		Output:		vra,vdec (in units of vl,vb)
 	*/
-	__device__ void pm_galequf(float &vra, float &vdec, float l, float b, float vl, float vb)
+	__device__ inline void pm_galequf(float &vra, float &vdec, float l, float b, float vl, float vb)
 	{
 		using namespace float_galequ_constants;
 		transform_pm(vra, vdec, l, b, vl, vb, ce, se, l0);
 	}
 
-	__device__ void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb)
+	__device__ inline void pm_galequ(float &vra, float &vdec, float l, float b, float vl, float vb)
 	{
 		using namespace galequ_constants;
 		transform_pm(vra, vdec, l, b, vl, vb, ce, se, l0);
 	}
 
-	__device__ void pm_equgalf(float &vl, float &vb, float ra, float dec, float vra, float vdec)
+	__device__ inline void pm_equgalf(float &vl, float &vb, float ra, float dec, float vra, float vdec)
 	{
 		using namespace float_galequ_constants;
 
@@ -209,7 +209,7 @@ struct os_vel2pm_data
 		transform_pm(vl, vb, ra, dec, vra, vdec, ce, se, angp - halfpi);
 	}
 
-	__device__ void pm_equgal(float &vl, float &vb, float ra, float dec, float vra, float vdec)
+	__device__ inline void pm_equgal(float &vl, float &vb, float ra, float dec, float vra, float vdec)
 	{
 		using namespace galequ_constants;
 		using namespace peyton;	// for mathematical constants
@@ -218,7 +218,7 @@ struct os_vel2pm_data
 		transform_pm(vl, vb, ra, dec, vra, vdec, ce, se, angp - halfpi);
 	}
 
-	__device__ float3 vcyl2pm(float l, float b, float vx, float vy, float vz, float X, float Y, float Z, os_vel2pm_data &par)
+	__device__ inline float3 vcyl2pm(float l, float b, float vx, float vy, float vz, float X, float Y, float Z, os_vel2pm_data &par)
 	{
 	#if 0
 		// These must produce (mu_l, mu_b, v_radial) = (12.72 mas/yr, -14.75 mas/yr, -27.34 km/s)

@@ -908,10 +908,10 @@ os_fitsout::~os_fitsout()
 
 			// create an additional extension with a single column exactly wide enough to store
 			// our header
-			char *ttype = "HEADER";
+			const char *ttype = "HEADER";
 			char *tform;
 			asprintf(&tform, "%dA", len);
-			fits_create_tbl(fptr, BINARY_TBL, 0, 1, &ttype, &tform, NULL, "METADATA", &status);
+			fits_create_tbl(fptr, BINARY_TBL, 0, 1, (char**)&ttype, &tform, NULL, "METADATA", &status);
 			ASSERT(status == 0) { fits_report_error(stderr, status); }
 			free(tform);
 

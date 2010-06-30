@@ -53,6 +53,8 @@ oecho()
 
 configlog()
 {
+	CONFIGLOG_FINAL="$CONFIGLOG"
+	CONFIGLOG="$CONFIGLOG.tmp"
 	cat > $CONFIGLOG <<-EOF
 		This file contains any messages produced by CMake while
 		running configure, to aid debugging if configure makes a mistake.
@@ -82,11 +84,14 @@ configlog()
 		## ------------------ ##
 
 	EOF
+	# If CONFIGLOG_FINAL is defined, move $CONFIGLOG to $CONFIGLOG_FINAL (and delete $CONFIGLOG)
+	# In case you're wondering, CONFIGLOG_FINAL becomes undefined if --help was given on the command line
+	trap "{ test \"x\$CONFIGLOG_FINAL\" != x && mv '$CONFIGLOG' '$CONFIGLOG_FINAL'; rm -f '$CONFIGLOG'; }" EXIT
 }
 
 # Defaults
 CMAKE=${CMAKE:-cmake}
-ENV=${ENV:-env}
+ENV=${env}
 
 # Store invocation information
 CONFIGLOG="`pwd`/config.log"
@@ -159,6 +164,7 @@ while true ; do
 			shift 2 ;;
 		-h|--help)
 			usage;
+			CONFIGLOG_FINAL=
 			exit 0 ;;
 		--) shift ; break ;;
 		*) xecho "Internal error!" ; exit 1 ;;

@@ -685,6 +685,11 @@ extern "C" void resample_texture(const std::string &outfn, const std::string &te
 	MLOG(verb2) << "Resampled.";
 }
 
+inline std::string prettyPrintNone(const std::string &s)
+{
+        return s.empty() ? "<none>" : s;
+}
+
 /**
 	Load north and south extinction textures based on the configuration
 	found in econf.
@@ -713,7 +718,6 @@ void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const s
 	if(northfn.empty())
 	{
 		MLOG(verb2) << "WARNING: Extinction for northern hemisphere unspecified. Assuming zero.";
-		northfn = "<none>";
 	}
 	else
 	{
@@ -730,7 +734,6 @@ void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const s
 	if(southfn.empty())
 	{
 		MLOG(verb2) << "WARNING: Extinction for southern hemisphere unspecified. Assuming zero.";
-		southfn = "<none>";
 	}
 	else
 	{
@@ -749,10 +752,10 @@ void os_skygen::load_extinction_maps(std::vector<pencilBeam> &skypixels, const s
 	FOREACH(ext_north) { *i *= nscale; nmax = std::max(nmax, *i); nmin = std::min(nmin, *i); }
 	FOREACH(ext_south) { *i *= sscale; smax = std::max(smax, *i); smin = std::min(smin, *i); }
 
-	MLOG(verb1) << "Extinction maps: " << northfn << " (north), " << southfn << " (south).";
+	MLOG(verb1) << "Extinction maps: " << prettyPrintNone(northfn) << " (north), " << prettyPrintNone(southfn) << " (south).";
 	MLOG(verb2) << "Ext. scale factors: " << nscale << " " << sscale << "\n";
-	MLOG(verb2) << "Extinction north: " << northfn << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "] [min, max = " << nmin << ", " << nmax << "]\n";
-	MLOG(verb2) << "Extinction south: " << southfn << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "] [min, max = " << smin << ", " << smax << "]\n";
+	MLOG(verb2) << "Extinction north: " << prettyPrintNone(northfn) << " [ X x Y x DM = " << ext_north.width() << " x " << ext_north.height() << " x " << ext_north.depth() << "] [min, max = " << nmin << ", " << nmax << "]\n";
+	MLOG(verb2) << "Extinction south: " << prettyPrintNone(southfn) << " [ X x Y x DM = " << ext_south.width() << " x " << ext_south.height() << " x " << ext_south.depth() << "] [min, max = " << smin << ", " << smax << "]\n";
 
 	// prepare binned texture lookups for the pixels
 	// NOTE: assumes the extinction maps have already been loaded

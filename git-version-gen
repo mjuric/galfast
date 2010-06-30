@@ -20,7 +20,7 @@
 # Given the above information, VERSION_STRING will be constructed
 # as follows:
 #
-#   $MAJOR.$MINOR.$PL-$REL.$HASH.dirty.$DIFFSHA
+#   $MAJOR.$MINOR[.$PL][-$REL][.$HASH[.dirty-$DIFFSHA]]
 #
 # HACK: Stores the full version string to .version.fn (for loading
 # by CMake)
@@ -35,7 +35,7 @@ if which git 2>&1 > /dev/null && git rev-parse --git-dir > /dev/null 2>&1; then
 
 	# Parse vMAJ[.MIN][.PL][-REL[-HASH]] format -- the horrific perl script below
 	# returns a list consisting of (MAJ MIN PL REL HASH) if it succeeds to parse it, with MIN and PL set to zero if they're not present
-	VLIST=(`echo "$VERSION" | perl -e '$_=<>; ($maj,$min,$pl,$rel,$has) = ($_ =~ /^v(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(\d+)(?:-g([0-9a-f]+))?)?$/); if($maj) {$min+=0; $pl+=0}; print "$maj $min $pl $rel $has"'`)
+	VLIST=(`echo "$VERSION" | perl -e '$_=<>; ($maj,$min,$pl,$rel,$has) = ($_ =~ /^v(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(\d+)(?:-g([0-9a-f]+))?)?$/); if("$maj" ne "") {$min+=0; $pl+=0}; print "$maj $min $pl $rel $has"'`)
 	if [ ${#VLIST[*]} -eq 0 ]; then
 		# Fall back to TAG-REL-HASH format
 		# We'll set the version to 0.0.0-REL-HASH
@@ -73,7 +73,7 @@ fi
 
 # Construct version string
 VERSION="$MAJ.$MIN.$PL"
-test "x$REL" != "x" && VERSION="$VERSION-$REL"
+test "x$REL" != "x" -a "$REL" != "0" && VERSION="$VERSION-$REL"
 test "$HASH" != "00000000" && VERSION="${VERSION}.$HASH"
 test "$DIRTY" != "0" && VERSION="${VERSION}.dirty"
 test "$DIRTY" != "0" -a "x$DIFFSHA" != "x" && VERSION="${VERSION}-$DIFFSHA"

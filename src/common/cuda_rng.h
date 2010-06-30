@@ -473,7 +473,11 @@ namespace prngs
 			// initialize CPU streams
 			if(safeprimes_file == NULL) { safeprimes_file = "safeprimes32.txt"; }
 			FILE *f = fopen(safeprimes_file, "r");
-			assert(f != NULL);
+			if(f == NULL)
+			{
+				fprintf(stderr, "Cannot open random number generator prime numbers file '%s'. Is it there?\n", safeprimes_file);
+				abort();
+			}
 			srand48(seed);
 			//printf("seed=%u\n", seed);
 			for(uint32_t i = 0; i != nstreams; i++)

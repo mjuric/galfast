@@ -5,19 +5,34 @@
 # to CPack's CPACK_IGNORE_FILES variable for ignoring while making the
 # source/binary packages, and also stored in .cpackignore file.
 #
+# If more than two command line arguments are given, the second and higher
+# arguments are taken as subdirectories (relative to the source root
+# directory) to exclude in entirety. This allows you to exclude directories
+# that are tracked in git, but you don't want in the final source
+# distribution.
+#
 # If there's no .git directory, or git is not installed, look for
 # .cpackignore file.  This may happen if we're building the source outside
 # of a git repository (or if there's no git on the system).
 #
-# Usage: git-untracked-files [dir_from_which_to_run]
+# Usage: git-untracked-files [dir_from_which_to_run] [extra_dir_to_exclude [extra_dir_to_exclude [..]]]
 #
 
-test "x$1" != "x" && cd "$1"
+test "x$1" != "x" && cd "$1" && shift
 
 { which git 2>&1 > /dev/null && test -d .git; } || { test -f .cpackignore && cat .cpackignore && exit; } || exit -1;
 
+rm -f .cpackignore
+
+EXTRAREGEX="__dummy__"
+for DIR in "$@"
+do
+	echo -n "/$DIR/;" | sed 's/\./\\\\./g' | tee -a .cpackignore
+	EXTRAREGEX="$EXTRAREGEX|$DIR"
+done
+
 echo -n '/\\.git;' | tee -a .cpackignore
-git clean -ndx | grep "Would remove" | cut -b 14- \
+git clean -ndx | grep "Would remove" | egrep -v "Would remove \"?($EXTRAREGEX)" | cut -b 14- \
 	| sed '/^.cpackignore$/d' \
 	| sed '/^.version$/d' \
 	| awk '{ print "/"$0 }' \

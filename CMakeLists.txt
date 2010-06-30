@@ -157,7 +157,7 @@ install (TARGETS galfast DESTINATION bin)
 #
 
 execute_process(
-  COMMAND "${PROJECT_SOURCE_DIR}/git-untracked-files" "${PROJECT_SOURCE_DIR}"
+  COMMAND "${PROJECT_SOURCE_DIR}/git-untracked-files" "${PROJECT_SOURCE_DIR}" "tests" "workspace"
   OUTPUT_VARIABLE CPACK_IGNORE_FILES
 )
 

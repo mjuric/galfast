@@ -568,6 +568,7 @@ bool os_countsMap::construct(const Config &cfg, otable &t, opipeline &pipe)
 	cfg.get(z0, "z0", z0);
 	cfg.get(z1, "z1", z1);
 	cfg.get(dz, "dz", dz);
+
 	tmp = (z1 - z0) / dz;
 	n_z = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp)) + 1;
 

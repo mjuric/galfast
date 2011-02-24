@@ -27,20 +27,15 @@
 #include <astro/math.h>
 
 //
-// Loads the luminosity function and computes and sets the normalization based
-// on the coordinates where the LF was sampled.
+// Loads the luminosity function as-is, with no renormalization
 //
-// LFSeparableModel concept requirements:
+// SimpleLFSeparableModel concept requirements:
 //	*) \rho(x,y,z,M) density must be separable and computed as
 //	   \rho(x,y,z) * LF(M)
 //      *) \rho(x,y,z) must exist
-//      *) A non-const member LFSeparableModel::f must exist and the
-//         output of \rho(x,y,z) must scale linearly with f. This variable
-//         will be rescaled so that \rho(x,y,z) = f_user (where f_user is
-//         the "f" value set by the user in the config file).
 //
-template<typename LFSeparableModel>
-cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg, std::string &lffile)
+template<typename SimpleLFSeparableModel>
+cuxTexture<float> load_lf_raw(SimpleLFSeparableModel &m, const peyton::system::Config &cfg, std::string &lffile)
 {
 	cuxTexture<float> lf;
 
@@ -56,7 +51,27 @@ cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg
 		lf = load_constant_texture_1D(1.f, -100., 100.);
 	}
 
-	// location where the given luminosity function was sampled --
+	return lf;
+}
+
+//
+// Loads the luminosity function and computes and sets the normalization based
+// on the coordinates where the LF was sampled.
+//
+// LFSeparableModel concept requirements:
+//	*) Inherits SimpleLFSeparableModel's requirements
+//      *) A non-const member LFSeparableModel::f must exist and the
+//         output of \rho(x,y,z) must scale linearly with f. This variable
+//         will be rescaled so that \rho(x,y,z) = f_user (where f_user is
+//         the "f" value set by the user in the config file).
+//
+template<typename LFSeparableModel>
+cuxTexture<float> load_lf(LFSeparableModel &m, const peyton::system::Config &cfg, std::string &lffile)
+{
+	// load the raw LF
+	cuxTexture<float> lf = load_lf_raw(m, cfg, lffile);
+
+	// location where the luminosity function was sampled --
 	// default is the Solar neighborhood
 	float3 lfc;
 	cfg.get(lfc.x, "lf_l", 0.f);	// Galactic longitude

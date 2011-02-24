@@ -110,6 +110,7 @@ cuda_add_executable(galfast
 
   src/skygen/model_expDisk.cpp
   src/skygen/model_powerLawEllipsoid.cpp
+  src/skygen/model_LCBulge.cpp
   src/skygen/os_skygen.cpp
   src/skygen/model_brokenPowerLaw.cpp
   src/skygen/model_densityCube.cpp

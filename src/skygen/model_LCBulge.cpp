@@ -57,7 +57,7 @@ void LCBulge::load(host_state_t &hstate, const peyton::system::Config &cfg)
 
 	//
 	if(lffile.empty()) { lffile = "-"; }
-	MLOG(verb1) << "Component " << userComp << " : " << " LCbulge {" << l << ", " << n << ", " << ca << ", " << ba << ", " << ", " << f << ", " << lffile << "}";
+	MLOG(verb1) << "Component " << userComp << " : " << " LCbulge {" << l << ", " << n << ", " << ca << ", " << ba << ", " << f << ", " << lffile << "}";
 }
 
 void LCBulge::prerun(host_state_t &hstate, bool draw)

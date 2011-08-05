@@ -295,9 +295,16 @@ class os_countsMap : public osink
 	protected:
 		flex_output out;
 		std::string xy_column, z_column;		// column names for xgitude/yitude/distance
-		float x0, n_x, dx;
-		float y0, n_y, dy;
-		float z0, n_z, dz, z_width;
+		float x0, dx;
+		float y0, dy;
+		float z0, dz;
+		int n_x, n_y, n_z,	// the number of x, y, z bins
+		    z_mag_width,	// the width of the z vector (if z is a scalar, 1)
+		    z_width;		// == z_mag_width + coadd_coeffs.size() (the number of elements in the output record)
+		int dense_output;	// whether to output all bins, or only those containing the data (boolean)
+
+		std::vector<std::vector<float> > coadd_offsets;	// coefficients used to compute coadd depths
+		std::vector<std::string>         coadd_names;   // the names of the coadds (used for headings in output)
 
 		struct beam
 		{
@@ -325,6 +332,8 @@ class os_countsMap : public osink
 			cdouble_t::host_t xy, cfloat_t::host_t z, cint_t::host_t hidden,
 			size_t from, size_t to, rng_t &rng, int startoffs, int stride) const;
 		friend class mt_binner;
+
+		void create_dense_output_array();
 	public:
 		virtual bool construct(const Config &cfg, otable &t, opipeline &pipe);
 		virtual bool runtime_init(otable &t);
@@ -338,6 +347,7 @@ class os_countsMap : public osink
 		os_countsMap() : osink()
 		{
 			m_total = 0;
+			dense_output = 0;
 			proj[0] = lambert(rad(90), rad(90));
 			proj[1] = lambert(rad(-90), rad(-90));
 		}
@@ -355,6 +365,26 @@ inline int find_bin(double x, double x0, double dx, int n)
 	b = std::min(n - 1, b);
 	return b;
 }
+
+void os_countsMap::create_dense_output_array()
+{
+	// pre-initialize the output map with zeros, when we want
+	// the output to contain them even if there's no data
+	// (requested by ZI so that he can easily add results from
+	// different simulations in SM)
+
+	countsX.clear();
+
+	beam b;
+	for(b.X = 0; b.X != n_x; b.X++)
+	{
+		for(b.Y = 0; b.Y != n_y; b.Y++)
+		{
+			// this will implicitly initialize the array to zero
+			get_z_array(countsX, b);
+		}
+	}
+}	
 
 std::vector<int> &os_countsMap::get_z_array(counts_map_t &counts, const beam &b) const
 {
@@ -418,13 +448,47 @@ size_t os_countsMap::threaded_process(counts_map_t &counts, long long &total,
 		std::vector<int> &c = get_z_array(counts, b);
 
 		// bin
-		for(int i = 0; i != z_width; i++)
+		for(int i = 0; i != z_mag_width; i++)
 		{
 			int Z = find_bin(z(row, i), z0, dz, n_z);
 			int idx = Z*z_width + i;
 			assert(idx >= 0 && idx < c.size());
 			c[idx]++;
 			total++;
+		}
+		
+		// compute coadd bins, if any
+		FORj(coadd, 0, coadd_offsets.size())
+		{
+			const std::vector<float> &coeffs = coadd_offsets[coadd];
+			assert(coeffs.size() >= z_mag_width);
+
+			// Find the maximum r-band depth to which this object is detected in _any_ band
+			float magCut = std::numeric_limits<float>::infinity();
+			for(int i = 0; i != z_mag_width; i++)
+			{
+				float mag = z(row, i) - coeffs[i];
+//				std::cerr << z(row, i) << " -> " << mag << "\n";
+				magCut = std::min(magCut, mag);
+			}
+
+			// This object is to be measured in all stacks deeper than magCut
+			int bin = find_bin(magCut, z0, dz, n_z);
+//			std::cerr << bin << " " << z0 << " " << dz << "\n";
+			for(int Z = bin; Z < n_z; Z++)
+			{
+				int idx = Z*z_width + z_mag_width + coadd;
+				assert(idx >= 0 && idx < c.size());
+				c[idx]++;
+			}
+
+			// ---
+//			std::cerr << "magCut = " << magCut << "\n";
+//			for(int i = 0; i != z_mag_width; i++)
+//			{
+//				std::cerr << z(row, i) << " ";
+//			}
+//			std::cerr << "\n";
 		}
 
 		nserialized++;
@@ -471,7 +535,7 @@ size_t os_countsMap::process(otable &t, size_t from, size_t to, rng_t &rng)
 #if 1
 	// launch NCORE threads to do the binning
 	typedef boost::shared_ptr<mt_binner> mtbp_t;
-	std::vector<mtbp_t> kernels(4);
+	std::vector<mtbp_t> kernels(boost::thread::hardware_concurrency());
 	boost::thread_group threads;
 
 	// bin in threads
@@ -514,7 +578,12 @@ bool os_countsMap::runtime_init(otable &t)
 {
 	if(!osink::runtime_init(t)) { return false; }
 
-	z_width = t.col<float>(z_column).width();
+	z_mag_width = t.col<float>(z_column).width();
+	z_width = z_mag_width + coadd_offsets.size();
+
+	if(dense_output)
+		create_dense_output_array();
+
 	return true;
 }
 
@@ -572,6 +641,43 @@ bool os_countsMap::construct(const Config &cfg, otable &t, opipeline &pipe)
 	tmp = (z1 - z0) / dz;
 	n_z = (int)(fabs(tmp - round(tmp)) < 1e-4 ? round(tmp) : ceil(tmp)) + 1;
 
+	// coadds setup
+	std::set<std::string> skeys;
+	cfg.get_matching_keys(skeys, "coadd\\..*");
+	FOREACHj(key, skeys)
+	{
+		std::vector<float> offsets;
+		std::istringstream ss(cfg[*key]);
+
+		float coeff;
+		while(ss >> coeff)
+		{
+			offsets.push_back(coeff);
+		}
+
+		coadd_names.push_back(*key);
+		coadd_offsets.push_back(offsets);
+	}
+	MLOG(verb1) << "Num. coadd columns: " << coadd_names.size() << "\n";
+
+	cfg.get(dense_output, "output all bins", dense_output);
+	if(dense_output)
+		MLOG(verb1) << "Output type: Writing out all bins (dense output)\n";
+	else
+		MLOG(verb1) << "Output type: Writing out bins with data (sparse output)\n";
+//	if(coadd_names.size())
+//	{
+//		FOR(0, coadd_names.size())
+//		{
+//			std::cerr << coadd_names[i] << ":";
+//			FOREACHj(j, coadd_offsets[i])
+//			{
+//				std::cerr << *j << " ";
+//			}
+//			std::cerr << "\n";
+//		}
+//	}
+
 	return out.out();
 }
 
@@ -592,7 +698,8 @@ os_countsMap::~os_countsMap()
 	{
 		out.out() << "# map\t" << xy_column << "[0]\t" << xy_column << "[1]\t" << z_column;
 	}
-	for(int k = 0; k != z_width; k++) { out.out() << "\tN(" << z_column << "[" << k << "])"; }
+	for(int k = 0; k != z_mag_width; k++) { out.out() << "\tN(" << z_column << "[" << k << "])"; }
+	FOREACH(coadd_names) { out.out() << "\t" << *i; }
 	if(m_equalarea)
 	{
 		out.out() << "\t" << xy_column << "[0]\t" << xy_column << "[1]";
@@ -602,7 +709,7 @@ os_countsMap::~os_countsMap()
 		out.out() << "\t" << "dA";
 	}
 	out.out() << "\n#\n";
-	
+
 	// write out the (sparse) binned array into the text output file
 	long long total = 0;
 	FOREACHj(XY, countsX)
@@ -623,14 +730,14 @@ os_countsMap::~os_countsMap()
 			{
 				hasDatum |= zbins[i+k] != 0;
 			}
-			if(!hasDatum) { continue; }
+//			if(!hasDatum) { continue; }
 
-			float z = z0 + dz * (i / z_width);
+			float z = z0 + dz * ((float)i / z_width);
 			out.out() << map << "\t" << x << "\t" << y << "\t" << z;
 			for(int k = 0; k != z_width; k++)
 			{
 				out.out() << "\t" << zbins[i+k];
-				total += zbins[i+k];
+				if(k < z_mag_width) { total += zbins[i+k]; }
 			}
 			if(m_equalarea)
 			{

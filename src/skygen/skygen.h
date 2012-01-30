@@ -96,8 +96,8 @@ struct ALIGN(16) pencilBeam : public direction
 
 	int extIdx;		// index into per-beam extinction texture
 
-	pencilBeam() {}
-	pencilBeam(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_, int extIdx_)
+	__device__ __host__ pencilBeam() {}
+	__device__ __host__ pencilBeam(Radians l_, Radians b_, float X_, float Y_, int projIdx_, float dx_, float coveredFraction_, int extIdx_)
 	: direction(l_, b_), X(X_), Y(Y_), projIdx(projIdx_), dx(dx_), dA(dx_*dx_), coveredFraction(coveredFraction_), extIdx(extIdx_)
 	{ }
 };

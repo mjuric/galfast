@@ -144,7 +144,8 @@ void cuxSmartPtr_impl_t::gc()
 	}
 	else
 	{
-		cuxErrCheck( cudaFree(slave) );
+		if(slave != NULL)
+			cuxErrCheck( cudaFree(slave) );
 	}
 	slave = NULL;
 
@@ -161,11 +162,11 @@ void cuxSmartPtr_impl_t::gc()
 	}
 }
 
-unsigned cuxGetFreeMem(unsigned *totalptr = NULL)
+size_t cuxGetFreeMem(unsigned *totalptr = NULL)
 {
 #if !CUDA_DEVEMU
 	// Memory info
-	unsigned free = 0, total = 0;
+	size_t free = 0, total = 0;
 	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
 	if(totalptr) *totalptr = total;
 	return free;
@@ -759,7 +760,7 @@ bool cux_init()
 
 #if !CUDA_DEVEMU
 	// Memory info
-	unsigned free = 0, total = 0;
+	size_t free = 0, total = 0;
 	cuxErrCheck( (cudaError)cuMemGetInfo(&free, &total) );
 	MLOG(verb2) << "Device memory (free, total): " << free / (1<<20) << "M, " << total / (1<<20) << "M";
 #endif

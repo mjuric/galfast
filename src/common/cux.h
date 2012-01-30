@@ -716,8 +716,8 @@ template<int dim>
 	struct cuxTexCoords
 	{
 		afloat2 tc[dim];
-		__host__ const float2 &operator[](int i) const { return tc[i]; }
-		__host__       float2 &operator[](int i)       { return tc[i]; }
+		__device__ __host__ const float2 &operator[](int i) const { return tc[i]; }
+		__device__ __host__       float2 &operator[](int i)       { return tc[i]; }
 	};
 
 /**

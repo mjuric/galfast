@@ -273,7 +273,7 @@ struct ALIGN(16) skygenGPU : public skygenParams
 	cuxDevicePtr<pencilBeam> pixels;	// pixels on the sky to process
 
 	cuxDevicePtr<int> nstars;
-	cuxDevicePtr<double> counts, countsCovered;
+	cuxDevicePtr<NVTYPE> counts, countsCovered;
 	gptr<float, 2> countsCoveredPerBeam;
 	ocolumns stars;
 

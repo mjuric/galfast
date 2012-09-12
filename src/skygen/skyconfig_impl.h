@@ -134,8 +134,8 @@ void skygenHost<T>::download(bool draw, int pixfrom, int pixto)
 	}
 	else
 	{
-		double *cpu_counts = new double[this->nthreads];
-		double *cpu_countsCovered = new double[this->nthreads];
+		NVTYPE *cpu_counts = new NVTYPE[this->nthreads];
+		NVTYPE *cpu_countsCovered = new NVTYPE[this->nthreads];
 		this->counts.download(cpu_counts, this->nthreads);
 		this->countsCovered.download(cpu_countsCovered, this->nthreads);
 		// sum up the total expected number of stars

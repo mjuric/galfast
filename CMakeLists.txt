@@ -50,8 +50,7 @@ include_directories(${BZip2_INCLUDE_DIR})
 find_package(CUDA 2.3 REQUIRED)
 set (CUDA_ARCH  "sm_13" 
  CACHE STRING
-    "CUDA architecture."
-    FORCE )
+    "CUDA architecture.")
 MARK_AS_ADVANCED(CUDA_ARCH)
 
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -arch=${CUDA_ARCH})

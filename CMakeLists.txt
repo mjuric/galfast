@@ -31,7 +31,7 @@ find_package(GSL REQUIRED)
 include_directories(${GSL_INCLUDE_DIR})
 
 ### Boost
-find_package(Boost REQUIRED COMPONENTS regex iostreams thread system)
+find_package(Boost REQUIRED COMPONENTS regex iostreams thread program_options system)
 include_directories(${Boost_INCLUDE_DIRS})
 
 ### CFITSIO

@@ -528,6 +528,7 @@ int otable::getSortedColumnsForOutput(std::vector<const columndef*> &outColumns)
 	field["absmag"] = ord++;
 	field["comp"] = ord++;
 	field["FeH"] = ord++;
+	field["FeH_comp"] = ord++;
 	field["vcyl"] = ord++;
 	field["pmlb"] = ord++;
 	field["pmradec"] = ord++;

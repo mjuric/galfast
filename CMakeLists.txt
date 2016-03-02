@@ -48,7 +48,12 @@ include_directories(${BZip2_INCLUDE_DIR})
 
 ### CUDA
 find_package(CUDA 2.3 REQUIRED)
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -arch=sm_13)
+set (CUDA_ARCH  "sm_13" 
+ CACHE STRING
+    "CUDA architecture.")
+MARK_AS_ADVANCED(CUDA_ARCH)
+
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} -arch=${CUDA_ARCH})
 
 if( NOT "x${GCC_ROOT}" STREQUAL "x" )
 	set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} "-ccbin=${GCC_ROOT}/bin")

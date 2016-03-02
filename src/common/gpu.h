@@ -15,6 +15,12 @@
 // Note: __CUDACC__ will never be defined when BUILD_FOR_CPU is defined
 //
 //////////////////////////////////////////////////////////////////////////
+#if __CUDA_ARCH__ > 120
+#define NVTYPE double
+#else
+#define NVTYPE float
+#endif 
+
 
 #include "cux.h"
 
